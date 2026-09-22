@@ -16,7 +16,7 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 class EmemApp extends HTMLElement{
  connectedCallback(){this.render();this.bind()}
  render(){this.innerHTML=`<div class="shell">
- <header><button class="brand" data-home>emem</button><nav><button data-view="check">check an emem</button><button data-view="about">why</button></nav></header>
+ <header><button class="brand" data-home>emem</button><nav><a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener">github</a><button data-view="check">check an emem</button><button data-view="about">why</button></nav></header>
  <main>
   <section id="home" class="home">
    <h1>The world is shared.<br>Its memory should be too.</h1>
@@ -72,8 +72,8 @@ class EmemApp extends HTMLElement{
   const details=type==="fact"
    ?[`cell · ${fact.cell||receipt.cells?.[0]||token.split(":")[2]}`,fact.band&&`band · ${fact.band}`,fact.value!==undefined&&`value · ${fact.value}${fact.unit?" "+fact.unit:""}`]
    :[members!==undefined&&`members · ${members}`,receipt.cells?.length&&`cells · ${receipt.cells.length}`];
-  out.innerHTML=`<b>resolved by emem</b><code>${esc(token)}</code><div class="facts">${details.filter(Boolean).map(x=>`<span>${esc(x)}</span>`).join("")}</div><div class="proof"><strong>${valid===true?"signature checked":receipt.sig_b32?"signed receipt returned":"object returned"}</strong><span>${valid===true?"The responder's receipt passed verification.":valid===false?"Receipt verification failed.":"No independent verification result was returned."}</span></div><div class="actions"><button id="copyToken">copy address</button></div>`;
-  $("#copyToken",this).onclick=async()=>{try{await navigator.clipboard.writeText(token);$("#copyToken",this).textContent="copied"}catch{$("#copyToken",this).textContent="copy failed"}}
+  out.innerHTML=`<b>resolved by emem</b><code>${esc(token)}</code><div class="facts">${details.filter(Boolean).map(x=>`<span>${esc(x)}</span>`).join("")}</div><div class="proof"><strong>${valid===true?"signature checked":receipt.sig_b32?"signed receipt returned":"object returned"}</strong><span>${valid===true?"The responder's receipt passed verification.":valid===false?"Receipt verification failed.":"No independent verification result was returned."}</span></div><div class="actions"><button id="copyToken">copy address</button><a id="chatToken" target="_blank" rel="noopener">use in ChatGPT</a></div>`;
+  $("#copyToken",this).onclick=async()=>{try{await navigator.clipboard.writeText(token);$("#copyToken",this).textContent="copied"}catch{$("#copyToken",this).textContent="copy failed"}};const prompt=`Resolve and verify this emem address before reasoning from it: ${token}`;$("#chatToken",this).href="https://chatgpt.com/?q="+encodeURIComponent(prompt)
  }
 }
 customElements.define("emem-app",EmemApp);
