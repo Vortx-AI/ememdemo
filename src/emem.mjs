@@ -11,7 +11,10 @@ const request=async(path,{method="GET",body}={})=>{
     return data;
   }finally{clearTimeout(timer)}
 };
-const tokenType=t=>/^emem:bundle:[a-z2-7]+$/i.test(t)?"bundle":/^emem:fact:[^:]+:[a-z2-7]+$/i.test(t)?"fact":null;
+const tokenType=t=>/^emem:bundle:sha256:[0-9a-f]{40}$/i.test(t)?"legacy":/^emem:bundle:[a-z2-7]+$/i.test(t)?"bundle":/^emem:fact:[^:]+:[a-z2-7]+$/i.test(t)?"fact":null;
+const hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
+const sha256=async b=>hex(await crypto.subtle.digest("SHA-256",b));
+const legacyDigest=async files=>{const hs=[];for(const f of files)hs.push(await sha256(await f.arrayBuffer()));hs.sort();return (await sha256(new TextEncoder().encode(hs.join(""))).slice(0,40))};
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 class EmemApp extends HTMLElement{
  connectedCallback(){this.render();this.bind()}
@@ -55,6 +58,7 @@ class EmemApp extends HTMLElement{
  async resolve(raw){
   const token=raw.trim(),type=tokenType(token),out=$("#result",this);
   if(!type){out.innerHTML="<b>not an emem address</b><p>Expected emem:fact:&lt;cell&gt;:&lt;cid&gt; or emem:bundle:&lt;cid&gt;.</p>";return}
+  if(type==="legacy"){this.showLegacy(token);return}
   out.innerHTML="<b>resolving</b><p>Asking the public responder…</p>";
   try{
    let data;
@@ -65,6 +69,11 @@ class EmemApp extends HTMLElement{
    if(receipt){try{verification=await request("/v1/verify_receipt",{method:"POST",body:{receipt}})}catch{}}
    this.showResolved(token,type,data,verification);
   }catch(e){out.innerHTML=`<b>not resolved</b><p>${esc(e.name==="AbortError"?"Responder timed out.":e.message)}</p>`}
+ }
+ showLegacy(token){
+  const out=$("#result",this),expected=token.split(":").pop();
+  out.innerHTML=`<b>legacy demo address</b><code>${esc(token)}</code><p>This old prototype address never wrote memory to emem. If you still have the original source file(s), drop them here and this browser can prove whether they produced this address.</p><label class="recover"><input id="recoverFiles" type="file" multiple><span>choose original source(s)</span></label><div id="recoverState"></div>`;
+  $("#recoverFiles",this).onchange=async e=>{const files=[...e.target.files],state=$("#recoverState",this);if(!files.length)return;state.textContent="checking locally…";try{const got=await legacyDigest(files);state.innerHTML=got===expected?"<strong>source match ✓</strong><span>These files reproduce the legacy address exactly. They can now be re-emem’d through a real attested write path.</span>":"<strong>not a match</strong><span>These files do not reproduce this legacy address.</span>"}catch(err){state.textContent="could not check: "+err.message}};
  }
  showResolved(token,type,data,verification){
   const out=$("#result",this),fact=data.fact||data.signed_fact||data,receipt=data.receipt||data.bundle?.receipt||{},valid=verification?.valid??verification?.signature_valid;
