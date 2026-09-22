@@ -1,19 +1,18 @@
 # ememdemo
 
-Experimental one-action surface for emem.
+A deliberately thin browser surface over emem.
 
-**The world is shared. Its memory should be too.**
+## Truth rules
 
-The browser prototype is intentionally dependency-free: native Web Components, CSS cascade layers, CSS math, Web Crypto and semantic HTML. It accepts files or pasted text/links and creates a local deterministic content address as a UX prototype.
+- The browser never fabricates an `emem:` token.
+- Local files are only inspected locally until a real emem write path is used.
+- Existing `emem:fact:` tokens resolve through `POST /v1/memory_token/resolve`.
+- Existing `emem:bundle:` tokens resolve through `GET /v1/memory_bundle/<token>`.
+- Returned receipts are sent to `POST /v1/verify_receipt` when present.
+- A valid signature means the signed bytes and attester verify. It does not mean a claim is objectively true.
 
-> The generated `emem:bundle:sha256:...` in this prototype is **not** a production emem protocol token or signed receipt. It exists to test the interaction before wiring the real emem ingestion/resolution APIs.
-
-## Product rule
-
-One action: **drop anything → emem it**.
-
-The human surface stays simple. Provenance, token typing, world referents, curation and verification belong underneath and are progressively disclosed.
+The hosted emem.dev memory substrate requires attestation for writes. Arbitrary browser uploads therefore do not silently become signed emem memory.
 
 ## Run
 
-Serve this directory with any static HTTP server, or GitHub Pages. No build step and no package install are required.
+Static site. No package manager, build step, framework, or server required. GitHub Pages can publish the repository root directly.
