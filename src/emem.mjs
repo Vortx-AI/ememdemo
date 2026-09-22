@@ -1,31 +1,79 @@
-const hex=b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
-const hash=async data=>hex(await crypto.subtle.digest("SHA-256",data));
-const digest=async file=>hash(await file.arrayBuffer());
-const classify=file=>{
- const n=file.name.toLowerCase(),t=file.type;
- if(t.startsWith("image/")) return /tif|tiff|jp2|geotiff/.test(n)?"earth image":"image";
- if(/pdf/.test(t+n)) return "record";
- if(/csv|json|geojson|parquet|xlsx|xls/.test(n)) return "data";
- if(/las|laz|ply|pcd/.test(n)) return "survey";
- return "source";
+const RESPONDER="https://emem.dev";
+const $=(s,r=document)=>r.querySelector(s);
+const request=async(path,{method="GET",body}={})=>{
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),15000);
+  try{
+    const init={method,signal:ctl.signal,headers:{accept:"application/json"}};
+    if(body!==undefined){init.headers["content-type"]="application/json";init.body=JSON.stringify(body)}
+    const res=await fetch(RESPONDER+path,init);
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok)throw new Error(data.message||data.error||data.code||("HTTP "+res.status));
+    return data;
+  }finally{clearTimeout(timer)}
 };
-const curator=kind=>["earth image","survey","data"].includes(kind)?"machine":"human";
-const API="https://emem.dev";
-const api=async(path,options={})=>{const r=await fetch(API+path,{...options,headers:{"content-type":"application/json",...(options.headers||{})}});const body=await r.json().catch(()=>({}));if(!r.ok)throw new Error(body.message||body.code||`HTTP ${r.status}`);return body};
-const bundleToken=v=>/^emem:bundle:[a-z2-7]+$/i.test(v);const factToken=v=>/^emem:fact:[^:]+:[a-z2-7]+$/i.test(v);
+const tokenType=t=>/^emem:bundle:[a-z2-7]+$/i.test(t)?"bundle":/^emem:fact:[^:]+:[a-z2-7]+$/i.test(t)?"fact":null;
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 class EmemApp extends HTMLElement{
-connectedCallback(){this.render();this.bind()}
-render(){this.innerHTML=`<div class="shell"><header><div class="brand">emem</div><div class="nav"><button data-mode="check">check an emem</button><button data-mode="about">why</button></div></header><main><section class="hero" id="hero"><h1 class="why">The world is shared.<br>Its memory should be too.</h1><p class="promise">External memory any AI can use and verify.</p><label class="drop" id="drop"><input id="file" type="file" multiple><div class="drop-copy"><strong>Drop anything</strong><span>or choose files · paste text or a link</span></div><div class="world-mark" aria-hidden="true"><span></span><span></span><span></span></div></label><div class="sources"><i>satellite</i><i>drone</i><i>image</i><i>PDF</i><i>record</i><i>data</i><i>text</i></div></section>
-<section class="manifest" id="manifest"><div class="status" id="status">emem'ing…</div><div class="memory-map"><div class="world-core"><b>WORLD</b><span>shared subject</span></div><svg id="traces" viewBox="0 0 600 220" preserveAspectRatio="none" aria-hidden="true"></svg><div id="artifacts" class="artifacts"></div></div><div class="token"><small>portable external memory</small><code id="token"></code><p>Send the address, not another copy.</p></div><div class="actions"><button class="primary" id="copy">Copy address</button><button id="reason">Reason with ChatGPT</button><button id="verify">Verify</button><button id="inside">See inside</button><button id="again">emem something else</button></div><div class="inside" id="insidePanel"><div><b>machine-maintained</b><span id="machineCount">0</span></div><div><b>human-maintained</b><span id="humanCount">0</span></div><div><b>agent-derived</b><span>ready</span></div><p>Sources stay distinct. Curation can grow around the same world without rewriting the original material.</p></div></section>
-<section class="check" id="check"><button class="back">← back</button><h2>Check an emem.</h2><p>Paste an emem address. This resolver talks to the live emem responder.</p><div class="checkrow"><input id="checkInput" placeholder="emem:…" autocomplete="off"><button id="checkBtn">check</button></div><output id="checkOut"></output></section>
-<section class="about" id="about"><button class="back">← back</button><h2>AI shouldn't need another copy.</h2><p>People, machines and agents can contribute memory about the same world. emem gives that memory an address other AI can resolve and verify.</p><p class="large">One world.<br>Many sources.<br>One portable memory.</p></section></main><footer><span>Drop anything. emem it.</span><span class="machine">human · machine · agent</span></footer></div>`}
-bind(){const f=this.querySelector("#file"),d=this.querySelector("#drop");f.onchange=()=>this.emem([...f.files]);["dragenter","dragover"].forEach(e=>d.addEventListener(e,x=>{x.preventDefault();d.dataset.over="true"}));["dragleave","drop"].forEach(e=>d.addEventListener(e,x=>{x.preventDefault();d.dataset.over="false"}));d.addEventListener("drop",e=>this.emem([...e.dataTransfer.files]));document.addEventListener("paste",e=>{if(!this.querySelector("#hero").hidden){const text=e.clipboardData?.getData("text");if(text)this.ememText(text)}});this.querySelector("#again").onclick=()=>this.reset();this.querySelector("#inside").onclick=()=>this.querySelector("#insidePanel").toggleAttribute("data-open");this.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>this.mode(b.dataset.mode));this.querySelectorAll(".back").forEach(b=>b.onclick=()=>this.mode("home"));this.querySelector("#checkBtn").onclick=()=>this.check()}
-async emem(files){if(!files.length)return;this.show();const items=[];for(const f of files)items.push({name:f.name,kind:classify(f),curator:curator(classify(f)),hash:await digest(f)});const bundle=await hash(new TextEncoder().encode(items.map(x=>x.hash).sort().join("")));this.finish(bundle,items)}
-async ememText(text){const raw=text.trim();if(raw.startsWith("emem:")){this.mode("check");this.querySelector("#checkInput").value=raw;return this.check()}this.show();const kind=/^https?:/i.test(raw)?"link":"text";const h=await hash(new TextEncoder().encode(raw));this.finish(h,[{name:kind==="link"?new URL(raw).hostname:"pasted text",kind,curator:"human",hash:h}])}
-show(){["hero","check","about"].forEach(id=>this.querySelector("#"+id).hidden=true);this.querySelector("#manifest").dataset.show="true";this.querySelector("#status").textContent="emem'ing…"}
-finish(hashValue,items){const t=`emem:bundle:sha256:${hashValue.slice(0,40)}`;this.querySelector("#token").textContent=t;this.querySelector("#status").textContent="emem'd ✓";this.draw(items);this.querySelector("#machineCount").textContent=items.filter(x=>x.curator==="machine").length;this.querySelector("#humanCount").textContent=items.filter(x=>x.curator==="human").length;this.querySelector("#copy").onclick=()=>navigator.clipboard?.writeText(t);this.querySelector("#reason").onclick=()=>{const p=`Resolve and verify this emem external-memory bundle before reasoning from it:\n\n${t}`;navigator.clipboard?.writeText(p);this.querySelector("#status").textContent="prompt copied · paste into ChatGPT"};this.querySelector("#verify").onclick=()=>{this.mode("check");this.querySelector("#checkInput").value=t;this.check()}}
-draw(items){const a=this.querySelector("#artifacts"),s=this.querySelector("#traces");a.innerHTML="";s.innerHTML="";const total=Math.max(items.length,1);items.slice(0,9).forEach((x,i)=>{const angle=(i/total)*Math.PI*1.65-Math.PI*.82,r=42+Math.min(total,6)*3,left=50+Math.cos(angle)*r,top=50+Math.sin(angle)*34;const el=document.createElement("div");el.className=`artifact ${x.curator}`;el.style.left=left+"%";el.style.top=top+"%";el.innerHTML=`<b>${x.kind}</b><span>${x.name}</span>`;a.append(el);const line=document.createElementNS("http://www.w3.org/2000/svg","line");line.setAttribute("x1","300");line.setAttribute("y1","110");line.setAttribute("x2",String(left*6));line.setAttribute("y2",String(top*2.2));line.dataset.curator=x.curator;s.append(line)});if(items.length>9){const el=document.createElement("div");el.className="artifact more";el.style.cssText="left:82%;top:82%";el.textContent=`+${items.length-9} more`;a.append(el)}}
-mode(m){this.querySelector("#manifest").dataset.show="false";["hero","check","about"].forEach(id=>this.querySelector("#"+id).hidden=true);this.querySelector("#"+(m==="home"?"hero":m)).hidden=false}
-async check(){const v=this.querySelector("#checkInput").value.trim(),o=this.querySelector("#checkOut");o.textContent="resolving…";try{let data;if(bundleToken(v)){data=await api("/v1/memory_bundle/"+encodeURIComponent(v));o.innerHTML=`<b>resolved · live emem</b><span>${data.members??data.citations?.length??0} signed facts · ${data.cells?.length??0} world address(es) · ${data.signed_at||data.receipt?.served_at||"signed"}</span><span>responder ${(data.responder_pubkey_b32||data.receipt?.responder_pubkey_b32||"").slice(0,18)}…</span>`;return}if(factToken(v)){const p=v.split(":"),cid=p[3];data=await api("/v1/facts/"+encodeURIComponent(cid),{headers:{accept:"application/json"}});o.innerHTML=`<b>resolved · live emem</b><span>${data.band||"signed fact"} · ${data.value??""} ${data.unit||""}</span><span>cell ${data.cell||p[2]}</span>`;return}o.innerHTML="<b>address not recognised</b><span>Expected emem:fact:&lt;cell&gt;:&lt;cid&gt; or emem:bundle:&lt;cid&gt;.</span>"}catch(e){o.innerHTML=`<b>could not resolve</b><span>${e.message}</span>`}}
-reset(){this.mode("home");this.querySelector("#file").value="";this.querySelector("#insidePanel").removeAttribute("data-open")}
-}customElements.define("emem-app",EmemApp);
+ connectedCallback(){this.render();this.bind()}
+ render(){this.innerHTML=`<div class="shell">
+ <header><button class="brand" data-home>emem</button><nav><button data-view="check">check an emem</button><button data-view="about">why</button></nav></header>
+ <main>
+  <section id="home" class="home">
+   <h1>The world is shared.<br>Its memory should be too.</h1>
+   <p>External memory another machine can resolve to the same signed bytes.</p>
+   <div class="surface">
+    <label class="drop" id="drop"><input id="file" type="file" multiple><strong>Drop something</strong><span>Inspect locally. Nothing is called emem until emem returns it.</span></label>
+    <div class="or">or</div>
+    <form id="pasteForm"><input id="paste" placeholder="Paste an emem: token" autocomplete="off"><button>resolve</button></form>
+   </div>
+   <div id="local" class="local" hidden></div>
+  </section>
+  <section id="check" class="view" hidden><button class="back" data-home>← back</button><h2>Check an emem.</h2><p>Resolve an address against the public emem responder.</p><form id="checkForm"><input id="checkInput" placeholder="emem:fact:… or emem:bundle:…" autocomplete="off"><button>resolve</button></form><div id="result" class="result" aria-live="polite"></div></section>
+  <section id="about" class="view" hidden><button class="back" data-home>← back</button><h2>One address.<br>The same bytes.</h2><p>emem addresses signed memory. Resolution recovers the underlying object. A valid signature proves who attested unchanged bytes. It does not make a claim objectively true.</p></section>
+ </main>
+ <footer><span>emem</span><span>public responder · no account required for reads</span></footer>
+ </div>`}
+ bind(){
+  this.querySelectorAll("[data-home]").forEach(x=>x.onclick=()=>this.view("home"));
+  this.querySelectorAll("[data-view]").forEach(x=>x.onclick=()=>this.view(x.dataset.view));
+  $("#checkForm",this).onsubmit=e=>{e.preventDefault();this.resolve($("#checkInput",this).value)};
+  $("#pasteForm",this).onsubmit=e=>{e.preventDefault();const v=$("#paste",this).value.trim();if(v.startsWith("emem:")){this.view("check");$("#checkInput",this).value=v;this.resolve(v)}else this.localText(v)};
+  const file=$("#file",this),drop=$("#drop",this);file.onchange=()=>this.inspect([...file.files]);
+  ["dragenter","dragover"].forEach(n=>drop.addEventListener(n,e=>{e.preventDefault();drop.dataset.over="true"}));
+  ["dragleave","drop"].forEach(n=>drop.addEventListener(n,e=>{e.preventDefault();drop.dataset.over="false"}));
+  drop.addEventListener("drop",e=>this.inspect([...e.dataTransfer.files]));
+ }
+ view(id){["home","check","about"].forEach(x=>$("#"+x,this).hidden=x!==id)}
+ inspect(files){
+  if(!files.length)return;
+  const bytes=files.reduce((n,f)=>n+f.size,0),box=$("#local",this);
+  box.hidden=false;
+  box.innerHTML=`<b>local only</b><strong>${files.length} source${files.length===1?"":"s"} · ${this.size(bytes)}</strong><p>No emem token has been created. This public node requires attestation for writes, so this browser will not fabricate one.</p><div class="filelist">${files.slice(0,6).map(f=>`<span>${esc(f.name)} <small>${this.size(f.size)}</small></span>`).join("")}</div>`;
+ }
+ localText(v){if(!v)return;const box=$("#local",this);box.hidden=false;box.innerHTML="<b>local only</b><strong>Text received</strong><p>No emem token has been created. Paste an existing emem address to resolve it.</p>"}
+ size(n){for(const u of ["B","KB","MB","GB"]){if(n<1024||u==="GB")return (n<10&&u!=="B"?n.toFixed(1):Math.round(n))+" "+u;n/=1024}}
+ async resolve(raw){
+  const token=raw.trim(),type=tokenType(token),out=$("#result",this);
+  if(!type){out.innerHTML="<b>not an emem address</b><p>Expected emem:fact:&lt;cell&gt;:&lt;cid&gt; or emem:bundle:&lt;cid&gt;.</p>";return}
+  out.innerHTML="<b>resolving</b><p>Asking the public responder…</p>";
+  try{
+   let data;
+   if(type==="fact")data=await request("/v1/memory_token/resolve",{method:"POST",body:{token}});
+   else data=await request("/v1/memory_bundle/"+encodeURIComponent(token));
+   const receipt=data.receipt||data.bundle?.receipt||null;
+   let verification=null;
+   if(receipt){try{verification=await request("/v1/verify_receipt",{method:"POST",body:{receipt}})}catch{}}
+   this.showResolved(token,type,data,verification);
+  }catch(e){out.innerHTML=`<b>not resolved</b><p>${esc(e.name==="AbortError"?"Responder timed out.":e.message)}</p>`}
+ }
+ showResolved(token,type,data,verification){
+  const out=$("#result",this),fact=data.fact||data.signed_fact||data,receipt=data.receipt||data.bundle?.receipt||{},valid=verification?.valid??verification?.signature_valid;
+  const members=data.members?.length??data.facts?.length??data.citations?.length;
+  const details=type==="fact"
+   ?[`cell · ${fact.cell||receipt.cells?.[0]||token.split(":")[2]}`,fact.band&&`band · ${fact.band}`,fact.value!==undefined&&`value · ${fact.value}${fact.unit?" "+fact.unit:""}`]
+   :[members!==undefined&&`members · ${members}`,receipt.cells?.length&&`cells · ${receipt.cells.length}`];
+  out.innerHTML=`<b>resolved by emem</b><code>${esc(token)}</code><div class="facts">${details.filter(Boolean).map(x=>`<span>${esc(x)}</span>`).join("")}</div><div class="proof"><strong>${valid===true?"signature checked":receipt.sig_b32?"signed receipt returned":"object returned"}</strong><span>${valid===true?"The responder's receipt passed verification.":valid===false?"Receipt verification failed.":"No independent verification result was returned."}</span></div><div class="actions"><button id="copyToken">copy address</button></div>`;
+  $("#copyToken",this).onclick=async()=>{try{await navigator.clipboard.writeText(token);$("#copyToken",this).textContent="copied"}catch{$("#copyToken",this).textContent="copy failed"}}
+ }
+}
+customElements.define("emem-app",EmemApp);
