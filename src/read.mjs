@@ -13,8 +13,10 @@ const READER="https://r.jina.ai/";
 import {net} from "./emem.mjs";
 
 // ---------- plumbing ----------
+// a sealed page loads third-party readers only after checking their bytes against the seal; unsealed, it loads them as they are
+const pin=u=>globalThis.__seal?.lib?.(u)??u;
 const loaded={};
-const script=(src,global)=>loaded[src]??=new Promise((ok,no)=>{const s=document.createElement("script");s.src=src;s.onload=()=>ok(window[global]);s.onerror=()=>no(new Error("Could not load a reader from cdn.jsdelivr.net. Check your connection."));document.head.append(s)});
+const script=(src,global)=>loaded[src]??=new Promise(async(ok,no)=>{const s=document.createElement("script");try{s.src=await pin(src)}catch(e){return no(e)}s.onload=()=>ok(window[global]);s.onerror=()=>no(new Error("Could not load a reader from cdn.jsdelivr.net. Check your connection."));document.head.append(s)});
 export const ext=n=>(n.match(/\.([a-z0-9]+)$/i)?.[1]||"").toLowerCase();
 const one=s=>String(s??"").replace(/\s+/g," ").trim();
 const tidy=s=>s.replace(/\r\n?/g,"\n").replace(/\u00a0/g," ").replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim();
@@ -74,7 +76,7 @@ const htmlMd=html=>{
 };
 
 // ---------- PDF ----------
-const pdfLib=async()=>{const pdf=await import(LIB.pdf);pdf.GlobalWorkerOptions.workerPort??=new Worker(URL.createObjectURL(new Blob([`import "${LIB.pdfWorker}";`],{type:"text/javascript"})),{type:"module"});return pdf};
+const pdfLib=async()=>{const pdf=await import(await pin(LIB.pdf));pdf.GlobalWorkerOptions.workerPort??=new Worker(URL.createObjectURL(new Blob([`import "${await pin(LIB.pdfWorker)}";`],{type:"text/javascript"})),{type:"module"});return pdf};
 
 // the PDF's own bookmarks are the most reliable headings; a single wrapper root is unwrapped
 const outlineMarks=async doc=>{
@@ -136,7 +138,7 @@ const pdfDoc=async(buf,name,tick)=>{
 
 // ---------- OCR: images and scans ----------
 let OCR;
-const ocr=()=>OCR??=import(LIB.ocr).then(T=>(T.createWorker||T.default.createWorker)("eng",1,{
+const ocr=()=>OCR??=Promise.resolve(pin(LIB.ocr)).then(u=>import(u)).then(T=>(T.createWorker||T.default.createWorker)("eng",1,{
  workerPath:NPM+"tesseract.js@5.1.1/dist/worker.min.js",corePath:NPM+"tesseract.js-core@5.1.1",langPath:NPM+"@tesseract.js-data/eng@1.0.0/4.0.0_best_int"}));
 const ocrPdf=async(doc,name,tick)=>{
  tick("loading text recognition (7 MB, first time only)");

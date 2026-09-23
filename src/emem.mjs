@@ -1,5 +1,7 @@
 // emem.mjs: the wire. Names, keys, signatures, writes, reads, and proof, against emem.dev.
-import {blake3} from "https://cdn.jsdelivr.net/npm/@noble/hashes@1.8.0/blake3.js/+esm";
+// blake3 and ed25519 come from emem's own verifier, vendored in this repo and sealed with the site: no third-party crypto at runtime
+import "./vendor/emem-verify-core.js";
+const blake3=globalThis.ememCrypto.blake3;
 
 export const EMEM="https://emem.dev";
 const WRITE=EMEM+"/a2a/tasks"; // /mcp refuses browser origins; /a2a runs the same tools and does not
@@ -84,7 +86,7 @@ export const readVia=r=>r.token?r.via:{
 
 // ---------- proof: emem's own verifier, vendored; the expected signer is pinned in emem.eio ----------
 let VERIFY;
-const verifier=()=>VERIFY??=import("./vendor/emem-verify-core.js").then(()=>{const v=globalThis.ememVerify;if(!v?.selfTest())throw new Error("the verifier failed its self-test; nothing is reported as checked");return v});
+const verifier=()=>VERIFY??=Promise.resolve().then(()=>{const v=globalThis.ememVerify;if(!v?.selfTest())throw new Error("the verifier failed its self-test; nothing is reported as checked");return v});
 const receiptOk=async(receipt,signer)=>{if(!receipt)return false;const v=(await verifier()).verifyReceipt(receipt);return v.ok&&v.signer_b32===signer};
 const unhex=h=>Uint8Array.from(h.match(/../g)||[],x=>parseInt(x,16));
 const b32full=u=>b32(u);
@@ -188,7 +190,10 @@ const byName=async(cid,S,tick)=>{
  await verifier();const{blake3:b3,ed,b32decode,hex}=globalThis.ememVerifyInternals,bytes=U(n.content),full=b3(bytes);
  const same=b32full(full.slice(0,16))===cid&&(!n.authorship||hex(full)===n.authorship.body_hash_hex);
  let author=null;
- if(n.authorship?.sig_b32){try{const a=n.authorship,pre=new Uint8Array([...U(`emem.memory_write|${a.verb}|${a.signed_path}|`),...full]);author=ed.verify(b32decode(a.sig_b32),b3(pre),b32decode(a.attester_pubkey_b32))}catch{author=false}}
+ // emem accepts two signing formats (v1, and v2 which also binds the prior version); its authorship block always describes v1, so try both
+ if(n.authorship?.sig_b32){try{const a=n.authorship,sig=b32decode(a.sig_b32),key=b32decode(a.attester_pubkey_b32);
+  const v1=new Uint8Array([...U(`emem.memory_write|${a.verb}|${a.signed_path}|`),...full]),v2=new Uint8Array([...U(`emem.memory_write.v2|${a.verb}|${a.signed_path}|`),...full,...U("|absent")]);
+  author=ed.verify(sig,b3(v1),key)||ed.verify(sig,b3(v2),key)}catch{author=false}}
  const title=(n.content.match(/^#\s+(.+)$/m)||[])[1]||n.path.split("/").pop();
  const f={title,big:title,lines:[["written by",short(n.attester_pubkey_b32)],["kind",n.memory_kind],["signed",day(n.signed_at)],["path",n.path]],ok:same&&author!==false,
   proof:[same?"✓ bytes match the name":"✗ bytes do not match the name",author?`author ${short(n.attester_pubkey_b32)} signed it`:author===false?"✗ author signature fails":""]};
@@ -261,4 +266,19 @@ export const feed=async(render)=>{
  const es=new EventSource(`${EMEM}/v1/memory/sse?path_prefix=/memories/by_attester/`);
  es.onmessage=m=>{try{const e=JSON.parse(m.data);if(e.type==="created")push(e)}catch{}};
  return es;
+};
+
+// emem-guard: every emem: citation in a text resolved and judged by emem.dev; a signed allow or deny with a reason code
+export const guard=async(text,S)=>{
+ const t=await json(await post(`${EMEM}/a2a/tasks`,{skill:"emem_guard_verdict",args:{texts:[text]}}));
+ const d=t.artifacts?.[0]?.parts?.[0]?.data||{};
+ return{action:d.action,code:d.code,fix:d.fix,reason:d.reason,checked:d.checked||0,signed:await receiptOk(d.receipt,S.signer)};
+};
+
+// the key, carried between browsers: a backup is the key itself, so whoever holds the file can write as you
+export const exportKey=()=>{const k=store("emem.key");return k?JSON.stringify({emem_key:1,pub_b32:b32(unb64(k.pub)),...k},null,1):null};
+export const importKey=async text=>{
+ const j=JSON.parse(text);if(!j.priv||!j.pub)throw new Error("That file is not an emem key backup.");
+ await crypto.subtle.importKey("pkcs8",unb64(j.priv),{name:"Ed25519"},false,["sign"]);
+ store("emem.key",{priv:j.priv,pub:j.pub});KEY=null;return b32(unb64(j.pub));
 };

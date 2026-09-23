@@ -103,3 +103,11 @@ footer a:hover{color:var(--fg)}
 .out .thumbs canvas{width:180px;max-width:48%}
 .verdict .weak{color:var(--mute)}
 .verdict .weak::before{content:"~";color:var(--mute)}
+.guard{font:12px var(--mono);margin:var(--u) 0 0;color:var(--mute)}
+.guard.yes{color:var(--ok)}
+.guard.no{color:var(--no)}
+.seal{margin-top:calc(1.5*var(--u));border:1px solid var(--fg);background:transparent;padding:4px 12px;font:12px var(--mono);color:var(--fg)}
+.sealed{font:12px var(--mono);margin:var(--u) 0 0;overflow-wrap:anywhere}
+.sealed a{color:var(--fg)}
+footer .link{border:0;background:none;padding:0;font:inherit;color:inherit;text-decoration:underline;text-underline-offset:2px}
+footer .link:hover{color:var(--fg)}

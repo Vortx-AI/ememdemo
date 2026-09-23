@@ -1,33 +1,7 @@
 // eio runtime: compiles emem.eio, enforces its rules, draws the page, runs its flows against emem.dev.
-import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia} from "./emem.mjs";
+import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia,guard,exportKey,importKey} from "./emem.mjs";
 import {toDoc,REPO,repoItems,blocksOf,pack,describe} from "./read.mjs";
-
-// ---------- compiler ----------
-const compile=src=>{
- const st=[],lines=src.split("\n");
- for(let i=0;i<lines.length;i++){
-  const l=lines[i].replace(/\s+$/,"");
-  if(!l||l.startsWith("#"))continue;
-  const m=l.match(/^(\w+)\s*(.*)$/);if(!m)throw new Error(`line ${i+1}: cannot read "${l}"`);
-  let[,verb,arg]=m,body=null;
-  if(/(^|\s)<<$/.test(arg)){arg=arg.replace(/\s*<<$/,"");const b=[];while(++i<lines.length&&lines[i].trim()!==">>")b.push(lines[i]);body=b.join("\n")}
-  st.push({verb,arg,body,line:i+1});
- }
- const one=v=>st.find(s=>s.verb===v)?.arg??"",all=v=>st.filter(s=>s.verb===v);
- const steps={},flows={},kinds={};
- for(const s of all("step")){const m=s.arg.match(/^(\w+)\s*:\s*(\w+)\s*->\s*(\w+)$/);if(!m)throw new Error(`line ${s.line}: step needs "name : A -> B"`);steps[m[1]]={in:m[2],out:m[3]}}
- for(const s of all("flow")){const m=s.arg.match(/^(\w+)\s*:\s*(.+)$/);if(!m)throw new Error(`line ${s.line}: flow needs "name : a b c"`);flows[m[1]]=m[2].split(/\s+/)}
- for(const s of all("kind")){const m=s.arg.match(/^(\w+)\s*:\s*(.+)$/);if(!m)throw new Error(`line ${s.line}: kind needs "name : ext ext"`);for(const e of m[2].split(/\s+/))kinds[e]=m[1]}
- // a token row: name : what it is | how to read it over HTTP | the MCP tool that resolves it
- const tokens={};
- for(const s of all("token")){const m=s.arg.match(/^(\w+)\s*:\s*([^|]+)\|\s*([^|]+)\|\s*(\S+)\s*$/);if(!m)throw new Error(`line ${s.line}: token needs "name : meaning | METHOD path | mcp_tool"`);
-  const call=m[3].trim().match(/^(GET|POST)\s+(\S+)\s*(.*)$/);if(!call)throw new Error(`line ${s.line}: token call must be "GET path" or "POST path {json}"`);
-  tokens[m[1]]={what:m[2].trim(),method:call[1],path:call[2],body:call[3]||null,tool:m[4]}}
- // a gallery entry: kind : title, then "field value" lines
- const shows=all("show").map(s=>{const m=s.arg.match(/^(\w+)\s*:\s*(.+)$/);if(!m||!s.body)throw new Error(`line ${s.line}: show needs "kind : title <<" and fields`);
-  return{kind:m[1],title:m[2],...Object.fromEntries(s.body.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{const i=l.search(/\s/);return i<0?[l,""]:[l.slice(0,i),l.slice(i).trim()]}))}});
- return{one,all,steps,flows,kinds,tokens,shows};
-};
+import {compile} from "./lang.mjs";
 
 // every rule is a promise the page makes; if the source breaks one, the page does not render
 const rules={
@@ -39,7 +13,7 @@ const rules={
    if(i&&P.steps[f[i-1]].out!==s.in)return`flow "${n}": ${f[i-1]} gives ${P.steps[f[i-1]].out}, ${f[i]} takes ${s.in}`}}},
  // every card opens something this page can open, and every sample it runs is a kind it can read
  gallery(P){for(const s of P.shows){const t=s.emem||"",m=t.match(/^emem:([a-z]+):/);
-  if(!(NOTE.test(t)||CID.test(t)||STH.test(t)||ASK.test(t)||t==="live"||(m&&P.tokens[m[1]])))return`gallery card "${s.title}" points at something this page cannot open`;
+  if(!(NOTE.test(t)||CID.test(t)||STH.test(t)||ASK.test(t)||t==="live"||t==="self"||(m&&P.tokens[m[1]])))return`gallery card "${s.title}" points at something this page cannot open`;
   if(s.from?.startsWith("./")&&!P.kinds[(s.from.match(/\.([a-z0-9]+)$/i)||[])[1]?.toLowerCase()])return`gallery card "${s.title}" runs a file this page cannot read`}},
  carry(P,args){const need=args.slice(args.indexOf(":")+1);for(const g of P.all("give"))if(!need.some(k=>g.body?.includes(k)))return`output "${g.arg}" carries none of ${need.join(" ")}`}
 };
@@ -148,21 +122,24 @@ const found=(src,q)=>{let at=0;for(const part of norm(q).split(/\s*(?:\.\.\.|…
 // beyond quotes: how much of each sentence traces to the source word for word, and whether its numbers are in the source.
 // trace = share of the sentence's 3-word runs that occur in the source; a paraphrase scores low, which is the honest reading.
 const words3=t=>{const w=norm(t).replace(/[^a-z0-9\s]/g," ").split(/\s+/).filter(Boolean),o=[];for(let i=0;i+2<w.length;i++)o.push(w[i]+" "+w[i+1]+" "+w[i+2]);return o};
-const nums=t=>(t.match(/\d[\d,]*(?:\.\d+)?/g)||[]).map(x=>x.replace(/,/g,"").replace(/\.0+$/,"")).filter(x=>x.length>1);
+// numbers are compared by value at the answer's own precision: "915.07" holds against 915.0712…; digits inside tokens and links are not numbers
+const strip=t=>t.replace(/emem:[a-z]+:\S+|https?:\/\/\S+/g," ");
+const nums=t=>(strip(t).match(/\d[\d,]*(?:\.\d+)?/g)||[]).map(x=>x.replace(/,/g,"")).filter(x=>x.replace(/\D/g,"").length>1);
 const SW=new Set("the and for that with this from are was were been have has not but can will may must which their there these those into than then when what where who how all any each other such only also more most some very uses used using about over under between after before does".split(" "));
 // a number counts only where the source has it next to the words it came with: an occurrence within ±250 characters
 // of at least two of the sentence's other content words (one, if the sentence has fewer than three)
-const numberHeld=(n,sentence,src)=>{
- const ctx=[...new Set((norm(sentence).match(/[a-z][a-z-]{3,}/g)||[]).filter(w=>!SW.has(w)))],need=ctx.length<3?1:2;
- const re=new RegExp(`(?<![\\d.])${n.replace(/\./g,"\\.")}(?![\\d])`,"g");let m;
- while((m=re.exec(src))){const win=src.slice(Math.max(0,m.index-250),m.index+250);if(ctx.filter(w=>win.includes(w)).length>=need)return true}
- return false;
+const numberHeld=(n,sentence,src,srcNums,prose)=>{
+ const ctx=[...new Set((norm(strip(sentence)).match(/[a-z][a-z-]{3,}/g)||[]).filter(w=>!SW.has(w)))],need=ctx.length<3?1:2;
+ const v=Number(n),tol=.5*10**-((n.split(".")[1]||"").length);
+ // a record from the token family has no prose around its numbers: there the value alone must match
+ return srcNums.some(m=>Math.abs(m.v-v)<=tol&&(!prose||ctx.filter(w=>src.slice(Math.max(0,m.at-250),m.at+250).includes(w)).length>=need));
 };
-const grounding=(answer,source)=>{
+const grounding=(answer,source,prose=true)=>{
  const grams=new Set(words3(source)),src=norm(source).replace(/(\d),(\d)/g,"$1$2");
+ const srcNums=[...src.matchAll(/\d+(?:\.\d+)?/g)].map(m=>({v:Number(m[0]),at:m.index}));
  const sentences=answer.split(/(?<=[.!?])\s+|\n+/).map(x=>x.trim()).filter(Boolean);
  const traced=sentences.filter(x=>x.split(/\s+/).length>=6).map(x=>{const g=words3(x);return{x,score:g.length?g.filter(y=>grams.has(y)).length/g.length:0}});
- const numbers=sentences.flatMap(x=>[...new Set(nums(x))].map(n=>({n,ok:numberHeld(n,x,src),x})));
+ const numbers=sentences.flatMap(x=>[...new Set(nums(x))].map(n=>({n,ok:numberHeld(n,x,src,srcNums,prose),x})));
  return{traced,numbers};
 };
 
@@ -171,11 +148,20 @@ const h=(tag,attrs={},...kids)=>{const e=document.createElement(tag);for(const[k
 const fill=(t,x)=>t.replace(/\{(\w+)\}/g,(_,k)=>x[k]??`{${k}}`);
 
 const boot=async()=>{
- const src=await(await fetch("./emem.eio",{cache:"no-cache"})).text();
- const P=compile(src),broken=check(P,ops),siteCid=cidOf(U(src));
+ // a sealed page hands over the source it already checked; unsealed, it reads the file as it is
+ const src=globalThis.__seal?.files?.["emem.eio"]?.text??await(await fetch("./emem.eio",{cache:"no-cache"})).text();
+ const P=compile(src),broken=check(P,ops);
  if(broken.length){document.body.replaceChildren(h("pre",{class:"broken"},"emem.eio breaks its own rules:\n\n"+broken.map(b=>"· "+b).join("\n")));return}
  const spec={kinds:P.kinds,limit:+P.one("limit"),section:+P.one("section"),max:+P.one("max"),tokens:P.tokens,signer:P.one("signer")};
  document.title="emem · "+P.one("say");
+ // the page reports its own seal: which files were checked, which were restored from emem, and who sealed them
+ const S=globalThis.__seal||{unsealed:true},sealState=h("span",{class:"seal-state"});
+ if(S.unsealed)sealState.replaceChildren("unsealed: this page's code was not checked (",h("a",{href:"./emem.eio"},"source"),")");
+ else{
+  const restored=S.report.filter(r=>r.from.startsWith("emem,")).length,fromEmem=S.report.every(r=>r.from==="emem"),cid=S.url.match(/([a-z2-7]{26})\.md$/)[1];
+  sealState.replaceChildren("sealed · ",h("a",{href:S.url,target:"_blank",rel:"noopener",title:"the manifest this page pins; every file it runs is listed there by hash"},`${S.report.length} of ${S.report.length} files checked`),fromEmem?" · all run from emem.dev":restored?` · ${restored} restored from emem, this site's copy did not match`:"");
+  resolveToken(cid,spec).then(r=>sealState.append(r.bad?" · ✗ seal signature fails":` · signed by ${S.sealed_by?.slice(0,8)}`)).catch(()=>{});
+ }
 
  const file=h("input",{type:"file",multiple:"",accept:Object.keys(P.kinds).map(e=>"."+e).join(","),hidden:""});
  const box=h("textarea",{placeholder:P.one("in"),rows:"3",spellcheck:"false","aria-label":"what to turn into a link"});
@@ -185,7 +171,7 @@ const boot=async()=>{
  const link=h("a",{class:"url"}),meta=h("p",{class:"meta"}),grab=h("button",{class:"grab",hidden:""},"copy link");
  const gives=P.all("give"),tabs=h("div",{class:"tabs",role:"tablist"}),pane=h("div",{class:"pane"});
  const code=h("pre",{class:"code",tabindex:"0"}),copy=h("button",{class:"copy"},"copy");
- const ans=h("textarea",{rows:"5",placeholder:P.one("check"),"aria-label":"answer to check"}),verdict=h("ol",{class:"verdict"});
+ const ans=h("textarea",{rows:"5",placeholder:P.one("check"),"aria-label":"answer to check"}),verdict=h("ol",{class:"verdict"}),guarded=h("p",{class:"guard"}),seal=h("button",{class:"seal",hidden:""},"seal this check"),sealed=h("p",{class:"sealed"});
  const pics=h("div",{class:"thumbs"}),out=h("section",{class:"out",hidden:""},h("div",{class:"row"},link,grab),meta,pics,tabs,pane),recent=h("ol",{class:"recent"}),who=h("span");
  const chips=h("div",{class:"chips",role:"toolbar"}),cards=h("div",{class:"cards"}),more=h("button",{class:"more",hidden:""});
  document.body.replaceChildren(
@@ -193,7 +179,7 @@ const boot=async()=>{
    h("nav",{"aria-label":"emem"},...P.all("link").map(l=>{const[label,href]=l.arg.split(/\s{2,}/);return h("a",href.startsWith("#")?{href}:{href,target:"_blank",rel:"noopener"},label)}))),
   h("main",{},h("h1",{},P.one("say")),drop,h("p",{class:"note"},P.one("note")),tries,steps,out,recent),
   h("section",{class:"gallery",id:"gallery"},chips,cards,more),
-  h("footer",{},who,h("a",{href:"./emem.eio",title:"this page is compiled from this file"},"source · "+siteCid.slice(0,10))));
+  h("footer",{},who,sealState));
 
  let run=null,tab=gives[0].arg;
  const vals=()=>({link:run.url,cid:run.cid,title:run.title||"source",shape:run.shape,index:run.body,curl:run.curl,mcp:run.mcp,a2a:run.a2a,verify:run.verify});
@@ -201,12 +187,24 @@ const boot=async()=>{
   if(!run){out.hidden=true;return}
   out.hidden=false;
   tabs.replaceChildren(...[...gives.map(g=>g.arg),"check"].map(n=>h("button",{role:"tab","aria-selected":String(n===tab),onclick:()=>{tab=n;draw()}},n)));
-  if(tab==="check"){pane.replaceChildren(ans,verdict);ans.oninput()}
+  if(tab==="check"){pane.replaceChildren(ans,guarded,verdict,seal,sealed);ans.oninput()}
   else{code.textContent=fill(gives.find(g=>g.arg===tab).body,vals());pane.replaceChildren(code,copy)}
  };
+ let last=null,gt=null,pending=null;
+ // an answer that cites emem tokens goes to emem-guard: a signed allow or deny, checked here against the pinned key
+ const runGuard=async text=>{
+  if(!/emem:[a-z]+:\S+/.test(text)){guarded.textContent="";return null}
+  try{const g=await guard(text,spec);if(ans.value!==text)return null;if(last?.answer===text)last.guard=g;
+   guarded.className="guard "+(g.action==="allow"?"yes":"no");
+   guarded.textContent=`emem-guard: ${g.action} · ${g.checked} citation${g.checked===1?"":"s"} checked${g.code?` · ${g.code} (fix: ${g.fix})`:""} · ${g.signed?"verdict signed by emem.dev, checked here":"✗ verdict signature fails"}`;return g}
+  catch(e){guarded.className="guard no";guarded.textContent="emem-guard: "+e.message;return null}
+ };
  ans.oninput=()=>{
-  if(!run?.text||!ans.value.trim()){verdict.replaceChildren();return}
-  const src=norm(run.text),q=quotes(ans.value,src),nq=q.filter(x=>found(src,x)).length,g=grounding(ans.value,run.text);
+  sealed.textContent="";
+  if(!run?.text||!ans.value.trim()){verdict.replaceChildren();guarded.textContent="";seal.hidden=true;return}
+  clearTimeout(gt);const text=ans.value;
+  if(/emem:[a-z]+:\S+/.test(text)){guarded.className="guard";guarded.textContent="emem-guard: checking the cited tokens…";pending=new Promise(ok=>gt=setTimeout(()=>runGuard(text).then(ok),600))}else{guarded.textContent="";pending=null}
+  const src=norm(run.text),q=quotes(ans.value,src),nq=q.filter(x=>found(src,x)).length,g=grounding(ans.value,run.text,!run.token);
   const good=g.traced.filter(t=>t.score>=.6).length,okn=g.numbers.filter(n=>n.ok).length,bad=g.numbers.filter(n=>!n.ok);
   verdict.replaceChildren(
    h("li",{class:"sum"},[q.length?`quotes: ${nq} of ${q.length} are in the source`:"quotes: none",
@@ -215,13 +213,50 @@ const boot=async()=>{
    ...q.map(x=>h("li",{class:found(src,x)?"yes":"no"},x)),
    ...bad.map(n=>h("li",{class:"no"},`${n.n} is not in the source next to what this sentence says: ${n.x}`)),
    ...g.traced.filter(t=>t.score<.3).map(t=>h("li",{class:"weak"},`${Math.round(t.score*100)}% traced: ${t.x}`)));
+  last={answer:ans.value,guard:null,lines:[...verdict.children].map(li=>(li.className==="yes"?"✓ ":li.className==="no"?"✗ ":li.className==="weak"?"~ ":"")+li.textContent)};
+  seal.hidden=false;
+ };
+ // a check becomes a signed, hash-named file: the answer, the source it was checked against, and every finding; anyone can recompute it
+ seal.onclick=async()=>{
+  seal.disabled=true;sealed.textContent="sealing…";
+  try{
+   if(pending)await pending;
+   const k=await key(),a=U(last.answer),g=last.guard;
+   const body=`---
+emem: check.v1
+source: ${run.token||run.url}
+answer: ${cidOf(a)}
+guard: ${g?g.action+(g.code?" "+g.code:""):"none"}
+---
+
+# An answer, checked against ${run.title||run.url}
+
+${last.lines[0]||""}
+${g?`emem-guard: ${g.action}${g.code?" "+g.code:""} (${g.checked} citations, verdict signed by emem.dev)
+`:""}
+## Findings
+
+${last.lines.slice(1).map(l=>"- "+l).join("\n")||"- none"}
+
+## The answer
+
+${last.answer.trim()}
+`;
+   const n=await note(body,k);await put(n,k.pub);
+   sealed.replaceChildren("sealed: ",h("a",{href:n.url,target:"_blank",rel:"noopener"},n.url));
+  }catch(e){sealed.textContent=e.message}finally{seal.disabled=false}
  };
  grab.onclick=async()=>{try{await navigator.clipboard.writeText(run.url);grab.textContent="copied"}catch{grab.textContent="select and copy"}setTimeout(()=>grab.textContent="copy link",1400)};
  copy.onclick=async()=>{try{await navigator.clipboard.writeText(code.textContent);copy.textContent="copied"}catch{copy.textContent="select and copy"}setTimeout(()=>copy.textContent="copy",1400)};
  const drawRecent=()=>{const list=store("emem.recent")||[];recent.hidden=!list.length;recent.replaceChildren(...(list.length?[h("li",{class:"sum"},"recent")]:[]),
   ...list.map(x=>h("li",{},h("button",{onclick:()=>{box.value=x.url;start(x.url)}},x.title),h("span",{},x.shape))))};
  drawRecent();
- key().then(k=>who.replaceChildren("key ",h("a",{href:`${EMEM}/memories/by_attester/${k.pub.slice(0,8)}/`,target:"_blank",rel:"noopener",title:"every file this browser has stored, listed by emem"},k.pub.slice(0,8))," · kept in this browser")).catch(()=>who.textContent="emem.dev");
+ // the key is yours to carry: back it up to a file, restore it in another browser
+ const restore=h("input",{type:"file",accept:".json",hidden:""});
+ const backup=()=>{const t=exportKey();if(!t)return;const a=h("a",{href:URL.createObjectURL(new Blob([t],{type:"application/json"})),download:`emem-key-${JSON.parse(t).pub_b32.slice(0,8)}.json`});a.click()};
+ restore.onchange=async()=>{try{const pub=await importKey(await restore.files[0].text());showKey({pub})}catch(e){who.textContent=e.message}};
+ const showKey=k=>who.replaceChildren("key ",h("a",{href:`${EMEM}/memories/by_attester/${k.pub.slice(0,8)}/`,target:"_blank",rel:"noopener",title:"every file this key has stored, listed by emem"},k.pub.slice(0,8))," · ",h("button",{class:"link",onclick:backup},"back up")," · ",h("button",{class:"link",onclick:()=>restore.click()},"restore"),restore);
+ key().then(showKey).catch(()=>who.textContent="emem.dev");
 
  // the latest click wins: an older run keeps going but may no longer touch the page
  let seq=0;const busy=on=>document.querySelector("main").setAttribute("aria-busy",String(on));
@@ -254,7 +289,7 @@ const boot=async()=>{
  // the first eight show at once; a chip shows every card of its kind
  const shows=P.shows,FIRST=8;let filter="all",expanded=false;
  const kinds=["all",...new Set(shows.map(s=>s.kind))];
- const apply=()=>{[...cards.children].forEach((c,i)=>c.hidden=filter!=="all"?c.dataset.kind!==filter:!expanded&&i>=FIRST);more.hidden=filter!=="all"||expanded||shows.length<=FIRST;more.textContent=`show all ${shows.length}`};
+ const apply=()=>{[...cards.children].forEach((c,i)=>c.hidden=filter!=="all"?c.dataset.kind!==filter:!expanded&&i>=FIRST);more.hidden=filter!=="all"||expanded||cards.children.length<=FIRST;more.textContent=`show all ${cards.children.length}`};
  const drawChips=()=>chips.replaceChildren(...kinds.map(k=>h("button",{"aria-pressed":String(k===filter),onclick:()=>{filter=k;drawChips();apply()}},k)));
  more.onclick=()=>{expanded=true;apply()};
  drawChips();
@@ -265,7 +300,9 @@ const boot=async()=>{
   else{box.value=s.from;start(s.from,s.cid)}
  };
  tries.replaceChildren(...(shows.some(s=>s.pin)?[h("span",{},"try")]:[]),...shows.filter(s=>s.pin).map(s=>h("button",{onclick:()=>openIt(s)},s.pin)));
- for(const s of shows){
+ // "self" is the seal this page is running from; an unsealed page has none, so the card is left out
+ for(const s of shows.filter(s=>s.emem!=="self"||!S.unsealed))if(s.emem==="self")s.emem=S.url;
+ for(const s of shows.filter(s=>s.emem!=="self")){
   const state=h("span",{class:"state"},"checking…"),body=h("div",{class:"body"}),live=s.emem==="live";
   s.cid=(s.emem.match(/([a-z2-7]{26})\.md$/)||[])[1];
   const card=h("article",{class:"card",tabindex:"0","data-kind":s.kind,role:"button","aria-label":`open ${s.title}`},

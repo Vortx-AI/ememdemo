@@ -17,9 +17,45 @@ The box takes anything:
 
 Every result comes with tabs an agent can use directly: **preview · AGENTS.md · chat · curl · MCP · A2A · check**. The `check` tab marks each "quote" in an AI's answer as found in the source or not.
 
+## A website that proves itself
+
+Most websites ask you to trust whoever serves them. This one checks itself before it runs.
+
+- **Sealed.** `tools/seal.mjs` stores every file the page runs on emem.dev, each named by the hash of its bytes and signed by the site key. It also stores a **manifest** listing each file's sha256, plus the sha256 of every third-party reader the page may load (pdf.js, mammoth, SheetJS, JSZip, tesseract's entry module). `index.html` pins the manifest by its link and sha256.
+- **Checked before running.** The loader in `index.html` uses only the browser's built-in SHA-256, so it trusts no library first. It then:
+  - verifies the manifest against the pin;
+  - verifies each file;
+  - runs modules only from their verified bytes (blob URLs, with relative imports pointed at the verified copies);
+  - checks third-party readers against the manifest before they run.
+- **Self-healing.** If this site's copy of a file has been altered (a bad deploy, a compromised host), the loader fetches the true bytes from emem.dev and says so in the footer. If the manifest itself doesn't match the pin, the page refuses to run and says why. All three cases were tested: a normal load, a tampered `emem.mjs` (restored), and a tampered manifest (refused).
+- **Host-independent.** `?boot=emem` runs the whole page from emem.dev alone; GitHub Pages only has to serve `index.html`.
+- **Signed.** The footer shows `sealed · 9 of 9 files checked · signed by ddzmyzhn`. The manifest's author signature is checked over A2A.
+- **In its own gallery.** The proof section has "This website, sealed"; opening it re-hashes the manifest the page is running from.
+- **Exceptions, stated:**
+  - `index.html` is the trust root and cannot seal itself; it is 60 lines and readable.
+  - Tesseract fetches its worker, WASM core and language data itself, so only its entry module is pinned.
+  - Images are not sealed.
+
+**Changing the site:** edit, then run `EMEM_KEY_FILE=<site key backup> node tools/seal.mjs`, then commit. Without that, a sealed page restores the last sealed code from emem, which is the point. `?boot=local` runs unsealed code for development, and the footer says so.
+
+## For agents: the same source, compiled twice
+
+`emem.eio` compiles into the human page and, through `tools/seal.mjs`, into two files an agent can read:
+
+- **`llms.txt`:** every flow as the emem.dev call an agent can make itself (store, read and re-hash, check with emem-guard, ask), the token family table, the signer key, and the worked examples.
+- **`.well-known/agent-card.json`:** an A2A agent card whose skills run at emem.dev's A2A endpoint. The site has no server of its own.
+
+Both are sealed with the site, so an agent can check them the same way.
+
+## Checks that leave proof
+
+- **emem-guard.** When an answer cites emem tokens, the check tab sends it to emem-guard, which resolves every citation and returns a signed **allow** or **deny** with a reason code. The page checks that verdict against the pinned key. Tested: "Bengaluru's elevation is 915.07 m (emem:fact:…)" gets **allow**; the same sentence with 870 gets **deny PROV_VALUE**.
+- **Seal this check.** One click publishes the findings as a signed, hash-named note (`emem: check.v1`). It holds the answer, a pointer to the source, the guard verdict and every finding, so anyone can recompute it. The chat prompt asks the AI to cite the emem token next to each number, so answers become guard-checkable.
+- **Your key.** The footer can **back up** the browser's key to a file and **restore** it elsewhere. Whoever holds the file can write as you.
+
 ## The gallery
 
-There are 19 cards in 7 kinds: documents, code, scans, places, agents, web, proof.
+There are 20 cards in 7 kinds (19 when unsealed): documents, code, scans, places, agents, web, proof.
 
 - **All cards:** on load, each card re-hashes or re-verifies its result and shows the outcome (✓ or ✗). `open` loads it into the box.
 - **"Run it yourself":** on file and URL cards, this feeds the original input through the pipeline again. For fixed inputs the page confirms **"same file names as the gallery copy"**: the same bytes give the same names in any browser.
@@ -91,7 +127,10 @@ rule   gallery show
 | file | role |
 |---|---|
 | `emem.eio` | the site |
-| `src/eio.mjs` | compiler, rules, page, flows, gallery |
+| `index.html` | the loader: checks every file against the pinned seal before running it |
+| `src/lang.mjs` | the eio compiler, pure, shared by the page and the seal tool |
+| `src/eio.mjs` | rules, page, flows, gallery, checks |
+| `tools/seal.mjs` | seals the site on emem and compiles `llms.txt` and the agent card |
 | `src/read.mjs` | any input becomes markdown with headings, then sections and an index |
 | `src/emem.mjs` | the wire: names, keys, signed writes, reads, the token family, proofs, ask, the channel feed |
 | `src/vendor/` | emem's verifier, pinned (Apache-2.0) |
