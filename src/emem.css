@@ -95,7 +95,7 @@ footer a:hover{color:var(--fg)}
 .gallery{width:min(1180px,100% - 4*var(--u));margin:0 auto;padding:calc(4*var(--u)) 0 calc(8*var(--u));border-top:1px solid var(--line)}
 .more{display:block;margin:calc(3*var(--u)) auto 0;border:1px solid var(--line);background:transparent;padding:var(--u) calc(3*var(--u));font:12px var(--mono);color:var(--fg)}
 .more:hover{border-color:var(--fg)}
-.chips{display:flex;flex-wrap:wrap;gap:var(--u);margin:0 0 calc(3*var(--u))}
+.chips{display:block;margin:0 0 calc(3*var(--u))}
 .chips button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:4px 12px;font:12px var(--mono);color:var(--mute)}
 .chips button[aria-pressed=true]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(262px,1fr));gap:calc(2*var(--u))}
@@ -119,7 +119,7 @@ footer a:hover{color:var(--fg)}
 .feed li{display:flex;gap:var(--u);overflow:hidden;white-space:nowrap}
 .feed li b{font-weight:400;color:var(--mute);flex:none}
 .feed li span{overflow:hidden;text-overflow:ellipsis}
-.thumbs{display:flex;gap:6px;flex-wrap:wrap}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start}
 .thumbs canvas{width:calc(50% - 3px);max-width:150px;image-rendering:pixelated;border:1px solid var(--line);display:block}
 .out .thumbs{margin:0 0 calc(2*var(--u))}
 .out .thumbs canvas{width:180px;max-width:48%}
@@ -137,3 +137,10 @@ footer .link:hover{color:var(--fg)}
 .thumbs img.cam{height:96px;width:100px;object-fit:cover;background:var(--line);border:1px solid var(--line)}
 .card .state:not(.ok):not(.bad){animation:pulse 1.1s ease-in-out infinite}
 .thumbs canvas.preview{max-width:320px;width:100%;height:auto;image-rendering:auto;border:1px solid var(--line);background:repeating-conic-gradient(var(--line) 0 25%,transparent 0 50%) 0 0/12px 12px}
+.thumbs canvas.grid{max-width:84px;height:auto;border:1px solid var(--line)}
+.thumbs canvas.reel{max-width:360px}
+.card .pic{aspect-ratio:16/10;margin:calc(-2*var(--u)) calc(-2*var(--u)) var(--u);background:#111 center/cover no-repeat;border-bottom:1px solid var(--line)}
+.card .by{font:11px var(--mono);color:var(--mute);border:1px solid var(--line);border-radius:999px;padding:0 6px;margin-left:auto;margin-right:6px}
+.card .verbs{font:12px var(--mono);color:var(--fg);margin:4px 0 0;line-height:1.5}
+.chiprow{display:flex;flex-wrap:wrap;gap:6px}.chiprow+.chiprow{margin-top:6px}.chiprow.by button{font-size:11px;opacity:.85}
+.live{font:12px var(--mono);color:var(--mute)}.live b{color:var(--fg);font-weight:600}.live.up b{color:var(--ok)}

@@ -250,36 +250,28 @@ export const ask=async(q,S,tick)=>{
 };
 
 // ---------- gallery: what a card says, fetched and checked as the page loads ----------
+// a card, in verbs: what was done to this evidence, counted; nouns only where a number needs a unit
+const sz=v=>v>=1e9?(v/1e9).toFixed(2)+" GB":v>=1e6?(v/1e6).toFixed(1)+" MB":(v/1e3).toFixed(1)+" KB";
 export const summarize=async(s,S)=>{
  if(NOTE.test(s.emem)){
-  const n=await getNote(s.emem),secs=[...n.body.matchAll(/^- \[([^\]]+)\]\(/gm)].map(m=>m[1]);
-  const lead=(n.body.match(/^> (.+)$/m)||[])[1]||"",text=n.body.replace(/^---\n[\s\S]*?\n---\n\n/,"");
-  // a pointer: the data stays at its source; the card says how much is there against how little is here
-  if(/^emem: pointer\.v1$/m.test(n.body)){
-   const sz=v=>v>=1e9?(v/1e9).toFixed(2)+" GB":v>=1e6?(v/1e6).toFixed(1)+" MB":(v/1e3).toFixed(1)+" KB",b=n.body.match(/^bytes: (about )?(\d+)/m),c=(n.body.match(/^chunks: (.+)$/m)||[])[1];
-   return{ok:n.ok!==false,state:n.ok?"✓ matches its name":"✗ name does not match",nodes:[["big",b?`${b[1]?"~":""}${sz(+b[2])}`:"at the source"],["stat",`stays at the source · ${sz(n.body.length)} on emem · ${c}`],["peek",n.body.split("\n").filter(l=>/^- /.test(l)).map(l=>l.slice(2)).slice(0,3).join("\n")]]};
-  }
-  // a place, every layer: how many signed measurements, and the handle that cites them all
-  if(/^emem: world\.v1$/m.test(n.body)){const facts=(n.body.match(/ · emem:fact:/g)||[]).length,secs=(n.body.match(/^## (satellite|terrain|weather|climate|vegetation|air|the built)/gm)||[]).length;
-   return{ok:n.ok!==false,state:n.ok?"✓ matches its name":"✗ name does not match",nodes:[["big",`${facts} measurements`],["stat",`${secs} layers · cross-checked · one handle`],["peek",n.body.split("\n").filter(l=>/^- /.test(l)).map(l=>l.slice(2).replace(/ · emem:\S+$/,"")).slice(0,4).join("\n")]]};
-  }
-  // a camera survey: how many cameras, how many clips re-hashed
-  if(/^emem: camera\.v1$/m.test(n.body)){const k=x=>(n.body.match(new RegExp(`^${x}: (.+)$`,"m"))||[])[1]||"";
-   return{ok:n.ok!==false,state:n.ok?"✓ matches its name":"✗ name does not match",nodes:[["big",`${k("cameras")} cameras`],["stat",`clips ${k("clips").split(" re-")[0]} re-hashed · sun ${k("sun").split(" positions")[0]} recomputed`],["peek",[...n.body.matchAll(/^\| ([a-z ]+) \| defi[^|]+\| [^|]+ \| [^|]+ \| ([^|]+) \|/gm)].filter(m=>/\d/.test(m[2])).slice(0,4).map(m=>`${m[1]}: ${m[2].trim()}`).join("\n")]]};
-  }
-  // a comparison of two pointers: how many units are byte-identical, how many differ
-  if(/^emem: compare\.v1$/m.test(n.body)){const f=k=>+(n.body.match(new RegExp(`^${k}: (\\d+)`,"m"))||[])[1]||0;
-   return{ok:n.ok!==false,state:n.ok?"✓ matches its name":"✗ name does not match",nodes:[["big",`${f("same")} identical`],["stat",`${f("changed")} differ · ${f("only_a")} only in A · ${f("only_b")} only in B`],["peek",n.body.split("\n").filter(l=>/^- /.test(l)).map(l=>l.slice(2)).slice(0,3).join("\n")]]};
-  }
-  return{ok:n.ok!==false,state:n.ok?"✓ matches its name":n.ok===false?"✗ name does not match":"· not named by its hash",nodes:secs.length
-   ?[["stat",`${secs.length} sections · ${(lead.match(/~[\d.]+k? tokens/)||[""])[0]} · index ${tokens(n.body)}`],["peek",secs.slice(0,4).join("\n")]]
-   :[["stat",tokens(text)],["peek",text.split("\n").filter(l=>l.trim()).slice(0,4).join("\n")]]};
+  const n=await getNote(s.emem),b=n.body,k=x=>(b.match(new RegExp(`^${x}: (.+)$`,"m"))||[])[1]||"",kind=k("emem"),st=/^after: sth /m.test(b)?"stamped":"";
+  const state=n.ok?"✓ matches":n.ok===false?"✗ name lies":"· unnamed",V=(...v)=>v.filter(Boolean).join(" · ");
+  const out=(big,verbs,peek)=>({ok:n.ok!==false,state,nodes:[...(big?[["big",big]]:[]),["verbs",verbs],...(peek?[["peek",peek]]:[])]});
+  if(kind==="pointer.v1"){const m=b.match(/^bytes: (about )?(\d+)/m);return out(m?`${m[1]?"~":""}${sz(+m[2])}`:"at source",V(`hashed ${k("chunks").replace(/ hashed$/,"")}`,"rooted",k("place")?"placed":"",st),"")}
+  if(kind==="directory.v1")return out(sz(+k("bytes")),V(`listed ${k("files")} files`,"publisher hashes kept","rooted",st));
+  if(kind==="world.v1"){const f=(b.match(/ · emem:fact:/g)||[]).length;return out(`${f} facts`,V("sensed","cross-checked",/^## drift/m.test(b)?"drift measured":"",/echo-verified/.test(b)?"echo-verified":"","bundled",st))}
+  if(kind==="camera.v1")return out(`${k("cameras")} cameras`,V(`re-hashed ${k("clips").split(" re-")[0]}`,`sun ${k("sun").split(" positions")[0]}`,st));
+  if(kind==="compare.v1")return out(`${k("same")} identical`,V(`diffed`,`${k("changed")} differ`,`${k("only_a")}+${k("only_b")} unmatched`,st));
+  if(kind==="timelapse.v1"){const d=[...b.matchAll(/^\| (\d{4})-\d\d-\d\d \|/gm)].map(m=>m[1]);return out(d.length?`${d[0]}–${d.at(-1)}`:"",V(`framed ${k("frames").split(" with")[0]}`,"3 cubes signed",k("rasterset")?"bound":"",st))}
+  if(kind==="track.v1")return out(`${k("steps")} steps`,V(`checked ${k("verified")}`,"chained",st));
+  const secs=[...b.matchAll(/^- \[([^\]]+)\]\(/gm)].length,text=b.replace(/^---\n[\s\S]*?\n---\n\n/,"");
+  return out("",V(secs?`cut into ${secs} sections`:"",tokens(secs?text:text),/## Read as data/.test(b)?"injection flagged":"",st),secs?"":text.split("\n").filter(l=>l.trim()&&!/^[#>|-]/.test(l)).slice(0,2).join("\n"));
  }
- if(ASK.test(s.emem))return{ok:true,state:"live",nodes:[["stat","asks emem.dev now; the answer comes back signed"],["peek",s.note||""]]};
+ if(ASK.test(s.emem))return{ok:true,state:"live",nodes:[["verbs","asked live · answered signed · bundled"]]};
  const r=await resolveToken(s.emem,S),f=r.face;
- // a card's big line is for values ("915.1 m", "2 dates"); a name is already the card's title
- return{ok:!r.bad,state:r.proof.split(" · ")[0],nodes:[...(/\d/.test(f.big||"")&&f.big.length<=24?[["big",f.big]]:[]),...(f.canvases?.length?[["canvas",f.canvases]]:[]),["peek",f.lines.filter(([,v])=>v).slice(0,4).map(([k,v])=>`${k}: ${v}`).join("\n")]]};
+ return{ok:!r.bad,state:r.bad?"✗":"✓ signed",nodes:[...(/\d/.test(f.big||"")&&f.big.length<=24?[["big",f.big]]:[]),...(f.canvases?.length?[["canvas",f.canvases]]:[]),["verbs",r.proof.replace(/✓ /g,"").split(" · ").slice(0,3).join(" · ")]]};
 };
+
 
 // who else re-read a pointer's source: witness notes addressed to its author, each checked here for bytes and signature
 export const witnesses=async(pointerUrl,cid)=>{

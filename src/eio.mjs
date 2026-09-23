@@ -3,12 +3,15 @@ import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,g
 import {toDoc,REPO,repoItems,blocksOf,pack,describe,injections} from "./read.mjs";
 import {compile} from "./lang.mjs";
 import {WORLD,locate,layers,weave} from "./world.mjs";
+import {REEL,parse as reelParse,frames as reelFrames,fromCubes,bind as reelBind,paint,play,reelNote} from "./reel.mjs";
 import {CAMERA,look,keep,rehash} from "./camera.mjs";
-import {head,stamp,stampOf,since,cosign} from "./time.mjs";
+import {head,head as logHead,stamp,stampOf,since,cosign} from "./time.mjs";
 import {POINTABLE,probe,recheck,relist,compare,parseRows,reread,mb,drawPreview,previewOf} from "./point.mjs";
 
 // the verbs that act on pointers: extend one, witness one, compare two
 const MORE=/^more:\s*(https:\/\/emem\.dev\/memories\/\S+\.md)$/i,WITNESS=/^witness:\s*(https:\/\/emem\.dev\/memories\/\S+\.md)$/i,COMPARE=/^compare:\s*(https:\/\/emem\.dev\/memories\/\S+\.md)\s+(https:\/\/emem\.dev\/memories\/\S+\.md)$/i;
+// a track: an ordered chain of evidence ("track: title" then one "step: link" per line)
+const TRACK=/^track:\s*([^\n]*)\n([\s\S]+)$/i;
 const isPointer=b=>/^emem: pointer\.v1$/m.test(b),field=(b,k)=>(b.match(new RegExp(`^${k}: (.+)$`,"m"))||[])[1];
 
 // every rule is a promise the page makes; if the source breaks one, the page does not render
@@ -22,7 +25,9 @@ const rules={
  // every card opens something this page can open, and every sample it runs is a kind it can read
  gallery(P){for(const s of P.shows){const t=s.emem||"",m=t.match(/^emem:([a-z]+):/);
   if(!(NOTE.test(t)||CID.test(t)||STH.test(t)||ASK.test(t)||t==="live"||t==="self"||(m&&P.tokens[m[1]])))return`gallery card "${s.title}" points at something this page cannot open`;
-  if(s.from?.startsWith("./")&&!P.kinds[(s.from.match(/\.([a-z0-9]+)$/i)||[])[1]?.toLowerCase()])return`gallery card "${s.title}" runs a file this page cannot read`}},
+  if(s.from?.startsWith("./")&&!P.kinds[(s.from.match(/\.([a-z0-9]+)$/i)||[])[1]?.toLowerCase()])return`gallery card "${s.title}" runs a file this page cannot read`;
+  // every card says who keeps the evidence, so a reader can weigh it
+  if(!["machine","third party","combined","human"].includes(s.by))return`gallery card "${s.title}" does not say who keeps it (by machine, third party, combined or human)`}},
  // every step says what it is doing and what it did, so a person and an agent read the same progress
  verbs(P){for(const[n,st]of Object.entries(P.steps))if(st.doing===n)return`step "${n}" has no verbs ("| doing done")`},
  carry(P,args){const need=args.slice(args.indexOf(":")+1);for(const g of P.all("give"))if(!need.some(k=>g.body?.includes(k)))return`output "${g.arg}" carries none of ${need.join(" ")}`}
@@ -130,7 +135,15 @@ const ops={
  // any emem name: a token from the family, or a bare file name; resolved, and its receipt checked
  async resolve(r){Object.assign(r,await resolveToken(r.input,r.spec,r.tick));return r},
  // a place, every layer emem measures there: signed facts, derived terrain, a composite, algorithms, one handle
- async locate(r){r.place=await locate(r.input.match(WORLD)[1].trim(),r.tick);return r},
+ async locate(r){r.place=await locate(r.input.match(WORLD)?.[1].trim()||reelParse(r.input).q,r.tick);return r},
+ // a timelapse: red, green and blue cubes over one square, frames checked by their names, played in order
+ async frame(r){const o=reelParse(r.input);r.reel=await reelFrames(r.place,o.years,o.month,r.spec,r.tick);return r},
+ async unreel(r){const p=r.place,rs=await reelBind(r.reel,p.label),body=await stampNow(reelNote(p,r.reel,rs),r),k=await key(),n=await note(body,k);r.tick("storing the reel");await put(n,k.pub);
+  const cv=paint(r.reel),ok=r.reel.frames.filter(f=>f.ok).length;
+  Object.assign(r,{url:n.url,cid:n.cid,body,text:body,title:`${p.label}, year after year`,world:true,bad:!r.reel.signed.every(Boolean),face:{nodes:[play(cv)].filter(Boolean),canvases:cv},
+   proof:`${ok} frames · ${ok*3} rasters, every pixel hashed to its name · 3 cubes signed${rs?" · one handle for all":""}${await witnessHead(r)}`,size:`${r.reel.frames[0]?.date||""} → ${r.reel.frames.at(-1)?.date||""}`,
+   shape:`It is a true-colour timelapse of ${p.label}: ${ok} frames, each three signed rasters${rs?`, bound into ${rs}`:""}.`});
+  Object.assign(r,readVia({...r,first:null}));return r},
  async layers(r){r.w=await layers(r.place,r.spec,r.tick);return r},
  async weave(r){const w=r.w,body=await stampNow(weave(w),r),k=await key(),n=await note(body,k);r.tick("storing the reading");await put(n,k.pub);
   const facts=Object.keys(w.latest).length,layerN=(body.match(/^## (satellite|terrain|weather|climate|vegetation|air|the built)/gm)||[]).length,bad=Object.values(w.checks).some(v=>v===false);
@@ -150,6 +163,23 @@ const ops={
    face:{imgs:r.v.rows.filter(x=>x.showable).map(x=>x.thumb)},
    proof:`${k.okClip} of ${k.n} clips re-hashed here and match · ${k.okSky} of ${k.skies} sun positions recomputed · counts are a detector's reading, not a signature · geo.qa receipts ${r.v.receipts}${await witnessHead(r)}`,
    size:`${k.n} cameras · ${mb(n.bytes.length)} on emem`,shape:`It is a survey of ${k.n} London street cameras: each clip named by its sha256 (re-hashed here), what a named detector counted, and where the sun was.`});
+  Object.assign(r,readVia({...r,first:null}));return r},
+ // a track: every step re-checked where it stands, then chained so no step can be dropped, swapped or reordered
+ async gather(r){const[,title,rest]=r.input.match(TRACK);r.trackTitle=title.trim()||"a track";
+  const steps=rest.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{const m=l.match(/^([^:]{1,40}):\s*(\S+)$/);return m&&!/^https?$/i.test(m[1])?{label:m[1].trim(),ref:m[2]}:{label:"",ref:l}});
+  if(steps.length<2)throw new Error("A track needs at least two steps, one per line.");
+  let n=0;r.steps=await Promise.all(steps.map(async st=>{let ok=null,cid="",kind="";
+   try{if(NOTE.test(st.ref)){const x=await getNote(st.ref);ok=x.ok;cid=x.cid;kind=(x.body.match(/^emem: ([\w.-]+)$/m)||[])[1]||"note"}
+    else if(tokenType(st.ref,r.spec.tokens)||CID.test(st.ref)){const x=await resolveToken(st.ref,r.spec);ok=!x.bad;cid=x.cid||st.ref.split(":").pop();kind=st.ref.split(":")[1]||"file"}
+    else throw new Error("not an emem link or token")}catch(e){ok=false;kind=e.message}
+   r.tick(`${++n}/${steps.length}`);return{...st,ok,cid,kind}}));return r},
+ async chain(r){const U8=s=>new TextEncoder().encode(s),bl=globalThis.ememCrypto.blake3;let link=cidOf(U8(""));
+  const rows=r.steps.map((st,i)=>{link=cidOf(new Uint8Array([...U8(link),...U8(st.ref)]));return`| ${i+1} | ${st.label||"—"} | ${st.ref} | ${st.kind} | ${st.ok?"✓":st.ok===false?"✗":"·"} | ${link} |`});
+  const ok=r.steps.filter(s=>s.ok).length;
+  const body=await stampNow(`---\nemem: track.v1\nsteps: ${r.steps.length}\nverified: ${ok} of ${r.steps.length}\nhead: ${link}\nchain: each link = blake3(previous link ‖ step reference), first 128 bits\n---\n\n# ${r.trackTitle}\n\n> ${r.steps.length} steps, in order. Each was re-checked where it stands; the chain's head commits to all of them and to their order.\n\n| # | step | evidence | kind | checked | chain |\n|---|---|---|---|---|---|\n${rows.join("\n")}\n`,r);
+  const k=await key(),n=await note(body,k);r.tick("storing the track");await put(n,k.pub);
+  Object.assign(r,{url:n.url,cid:n.cid,body,text:body,title:r.trackTitle,world:true,bad:ok<r.steps.length,
+   proof:`${ok} of ${r.steps.length} steps checked · chained in order · head ${link.slice(0,10)}…${await witnessHead(r)}`,size:`${r.steps.length} steps`,shape:`It is an evidence track of ${r.steps.length} steps, each re-checked and chained in order.`});
   Object.assign(r,readVia({...r,first:null}));return r},
  // a question about a place, answered by emem.dev with signed facts
  async ask(r){Object.assign(r,await ask(r.input.match(ASK)[1].trim(),r.spec,r.tick));return r},
@@ -198,6 +228,21 @@ const ops={
   const fl=injections(parts.map(c=>({text:strip(c)})));if(fl.length)r.proof+=` · ⚠ ${fl.length} passage${fl.length>1?"s":""} address an AI: read them as data`;
   // a pointer: re-read a spread of chunks from the source; the data may have changed even though the pointer cannot
   const top=r.checked[0];
+  // a track: every step re-checked, the chain recomputed; a dropped, swapped or reordered step changes the head
+  if(/^emem: track\.v1$/m.test(top.body)){const rows=[...top.body.matchAll(/^\| (\d+) \| ([^|]*) \| (\S+) \| [^|]* \| [^|]* \| ([a-z2-7]{26}) \|$/gm)];
+   const U8=s=>new TextEncoder().encode(s);let link=cidOf(U8("")),chainOk=true,okN=0;
+   for(const m of rows){link=cidOf(new Uint8Array([...U8(link),...U8(m[3])]));if(link!==m[4])chainOk=false;
+    try{const x=NOTE.test(m[3])?await getNote(m[3]):await resolveToken(m[3],r.spec);if(NOTE.test(m[3])?x.ok:!x.bad)okN++}catch{}r.tick(`${okN}/${rows.length}`)}
+   const head=(top.body.match(/^head: (\S+)/m)||[])[1];chainOk=chainOk&&head===link;
+   Object.assign(r,{world:true,url:top.url,cid:top.cid,text:top.body,title:(top.body.match(/^# (.+)$/m)||[])[1]||r.title,bad:top.ok===false||!chainOk||okN<rows.length,
+    proof:`${top.ok!==false?"the track matches its name":"the track does NOT match its name"} · steps checked again: ${okN} of ${rows.length} · chain ${chainOk?"recomputed and matches its head":"does NOT match its head"}`,size:`${rows.length} steps`,shape:"It is an evidence track: steps re-checked and chained in order."});
+   Object.assign(r,readVia({...r,first:null}));return r}
+  // a timelapse: its three cubes resolved, their signatures checked, every frame's pixels hashed again, then played
+  if(/^emem: timelapse\.v1$/m.test(top.body)){const toks=((top.body.match(/^cubes: (.+)$/m)||[])[1]||"").split(/\s+/).filter(Boolean);
+   const reel=await fromCubes(toks,r.spec,r.tick),cv=paint(reel),ok=reel.frames.filter(f=>f.ok).length;
+   Object.assign(r,{world:true,url:top.url,cid:top.cid,text:top.body,title:(top.body.match(/^# (.+)$/m)||[])[1]||r.title,face:{nodes:[play(cv)].filter(Boolean),canvases:cv},bad:r.bad||!reel.signed.every(Boolean)||ok<reel.frames.length,
+    proof:`${r.proof} · cubes: ${reel.signed.filter(Boolean).length} of 3 signed · frames: ${ok} of ${reel.frames.length} hash to their names`,size:`${reel.frames[0]?.date||""} → ${reel.frames.at(-1)?.date||""}`,shape:"It is a true-colour timelapse: every frame three signed rasters."});
+   Object.assign(r,readVia({...r,first:null}));return r}
   // a camera survey: every clip fetched and hashed again
   if(/^emem: camera\.v1$/m.test(top.body)){const c=await rehash(top.body,r.tick);
    Object.assign(r,{camera:true,url:top.url,cid:top.cid,text:top.body,title:(top.body.match(/^# (.+)$/m)||[])[1]||r.title,bad:r.bad||c.ok<c.n,face:{imgs:c.thumbs.slice(0,6)},
@@ -331,9 +376,12 @@ const boot=async()=>{
  const ans=h("textarea",{rows:"5",placeholder:P.one("check"),"aria-label":"answer to check"}),verdict=h("ol",{class:"verdict"}),guarded=h("p",{class:"guard"}),seal=h("button",{class:"seal",hidden:""},"seal this check"),sealed=h("p",{class:"sealed"});
  const pics=h("div",{class:"thumbs"}),out=h("section",{class:"out",hidden:""},h("div",{class:"row"},link,grab),meta,verbs,pics,tabs,pane),recent=h("ol",{class:"recent"}),who=h("span");
  const chips=h("div",{class:"chips",role:"toolbar"}),cards=h("div",{class:"cards"}),more=h("button",{class:"more",hidden:""});
+ // live: emem's log, signed and growing; the number is the log head's size, checked against the pinned key
+ const live=h("span",{class:"live",title:"entries in emem.dev's signed, append-only log"});let lastSize=0;
+ const beat=async()=>{try{const t=await logHead(spec.signer);live.className="live"+(lastSize&&t.tree_size>lastSize?" up":"");live.replaceChildren("log ",h("b",{},t.tree_size.toLocaleString("en")),lastSize&&t.tree_size>lastSize?` +${t.tree_size-lastSize}`:"");lastSize=t.tree_size}catch(e){console.warn("live:",e.message)}setTimeout(beat,61e3)};
  document.body.replaceChildren(
   h("header",{class:"top"},h("a",{class:"brand",href:"./"},h("img",{src:P.one("mark"),alt:"",width:"26",height:"26"}),h("span",{},"emem")),
-   h("nav",{"aria-label":"emem"},...P.all("link").map(l=>{const[label,href]=l.arg.split(/\s{2,}/);return h("a",href.startsWith("#")?{href}:{href,target:"_blank",rel:"noopener"},label)}))),
+   h("nav",{"aria-label":"emem"},live,...P.all("link").map(l=>{const[label,href]=l.arg.split(/\s{2,}/);return h("a",href.startsWith("#")?{href}:{href,target:"_blank",rel:"noopener"},label)}))),
   h("main",{},h("h1",{},P.one("say")),P.one("sub")?h("p",{class:"sub"},P.one("sub")):null,drop,h("p",{class:"note"},P.one("note")),tries,work,out,recent),
   h("section",{class:"gallery",id:"gallery"},chips,cards,more),
   h("footer",{},who,sealState));
@@ -438,7 +486,7 @@ ${last.answer.trim()}
   const r={spec};let list=P.flows.make;
   if(Array.isArray(input))r.files=input;
   else{r.input=input.trim();let m;
-   if(m=r.input.match(MORE)){list=P.flows.extend;r.input=m[1]}else if(m=r.input.match(WITNESS)){list=P.flows.witness;r.input=m[1]}else if(COMPARE.test(r.input))list=P.flows.compare;else if(WORLD.test(r.input))list=P.flows.world;else if(CAMERA.test(r.input))list=P.flows.cameras;
+   if(m=r.input.match(MORE)){list=P.flows.extend;r.input=m[1]}else if(m=r.input.match(WITNESS)){list=P.flows.witness;r.input=m[1]}else if(COMPARE.test(r.input))list=P.flows.compare;else if(WORLD.test(r.input))list=P.flows.world;else if(REEL.test(r.input))list=P.flows.timelapse;else if(TRACK.test(r.input))list=P.flows.track;else if(CAMERA.test(r.input))list=P.flows.cameras;
    else if(POINTABLE.test(r.input))list=P.flows.point;else if(NOTE.test(r.input))list=P.flows.open;else if(ASK.test(r.input))list=P.flows.ask;else if(tokenType(r.input,P.tokens)||CID.test(r.input)||STH.test(r.input))list=P.flows.resolve}
   if(!r.files?.length&&!r.input){work.hidden=false;head.replaceChildren();map.replaceChildren();steps.replaceChildren(h("li",{class:"bad"},P.one("blank")));box.focus();busy(false);return}
   let i=0;r.tick=sub=>{if(my===seq)show(list,i,sub)};
@@ -459,7 +507,7 @@ ${last.answer.trim()}
     h("button",{onclick:()=>{box.value=`witness: ${r.url}`;start(box.value)},title:"re-read the source with your key and sign what you find, addressed to the author"},"witness"),
     h("button",{onclick:()=>{box.value=`compare: ${r.url} `;box.focus()},title:"paste a second pointer after this one"},"compare with…"),
     ...(r.witnesses||[]).slice(0,6).map(w=>h("a",{href:w.url,target:"_blank",rel:"noopener",class:w.ok?"w ok":"w bad"},`${w.ok?"✓":"✗"} ${w.from}`)));
-   pics.replaceChildren(...(r.face?.canvases||[]).map(c=>{const d=c.cloneNode();d.getContext("2d").drawImage(c,0,0);return d}),...(r.face?.imgs||[]).slice(0,8).map(src=>h("img",{src,alt:"",class:"cam",onerror(){this.remove()}})));
+   pics.replaceChildren(...(r.face?.nodes||[]),...(r.face?.canvases||[]).map(c=>{const d=c.cloneNode();d.getContext("2d").drawImage(c,0,0);return d}),...(r.face?.imgs||[]).slice(0,8).map(src=>h("img",{src,alt:"",class:"cam",onerror(){this.remove()}})));
    draw();
    if(out.getBoundingClientRect().top>innerHeight*.7||out.getBoundingClientRect().top<0)out.scrollIntoView({behavior:"smooth",block:"start"});
   }catch(e){if(my!==seq)return;clearInterval(clock);show(list,i,"",true);tickHead("stopped","bad");run=null;out.hidden=true;steps.append(h("li",{class:"bad err"},e.message||String(e)))}
@@ -468,10 +516,17 @@ ${last.answer.trim()}
 
  // ---------- gallery: real inputs and the links they became, each re-checked as it loads ----------
  // the first eight show at once; a chip shows every card of its kind
- const shows=P.shows,FIRST=8;let filter="all",expanded=false;
- const kinds=["all",...new Set(shows.map(s=>s.kind))];
- const apply=()=>{[...cards.children].forEach((c,i)=>c.hidden=filter!=="all"?c.dataset.kind!==filter:!expanded&&i>=FIRST);more.hidden=filter!=="all"||expanded||cards.children.length<=FIRST;more.textContent=`show all ${cards.children.length}`};
- const drawChips=()=>chips.replaceChildren(...kinds.map(k=>h("button",{"aria-pressed":String(k===filter),onclick:()=>{filter=k;drawChips();apply()}},k.replace(/_/g," "))));
+ // two ways to narrow: what it is about (its kind), and who keeps it (machine, third party, combined, human)
+ const shows=P.shows,FIRST=12;let filter="all",by="all",expanded=false;
+ const kinds=["all",...new Set(shows.map(s=>s.kind))],bys=["all",...new Set(shows.map(s=>s.by).filter(Boolean))];
+ const apply=()=>{const f=filter!=="all"||by!=="all";[...cards.children].forEach((c,i)=>c.hidden=f?((filter!=="all"&&c.dataset.kind!==filter)||(by!=="all"&&c.dataset.by!==by)):!expanded&&i>=FIRST);more.hidden=f||expanded||cards.children.length<=FIRST;more.textContent=`all ${cards.children.length}`};
+ const chip=(v,cur,set)=>h("button",{"aria-pressed":String(v===cur),onclick:()=>{set(v);drawChips();apply()}},v.replace(/_/g," "));
+ const drawChips=()=>chips.replaceChildren(h("div",{class:"chiprow"},...kinds.map(k=>chip(k,filter,v=>filter=v))),h("div",{class:"chiprow by"},...bys.map(k=>chip(k,by,v=>by=v))));
+ // a card's picture is a small note of its own (emem: thumb.v1), checked by its name and by the link it claims to show
+ const thumbOf=async(s,pic)=>{try{const t=await getNote(s.thumb);if(!t.ok)return;const of=(t.body.match(/^of: (\S+)/m)||[])[1];if(of!==s.emem)return;
+  const data=(t.body.match(/^(data:image\/(?:webp|png|jpeg);base64,[A-Za-z0-9+/=]+)$/m)||[])[1],n=+(t.body.match(/^frames: (\d+)/m)||[])[1]||1;if(!data)return;
+  pic.style.backgroundImage=`url("${data}")`;pic.style.backgroundSize=`${n*100}% 100%`;pic.hidden=false;
+  if(n>1){let i=0;const tick=()=>{if(!pic.isConnected)return;pic.style.backgroundPosition=`${(i%n)*100/(n-1)}% 0`;i++;setTimeout(tick,i%n?600:1300)};tick()}}catch{}};
  more.onclick=()=>{expanded=true;apply()};
  drawChips();
  const openIt=s=>{box.value=s.emem;scrollTo({top:0,behavior:"smooth"});start(s.emem)};
@@ -484,12 +539,13 @@ ${last.answer.trim()}
  // "self" is the seal this page is running from; an unsealed page has none, so the card is left out
  for(const s of shows.filter(s=>s.emem!=="self"||!S.unsealed))if(s.emem==="self")s.emem=S.url;
  for(const s of shows.filter(s=>s.emem!=="self")){
-  const state=h("span",{class:"state"},"checking…"),body=h("div",{class:"body"}),live=s.emem==="live";
+  const state=h("span",{class:"state"},"checking…"),body=h("div",{class:"body"}),live=s.emem==="live",pic=h("div",{class:"pic",hidden:"","aria-hidden":"true"});
   s.cid=(s.emem.match(/([a-z2-7]{26})\.md$/)||[])[1];
-  const card=h("article",{class:"card",tabindex:"0","data-kind":s.kind,role:"button","aria-label":`open ${s.title}`},
-   h("div",{class:"head"},h("span",{class:"tag"},s.tag||s.kind),state),
-   h("h3",{},s.title),s.from?h("p",{class:"src"},s.from.replace(/^https?:\/\//,"").replace(/^\.\/samples\//,"sample file · ")):null,body,
-   h("div",{class:"acts"},h("span",{},live?"watch":"open"),s.from?h("span",{},"run it yourself"):null));
+  const card=h("article",{class:"card",tabindex:"0","data-kind":s.kind,"data-by":s.by||"",role:"button","aria-label":`open ${s.title}`},pic,
+   h("div",{class:"head"},h("span",{class:"tag"},s.tag||s.kind),s.by?h("span",{class:"by"},s.by):null,state),
+   h("h3",{},s.title),s.from?h("p",{class:"src"},s.from.replace(/^https?:\/\/([^/]+).*$/,"$1").replace(/^\.\/samples\//,"sample · ").replace(/\s*\|.*$/,"")):null,body,
+   h("div",{class:"acts"},h("span",{},live?"watch":"open"),s.from?h("span",{},"run"):null));
+  if(s.thumb)thumbOf(s,pic);
   card.onclick=e=>{if(live)return;if(e.target.closest(".acts span:nth-child(2)"))runIt(s);else openIt(s)};
   card.onkeydown=e=>{if(e.key==="Enter"&&!live)openIt(s)};
   cards.append(card);
@@ -497,11 +553,11 @@ ${last.answer.trim()}
    feed(rows=>list.replaceChildren(...rows.map(e=>h("li",{onclick:ev=>{ev.stopPropagation();openIt({emem:`${EMEM}${e.path}`})},title:e.path},h("b",{},String(e.signed_at||"").slice(11,19)),h("b",{},(e.attester_pubkey_b32||"").slice(0,8)),h("span",{},e.path.split("/").slice(4).join("/")))))).catch(()=>{state.className="state bad";state.textContent="offline"});
    continue}
   summarize(s,spec).then(x=>{state.className="state "+(x.ok?"ok":"bad");state.textContent=x.state;
-   body.replaceChildren(...x.nodes.map(([cls,t])=>cls==="canvas"?h("div",{class:"thumbs"},...t):h(cls==="peek"?"pre":"p",{class:cls},t)))})
+   body.replaceChildren(...x.nodes.filter(([cls])=>!(s.thumb&&(cls==="peek"||cls==="canvas"))).map(([cls,t])=>cls==="canvas"?h("div",{class:"thumbs"},...t):h(cls==="peek"?"pre":"p",{class:cls},t)))})
    .catch(e=>{state.className="state bad";state.textContent="unreachable";body.replaceChildren(h("p",{class:"stat"},e.message))});
  }
 
- apply();
+ apply();beat();
 
  go.onclick=()=>start(box.value);
  box.onkeydown=e=>{if(e.key==="Enter"&&(e.metaKey||e.ctrlKey))start(box.value)};

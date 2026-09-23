@@ -26,9 +26,10 @@ export const WORLD=/^world:\s*(.{2,120})$/i;
 // the place, resolved once: a cell, its centre, and the name emem settled on
 export const locate=async(q,tick)=>{
  tick("finding the place");
- const l=await json(await net(`${EMEM}/v1/locate?q=${encodeURIComponent(q)}`)),cell=l.cell64||l.cell;
+ const ll=q.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+ const l=await json(await net(ll?`${EMEM}/v1/locate?lat=${ll[1]}&lng=${ll[2]}`:`${EMEM}/v1/locate?q=${encodeURIComponent(q)}`)),cell=l.cell64||l.cell;
  if(!cell)throw new Error(`emem.dev could not find "${q}". Name a town, a landmark, or give "lat, lng".`);
- return{q,cell,label:l.place_label||l.selected?.label||q,lat:l.centre?.lat_deg,lng:l.centre?.lng_deg};
+ return{q,cell,label:l.place_label||l.selected?.label||(ll?`${(+ll[1]).toFixed(3)}, ${(+ll[2]).toFixed(3)}`:q),lat:l.centre?.lat_deg,lng:l.centre?.lng_deg};
 };
 
 // every layer at once; each call is independent, so one slow or missing layer never blocks the others
