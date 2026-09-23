@@ -65,6 +65,10 @@ token state     : one recorded step of an answer's reasoning  | GET  /v1/state/{
 limit   4000000
 section 24000
 max     160
+# what one run may spend before it stops itself (requests, bytes the servers declared, seconds); a stop says which cap it hit
+budget  requests 3000
+budget  bytes 2000000000
+budget  seconds 900
 
 step read   : input    -> items  | reading read
 step text   : items    -> docs  | extracting extracted
@@ -254,6 +258,10 @@ head: # <from8> -> <requester8>: verify <request cid8> ok|no
 fields: from to request deliver verdict(ok|no: why) ; a key may not verify its own delivery
 state: requested → claimed → delivered → verified by n keys (T1: keys, not parties)
 >>
+spec grant.v1 <<
+fields: of(note url) for(recipient X25519 share key, base64url) eph(fresh X25519 key) iv wrapped(AES-GCM of the link's 32-byte key)
+kek: HKDF-SHA256(X25519(eph, for), salt = eph‖for, info "emem.grant.v1") ; link: <note>#g=<writer8>/<grant cid> carries no key
+>>
 spec drift.v1 <<
 head: # <watcher8> -> <author8>: drift <cid8> ok|changed k/n
 fields: of(link) previous(url|none) entry(n) source table read at ; after: sth
@@ -300,6 +308,43 @@ from  https://r2-public.protomaps.com/protomaps-sample-datasets/terrarium_z9.pmt
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/ppdqanaf7ufpxedvwdrwuqhf5u.md
 thumb https://emem.dev/memories/by_attester/ddzmyzhn/nurixabv76sxwnyxfmmfl62sra.md
 pin   Earth's terrain
+>>
+
+show earth : Ozone, 41 years of a climate model <<
+tag   NetCDF · 1.05 GB
+by    third party
+from  https://huggingface.co/datasets/CEMAC/netcdf_test_files/resolve/main/o3_AERmon_GISS-E2-1-G_piClim-O3_r1i1p3f1_gn_195001-199012.nc
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/o2iyw5aexedv7sneir7sgng4fm.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/5tzuj4g3ed4cwudrzgk3ym5pri.md
+>>
+
+show disaster : Hurricane Katrina, the weather model run <<
+tag   NetCDF-4 · 848 MB
+by    third party
+from  https://huggingface.co/datasets/CEMAC/netcdf_test_files/resolve/main/wrfout_d01_2005-08-28_000000.nc
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/kp4jgaqtc442ojdzx45oohynvu.md
+>>
+
+show 3d : Autzen, 10.6 million lidar points <<
+tag   COPC · 81 MB
+by    third party
+from  https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/jjyznjvil64vzygbs6mxceszbu.md
+>>
+
+show 3d : A train, as 3D Gaussian splats <<
+tag   3DGS PLY · 139 MB
+by    third party
+from  https://huggingface.co/johnowhitaker/gaussian_splatter_models/resolve/main/train/point_cloud/iteration_7000/point_cloud.ply
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/qfclw5qafxejoqabrtnjlqbvxu.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/rfbykggvj6vl7rbhjv77r3leuq.md
+>>
+
+show medical : Cell labels, Zarr v3 with sharding <<
+tag   OME-Zarr 0.5
+by    third party
+from  https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.5/idr0062A/6001240_labels.zarr
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/kkktv6drhi6l4rsli3x4nyf65i.md
 >>
 
 show models : MNIST, 600 row groups, footer statistics <<

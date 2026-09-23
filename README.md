@@ -13,7 +13,7 @@ The box takes anything:
 | an emem link | the link re-checked: every file is re-hashed against its name |
 | any emem token: `emem:fact`, `bundle`, `cell`, `entity`, `raster`, `cube`, `rasterset`, `state` | the record it names, resolved and its signature checked in the browser |
 | a bare file name (26 characters) | the file, read by name over **A2A**, with its author's signature checked |
-| a link to large data: model weights (safetensors, GGUF), GeoTIFF/COG/BigTIFF, OME-Zarr, HLS video, DICOM, MP4, PMTiles, Parquet, FlatGeobuf, or any file with byte ranges | a **pointer**: the data stays at its source; emem holds its address, chunk hashes and statistics |
+| a link to large data: model weights (safetensors, GGUF), GeoTIFF/COG/BigTIFF, OME-Zarr, HLS video, DICOM, MP4, PMTiles, Parquet, FlatGeobuf, NetCDF-3 (variables and records, with a map of the main field), NetCDF-4/HDF5, COPC lidar (octree nodes), Zarr v3 with sharding (inner chunks from each shard's crc32c-checked index), 3DGS `.ply`, or any file with byte ranges | a **pointer**: the data stays at its source; emem holds its address, chunk hashes and statistics |
 | a Hugging Face repository or an S3 folder ending in `/` | a **listing** of every file with its publisher's content hash; nothing downloaded |
 | several links, one per line | one index over all of them |
 | `cameras: London` | 12 street cameras: each clip hashed again, the sun recomputed, the counts labelled as a detector's reading |
@@ -307,6 +307,16 @@ Each note kind declares its schema in `emem.eio` as a `spec` block. The schema i
 - **Back.** Each result is a place in history. Back reopens the previous reference, a read that never writes or re-runs a query.
 - **Stop keeps work.** Stopping a pointer mid-way offers to keep the chunks already hashed as a partial pointer, in one explicit write. `more:` continues it in the fixed order.
 - **Languages.** `lang es << … >>` in `emem.eio` holds a visitor-facing set of lines. The same rules check it (word counts, no jargon). Spanish and Hindi ship; `?lang=` picks one.
+
+## Private buckets, grants, second readers and budgets
+
+- **Private buckets.** A presigned URL (S3 `X-Amz-*`, GCS `X-Goog-*`, Azure `sig`/`se`/…) is used for this run and never stored. The pointer keeps the bare object URL and says `credential: presigned URL withheld`. Re-read it later with `<pointer link> with <fresh presigned URL>`, which is accepted only for the same object (same origin and path).
+- **Per-agent grants.** Every browser has an X25519 **share key** (footer). In the publish panel, list share keys under "encrypt". Each one gets a `grant.v1` note: the link's key wrapped by ECDH with a fresh key, HKDF-SHA256 and AES-GCM. The grant link (`…#g=<writer8>/<cid>`) carries no key at all, and only that share key's holder can open it.
+- **A second reader.** Reopening a pointer asks emem.dev to re-read one row at the source itself (`POST /v1/range_hash`). The page checks emem's signed receipt (PreimageV1 `emem.range_hash.v1`) and compares the hash with the row. The same row is proved to the note's root through `emem:tree` (`GET /v1/tree/{cid}`): the leaf is computed here from the row, then walked up the served path.
+- **Grids, bound.** Reopening a grid checks that every row with a value names a cell in that band's signed bundle, and echo-verifies a spread of printed values against the facts the bundle cites. Phoenix: 420 rows are members, and 18 of 18 sampled values match.
+- **Budgets.** `budget requests|bytes|seconds` in `emem.eio` caps each run. A run that reaches a cap stops itself like a Stop and says which cap it hit.
+- **Live.** A live HLS pointer can **follow live**: it re-reads the playlist every minute, at most 30 times, one extension each. Segments are named by media sequence, and rows whose segments have left the playlist are kept, so the chain grows. A camera survey can **refresh every 5 min**, at most 12 times. Stop ends either.
+- **Folders.** A listing records whether it was complete. A truncated re-listing reports files it didn't reach as "not reached", never as gone.
 
 ## Agents together: request, claim, deliver, verify
 

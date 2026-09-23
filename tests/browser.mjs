@@ -45,6 +45,12 @@ await test("a private link opens only with its #k=",async keep=>{const o=await o
  assert.match(await (await fetch(plain)).text(),/^---\nemem: sealed\.v1/);
  await o.pg.fill("textarea",plain);await o.pg.click(".go");await idle(o.pg);assert.match(await o.pg.textContent(".steps .err"),/encrypted/);
  await o.pg.fill("textarea",link);await o.pg.click(".go");await idle(o.pg);assert.match(await o.pg.textContent(".out .scope"),/1 of 1 files match/)});
+await test("a grant opens only for its share key",async keep=>{const a=await open("?boot=local");keep(a);const bctx=await b.newContext(),B=await bctx.newPage();await B.goto(BASE+"?boot=local");await B.waitForSelector(".card");await a.pg.waitForSelector(".card");
+ const share=await B.evaluate(async()=>(await (await import("./src/emem.mjs")).shareKey()).pub);
+ await a.pg.fill("textarea","grant test "+Date.now());await a.pg.click(".go");await a.pg.waitForSelector(".consent:not([hidden])");await a.pg.check("#enc");await a.pg.fill(".consent .grant",share);await a.pg.click(".consent .publish");await idle(a.pg);
+ const gl=await a.pg.$eval(".verbs a",x=>x.href);assert.match(gl,/#g=[a-z2-7]{8}\/[a-z2-7]{26}$/);
+ await B.fill("textarea",gl);await B.click(".go");await idle(B);assert.match(await B.textContent(".out .scope"),/1 of 1 files match/);
+ await a.pg.fill("textarea",gl);await a.pg.click(".go");await idle(a.pg);assert.match(await a.pg.textContent(".steps .err"),/another share key/);await bctx.close()});
 await test("the page reads a language the source declares",async keep=>{const o=await open("?boot=local&lang=es");keep(o);await o.pg.waitForSelector(".card");assert.match(await o.pg.textContent("h1"),/Tokeniza archivos enormes/)});
 
 await b.close();srv.kill();console.log(`${pass} passed, ${fail} failed`);process.exit(fail?1:0);

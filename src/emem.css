@@ -176,3 +176,4 @@ footer .link:hover{color:var(--fg)}
 @media (max-width:420px){.r1{white-space:normal}.tasks button{padding:4px 9px}.consent .bar{flex-wrap:wrap}}
 /* motion only for people who have not asked for less */
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+.consent .grant{width:100%;font:12px var(--mono);padding:6px 8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);margin:0 0 .8em}

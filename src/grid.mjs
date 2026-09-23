@@ -87,3 +87,15 @@ export const gridFromNote=body=>{const k=(x)=>(body.match(new RegExp(`^${x}: (.+
  for(const m of body.matchAll(/^\| (\d+),(\d+) \| (\S+) \| (.+) \|$/gm)){const i=+m[1]*n+ +m[2];cells[i]=m[3];m[4].split(" | ").forEach((v,j)=>{if(bands[j])vals[bands[j]][i]=v.trim()==="—"?null:Number(v)})}
  const units=Object.fromEntries(k("units").split(/\s+/).filter(Boolean).map(x=>x.split("=")));
  return{kind,bands,n,cells,vals,units,at:k("read"),p:{lat,lng,label:k("place")},extra:{},bundles:bands.map(b=>k(`bundle ${b}`)||null)}};
+
+// a grid's rows, bound to its signed bundles: every row with a value must name a cell that is a member of that band's
+// bundle, and a spread of printed values must echo-verify against the signed fact the bundle cites for that cell.
+// An altered value, or a row the bundle doesn't hold, shows as a failure; a service that can't answer shows as unchecked.
+export const bindGrid=async(g,per=6)=>{const out={members:0,missing:0,echoed:0,matched:0,unchecked:0};
+ await Promise.all(g.bands.map(async(b,bi)=>{const t=g.bundles[bi];if(!t)return;const j=await net(`${EMEM}/v1/memory_bundle/${t}`).then(json).catch(()=>null);if(!j?.citations){out.unchecked++;return}
+  const tok=new Map(j.citations.filter(c=>c.band===b).map(c=>[c.cell,c.memory_token]));
+  const rows=g.cells.map((c,i)=>({c,i,v:g.vals[b][i]})).filter(r=>r.c&&r.v!=null);out.members+=rows.filter(r=>tok.has(r.c)).length;out.missing+=rows.filter(r=>!tok.has(r.c)).length;
+  const pick=rows.filter(r=>tok.has(r.c)).filter((_,k,a)=>a.length<=per||k%Math.ceil(a.length/per)===0).slice(0,per);
+  for(const r of pick){const x=await post(`${EMEM}/v1/echo_verify`,{token:tok.get(r.c),claimed_value:String(r.v)}).then(json).catch(()=>null);if(!x){out.unchecked++;continue}out.echoed++;if(x.matches)out.matched++}}));
+ return out};
+

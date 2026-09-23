@@ -1,12 +1,12 @@
 // eio runtime: compiles emem.eio, enforces its rules, draws the page, runs its flows against emem.dev.
-import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia,guard,exportKey,importKey,keyState,newSecret,sealText,openText,SEALED,SECRET_LINK,driftOf,corpusStream,witnesses,placeFacts,post,SPECS,specify,RUN,who as writerOf} from "./emem.mjs";
+import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia,guard,exportKey,importKey,keyState,newSecret,sealText,openText,SEALED,SECRET_LINK,driftOf,corpusStream,shareKey,grantBody,openGrant,rangeHash,treeRow,witnesses,placeFacts,post,SPECS,specify,RUN,who as writerOf} from "./emem.mjs";
 import {toDoc,REPO,repoItems,blocksOf,pack,describe,injections} from "./read.mjs";
 import {compile} from "./lang.mjs";
 import {line as lineOf,tokenLine} from "./line.mjs";
 import {WORLD,locate,layers,weave} from "./world.mjs";
 import {REEL,parse as reelParse,frames as reelFrames,fromCubes,bind as reelBind,paint,play,reelNote} from "./reel.mjs";
 import {CAMERA,look,keep,rehash} from "./camera.mjs";
-import {GRID,sample,paintGrid,gridNote,gridFromNote,findings} from "./grid.mjs";
+import {GRID,sample,paintGrid,gridNote,gridFromNote,findings,bindGrid} from "./grid.mjs";
 import {head,head as logHead,stamp,stampOf,since,cosign} from "./time.mjs";
 import {REQUEST,DELIVER,TASKS,CLAIM,request as askAgent,claim as claimTask,deliver as handBack,follow,verify as verifyHand} from "./hand.mjs";
 import {POINTABLE,probe,recheck,relist,compare,parseRows,reread,mb,drawPreview,previewOf} from "./point.mjs";
@@ -111,18 +111,22 @@ const ops={
  async store(r){
   const all=[...r.notes,...(r.index?[r.index]:[])];let done=0;
   if(r.askPublish){const how=await r.askPublish({title:r.title,files:all.length,tokens:tokens(r.text),flags:r.flags?.length||0,cid:(r.index||r.notes[0]).cid,key:r.key,peek:r.text.split("\n").filter(l=>l.trim()).slice(0,3).join("\n").slice(0,280)});
-   if(how?.encrypt){r.secret=newSecret();await ops.sign.call(ops,r);all.splice(0,all.length,...r.notes,...(r.index?[r.index]:[]))}}
+   if(how?.encrypt){r.secret=newSecret();r.grants=how.grants||[];await ops.sign.call(ops,r);all.splice(0,all.length,...r.notes,...(r.index?[r.index]:[]))}}
   await pool(all,3,async n=>{await put(n,r.key);r.tick(`${++done}/${all.length}`)});
   return r;
  },
  async link(r){
-  const top=r.index||r.notes[0],n=r.notes.length+(r.index?1:0);if(r.secret)r.shareUrl=`${top.url}#k=${r.secret}`
+  const top=r.index||r.notes[0],n=r.notes.length+(r.index?1:0);if(r.secret)r.shareUrl=`${top.url}#k=${r.secret}`;
+  // each grant is a public note that only the named share key can open; its link carries no key at all
+  if(r.secret&&r.grants?.length){const k=await key();r.grantLinks=[];for(const g of r.grants){const gn=await note(await grantBody(r.secret,g,top.url),k);await put(gn,k.pub);r.grantLinks.push({to:g.slice(0,8),url:`${top.url}#g=${k.pub.slice(0,8)}/${gn.cid}`})}}
   Object.assign(r,{url:top.url,cid:top.cid,body:r.secret&&r.clearTop?r.clearTop:top.body,first:r.notes[0].url,bad:r.bad,proof:(r.flags?.length?`⚠ ${r.flags.length} passage${r.flags.length>1?"s":""} address an AI; kept as data and listed in the link · `:"")+`${n} of ${n} files stored`+(r.index?` · one name commits to all ${r.notes.length} sections`:"")+await witnessHead(r)});
   Object.assign(r,readVia(r));
   return r;
  },
  async fetch(r){
   const top=await getNote(r.input);
+  if(r.grantRef){const g=await getNote(`${EMEM}/memories/by_attester/${r.grantRef}.md`);if(g.ok===false)throw new Error("That grant's bytes don't match its name.");
+   const o=await openGrant(g.body);if(o.of!==r.input)throw new Error("That grant is for a different note.");r.secret=o.secret}
   const clear=async c=>{if(!SEALED.test(c.body))return c;if(!r.secret)throw new Error("This note is encrypted. Its link needs the #k=… part that the writer shared.");return{...c,sealed:true,body:await openText(c.body,r.secret)}};
   Object.assign(top,await clear(top));Object.assign(r,{url:top.url,cid:top.cid,body:top.body});if(top.sealed)r.shareUrl=`${top.url}#k=${r.secret}`;
   const kids=[...new Set(top.body.match(LINKS)||[])].filter(u=>u!==top.url).slice(0,r.spec.max);
@@ -279,8 +283,9 @@ const ops={
   if(/^emem: grid\.v1$/m.test(top.body)){const g=gridFromNote(top.body),res=await Promise.all(g.bundles.map(t=>t?resolveToken(t,r.spec).catch(()=>({bad:true})):null));
    if(g.kind==="city"){const d=.0035,k=Math.cos(g.p.lat*Math.PI/180);g.extra.box=d;g.extra.buildings=await post(`${EMEM}/v1/building_footprints`,{polygon_bbox:{min_lat:g.p.lat-d,max_lat:g.p.lat+d,min_lng:g.p.lng-d/k,max_lng:g.p.lng+d/k},max_features:4000}).then(x=>x.json()).catch(()=>null)}
    const ok=res.filter(x=>x&&!x.bad).length,tot=res.filter(Boolean).length;
+   r.tick("binding rows to their bundles");const bd=await bindGrid(g).catch(()=>null);
    Object.assign(r,{world:true,url:top.url,cid:top.cid,text:top.body,title:(top.body.match(/^# (.+)$/m)||[])[1]||r.title,face:{canvases:paintGrid(g)},bad:r.bad||ok<tot,
-    proof:`${r.proof} · maps: ${ok} of ${tot} bundles signed${g.extra.buildings?` · building overlay read now (${new Date().toISOString().slice(0,10)}), not when the grid was made${g.at?` (${g.at})`:""}`:""}`,size:(top.body.match(/^- (.+)$/m)||[])[1]||"",shape:"It is a place as a grid of signed squares, drawn as maps."});
+    bad:r.bad||ok<tot||!!bd?.missing||(bd&&bd.matched<bd.echoed),proof:`${r.proof} · maps: ${ok} of ${tot} bundles signed${bd?` · rows: ${bd.members} are members of their band's bundle${bd.missing?`, ✗ ${bd.missing} are not`:""} · values: ${bd.matched} of ${bd.echoed} sampled echo-verify against their signed facts${bd.unchecked?` (${bd.unchecked} unchecked: service unavailable)`:""}`:" · rows not bound (bundles unavailable)"}${g.extra.buildings?` · building overlay read now (${new Date().toISOString().slice(0,10)}), not when the grid was made${g.at?` (${g.at})`:""}`:""}`,size:(top.body.match(/^- (.+)$/m)||[])[1]||"",shape:"It is a place as a grid of signed squares, drawn as maps."});
    Object.assign(r,readVia({...r,first:null}));return r}
   // a track: every step re-checked, the chain recomputed; a dropped, swapped or reordered step changes the head
   if(/^emem: track\.v1$/m.test(top.body)){const rows=[...top.body.matchAll(/^\| (\d+) \| ([^|]*) \| (\S+) \| [^|]* \| [^|]* \| ([a-z2-7]{26}) \|$/gm)];
@@ -314,17 +319,25 @@ const ops={
   if(/^emem: directory\.v1$/m.test(top.body)){
    const c=await relist(top.body,r.tick),moved=c.changed.length+c.added.length+c.gone.length;r.pointer=true;r.folder=true;r.title=(top.body.match(/^# (.+)$/m)||[])[1]||r.title;
    r.bad=r.bad||!c.table||moved>0;
-   r.proof=`${r.proof} · table ${c.table?"matches":"does NOT match"} its root · listed again: ${moved?`${c.changed.length} changed, ${c.added.length} new, ${c.gone.length} gone, ${c.same} unchanged`:`all ${c.n} files unchanged`}`;
+   r.proof=`${r.proof} · table ${c.table?"matches":"does NOT match"} its root · listed again${c.truncated?" (truncated listing)":""}: ${moved?`${c.changed.length} changed, ${c.added.length} new, ${c.gone.length} gone, ${c.same} unchanged`:`all ${c.n-(c.unseen?.length||0)} files seen are unchanged`}${c.unseen?.length?` · ${c.unseen.length} not reached by this listing, so not counted as gone`:""}`;
    r.size=`${mb(+(top.body.match(/^bytes: (\d+)/m)||[])[1]||0)} in the folder`;r.shape=`It is a listing of the files at ${new URL(c.src).host}, each with its publisher's content hash; the files stay there.`;
    Object.assign(r,{url:top.url,cid:top.cid},folderVia({...r,body:top.body}));return r;
   }
   if(/^emem: pointer\.v1$/m.test(top.body)){
-   const c=await recheck(top.body,r.tick);r.pointer=true;r.title=(top.body.match(/^# (.+)$/m)||[])[1]||r.title;
+   const c=await recheck(top.body,r.tick,6,r.via);r.pointer=true;r.title=(top.body.match(/^# (.+)$/m)||[])[1]||r.title;
    r.bad=r.bad||!c.table||c.ok<c.n;
    // other keys that re-read the same source and signed what they saw
    r.tick("looking for witnesses");const w=await witnesses(top.url,top.cid).catch(()=>[]),wok=w.filter(x=>x.ok).length;r.witnesses=w;
    r.proof=`${r.proof} · table ${c.table?"matches":"does NOT match"} its root · source: ${c.ok===c.n?`${c.n} of ${c.n} sampled chunks still match`:`${c.n-c.ok} of ${c.n} sampled chunks have CHANGED`}${w.length?` · witnessed by ${w.length} other key${w.length>1?"s":""} (T1, unnamed: a count of keys, not of parties)${wok<w.length?` (${w.length-wok} saw a change)`:""}`:" · no witnesses yet"}`;
    // the recorded history: a watcher's drift chain for this link (scheduled re-checks), each entry's author checked
+   // two checks that don't rely on this browser's reading: emem.dev re-reads one row itself and signs its hash, and the
+   // row is proved to the note's root through emem:tree
+   const row=c.rows?.find(x=>!x.url)||c.rows?.[0],root0=(top.body.match(/^root: (\S+)/m)||[])[1];
+   if(row&&!/^presigned/.test(field(top.body,"credential")||"")){r.tick("asking emem.dev to re-read one chunk");
+    const [rh,tr]=await Promise.all([row.length?rangeHash(row.url||field(top.body,"source"),row.offset,row.length,r.spec).catch(()=>null):null,root0?treeRow(top.cid,row,root0).catch(()=>null):null]);
+    if(rh)r.proof+=` · emem.dev re-read "${row.label}" at the source and ${rh.signed?"signed":"(signature fails)"} ${rh.hash===row.hash?"the same hash":"a DIFFERENT hash"}`;
+    if(tr)r.proof+=` · emem:tree: that row proves to the note's root in ${tr.steps} hashes${tr.ok?"":" ✗ (it does not)"}`;
+    if(rh&&(rh.hash!==row.hash||!rh.signed))r.bad=true;if(tr&&!tr.ok)r.bad=true}
    const dc=await driftOf(top.url,globalThis.__seal?.sealed_by||SITE_KEY).catch(()=>null);
    if(dc)r.proof+=` · recorded drift checks: ${dc.n} since ${dc.since} (last ${dc.last} UTC), ${dc.changed?`${dc.changed} saw a change, last on ${dc.lastChange}`:"every one held"}${dc.linked?"":" · ✗ the chain skips an entry"}${dc.bad?` · ${dc.bad} entr${dc.bad>1?"ies don't":"y doesn't"} check`:""}`;
    const bm=top.body.match(/^bytes: (?:about )?(\d+)/m);r.size=bm?`${/^bytes: about/m.test(top.body)?"about ":""}${mb(+bm[1])} at the source`:"size unknown at the source";
@@ -442,15 +455,16 @@ const boot=async()=>{
  const consent=h("div",{class:"consent",hidden:""});
  const askPublish=(my,signal)=>p=>new Promise((ok,no)=>{if(my!==seq)return no(new Error("superseded"));
   const yes=h("button",{class:"go publish"},"Create public link"),not=h("button",{class:"halt"},"keep it here"),enc=h("input",{type:"checkbox",id:"enc"});
-  enc.onchange=()=>yes.textContent=enc.checked?"Create private link":"Create public link";
+  const to=h("input",{type:"text",class:"grant",placeholder:"optional: share keys that may open it (43 characters each, comma-separated)",hidden:"","aria-label":"share keys to grant"});
+  enc.onchange=()=>{yes.textContent=enc.checked?"Create private link":"Create public link";to.hidden=!enc.checked};
   consent.replaceChildren(h("p",{class:"what"},h("b",{},`Ready: ${p.title}`),` · ${p.files} file${p.files>1?"s":""} · ${p.tokens}${p.flags?` · ⚠ ${p.flags} passage${p.flags>1?"s":""} address an AI`:""}`),
    h("pre",{class:"peek"},p.peek),
    h("p",{class:"note"},`Leaves this browser when you press the button: this text, signed by your key ${p.key.slice(0,8)}, stored on emem.dev under the name ${p.cid}. Anyone with the link can read it, and it can't be deleted.`),
    h("label",{class:"enc",for:"enc"},enc," encrypt: only people with the whole link (its #k=… part) can read it. The key stays in the link and never reaches a server."),
-   h("div",{class:"bar"},not,yes));consent.hidden=false;tickHead("ready to publish","ok");
+   to,h("div",{class:"bar"},not,yes));consent.hidden=false;tickHead("ready to publish","ok");
   const done=f=>{consent.hidden=true;consent.replaceChildren();signal.removeEventListener("abort",ab);f()};
   const ab=()=>done(()=>no(new Error("Stopped. Nothing was published.")));signal.addEventListener("abort",ab);
-  yes.onclick=()=>done(()=>ok({encrypt:enc.checked}));not.onclick=()=>done(()=>no(new Error("Kept here. Nothing was published.")));yes.focus()});
+  yes.onclick=()=>done(()=>ok({encrypt:enc.checked,grants:enc.checked?to.value.split(/[\s,]+/).filter(Boolean):[]}));not.onclick=()=>done(()=>no(new Error("Kept here. Nothing was published.")));yes.focus()});
  // what a pointer can do next: cover more of its source, or be witnessed by this browser's key
  const verbs=h("div",{class:"verbs",hidden:""});
  const gives=P.all("give"),tabs=h("div",{class:"tabs",role:"tablist"}),pane=h("div",{class:"pane"});
@@ -478,6 +492,9 @@ const boot=async()=>{
   h("footer",{},who,sealState));
 
  let run=null,tab=gives[0].arg,drawTries=()=>{},popping=false,preset=null;
+ // following: a live source is re-read on an interval, only after the person asks, at most `left` more times; Stop ends it
+ let follow=null;const followNext=()=>{if(!follow||follow.left<=0){follow=null;return}follow.left--;const f=follow;follow.timer=setTimeout(()=>{if(follow!==f)return;box.value=f.input();start(box.value)},f.every)};
+ const followBtn=(label,input,every,left,title)=>h("button",{title,onclick:ev=>{if(follow){clearTimeout(follow.timer);follow=null;ev.target.textContent=label;return}follow={input,every,left};ev.target.textContent=`following · stop`;followNext()}},follow?"following · stop":label);
  const vals=()=>({line:run.line||"",link:run.url,cid:run.cid,title:run.title||"source",shape:run.shape,index:run.body,curl:run.curl,mcp:run.mcp,a2a:run.a2a,verify:run.verify});
  const draw=()=>{
   if(!run){out.hidden=true;return}
@@ -556,7 +573,7 @@ ${last.answer.trim()}
  const restore=h("input",{type:"file",accept:".json",hidden:""});
  const backup=()=>{const t=exportKey();if(!t)return;const a=h("a",{href:URL.createObjectURL(new Blob([t],{type:"application/json"})),download:`emem-key-${JSON.parse(t).pub_b32.slice(0,8)}.json`});a.click()};
  restore.onchange=async()=>{try{const pub=await importKey(await restore.files[0].text());showKey({pub})}catch(e){who.textContent=e.message}};
- const showKey=k=>who.replaceChildren(h("span",{title:"emem's enlistment ladder (GET /v1/enlist): a key made here signs its own namespace, which is T1 (keyed). Naming (T2) and organisation evidence (T4) aren't set up by this page, so agents should weigh this key as unnamed."},"T1 "),"key ",h("a",{href:`${EMEM}/memories/by_attester/${k.pub.slice(0,8)}/`,target:"_blank",rel:"noopener",title:"every file this key has stored, listed by emem"},k.pub.slice(0,8))," · ",...(()=>{const st=keyState();return st?.recoverable?[h("button",{class:"link",onclick:backup,title:"a recovery file can be made only now, while this key is being set up; after a reload it is locked to this device"},"back up now")," · "]:st?.stored==="device"?[h("span",{title:"the key can sign but can't be read or exported, even by scripts on this page"},"device-only")," · "]:[]})(),h("button",{class:"link",onclick:()=>restore.click()},"restore"),restore);
+ const showKey=k=>who.replaceChildren(h("span",{title:"emem's enlistment ladder (GET /v1/enlist): a key made here signs its own namespace, which is T1 (keyed). Naming (T2) and organisation evidence (T4) aren't set up by this page, so agents should weigh this key as unnamed."},"T1 "),"key ",h("a",{href:`${EMEM}/memories/by_attester/${k.pub.slice(0,8)}/`,target:"_blank",rel:"noopener",title:"every file this key has stored, listed by emem"},k.pub.slice(0,8))," · ",...(()=>{const st=keyState();return st?.recoverable?[h("button",{class:"link",onclick:backup,title:"a recovery file can be made only now, while this key is being set up; after a reload it is locked to this device"},"back up now")," · "]:st?.stored==="device"?[h("span",{title:"the key can sign but can't be read or exported, even by scripts on this page"},"device-only")," · "]:[]})(),h("button",{class:"link",onclick:()=>restore.click()},"restore"),restore," · ",h("button",{class:"link",title:"your share key: give it to someone who wants to grant you a private link; it can only receive",onclick:async ev=>{const s=await shareKey();try{await navigator.clipboard.writeText(s.pub);ev.target.textContent="share key copied"}catch{ev.target.textContent=s.pub}}},"share key"));
  key().then(showKey).catch(()=>who.textContent="emem.dev");
 
  // the latest click wins: an older run keeps going but may no longer touch the page
@@ -580,13 +597,16 @@ ${last.answer.trim()}
   const r={spec};let list=P.flows.make;
   if(Array.isArray(input))r.files=input;
   else{r.input=input.trim();let m;
+   // a private bucket's pointer is re-read through a fresh presigned URL given for this run only: "<pointer> with <url>"
+   if(m=r.input.match(/^(https:\/\/emem\.dev\/memories\/\S+\.md)\s+with\s+(https?:\/\/\S+)$/)){r.input=m[1];r.via=m[2]}
    if(m=r.input.match(/#k=([A-Za-z0-9_-]{43})$/)){r.input=r.input.slice(0,-m[0].length);r.secret=m[1]}
+   else if(m=r.input.match(/#g=([a-z2-7]{8}\/[a-z2-7]{26})$/)){r.input=r.input.slice(0,-m[0].length);r.grantRef=m[1]}
    if(REQUEST.test(r.input))list=P.flows.request;else if(CLAIM.test(r.input))list=P.flows.claim;else if(DELIVER.test(r.input))list=P.flows.deliver;else if(TASKS.test(r.input))list=P.flows.tasks;else if(m=r.input.match(ALL)){list=P.flows.open;r.input=m[1];r.full=true}else if(m=r.input.match(MORE)){list=P.flows.extend;r.input=m[1]}else if(m=r.input.match(WITNESS)){list=P.flows.witness;r.input=m[1]}else if(COMPARE.test(r.input))list=P.flows.compare;else if(WORLD.test(r.input))list=P.flows.world;else if(REEL.test(r.input))list=P.flows.timelapse;else if(TRACK.test(r.input))list=P.flows.track;else if(GRID.test(r.input))list=P.flows[r.input.match(GRID)[1].toLowerCase()];else if(CAMERA.test(r.input))list=P.flows.cameras;
    else if(POINTABLE.test(r.input))list=P.flows.point;else if(NOTE.test(r.input))list=P.flows.open;else if(ASK.test(r.input))list=P.flows.ask;else if(tokenType(r.input,P.tokens)||CID.test(r.input)||STH.test(r.input))list=P.flows.resolve}
   if(preset){list=preset.list;Object.assign(r,preset.r);preset=null}
   if(!r.files?.length&&!r.input){work.hidden=false;head.replaceChildren();map.replaceChildren();steps.replaceChildren(h("li",{class:"bad"},T("blank")));box.focus();busy(false);return}
-  let i=0;r.tick=sub=>{if(my===seq){if(RUN.ctl?.signal.aborted)throw new Error("Stopped. Nothing more was read or written.");show(list,i,sub)}};
-  RUN.ctl?.abort();RUN.ctl=new AbortController();Object.assign(RUN,{req:0,bytes:0,wrote:[]});halt.hidden=false;
+  let i=0;r.tick=sub=>{if(my===seq){if(RUN.ctl?.signal.aborted)throw new Error(RUN.why||"Stopped. Nothing more was read or written.");show(list,i,sub)}};
+  RUN.ctl?.abort();RUN.ctl=new AbortController();Object.assign(RUN,{req:0,bytes:0,wrote:[],at:Date.now(),why:"",cap:Object.fromEntries(P.all("budget").map(b=>b.arg.trim().split(/\s+/)).map(([k,v])=>[k,+v]))});halt.hidden=false;
   if(list===P.flows.make)r.askPublish=askPublish(my,RUN.ctl.signal);
   go.disabled=true;busy(true);t0=performance.now();ts=[];map.replaceChildren();delete map.dataset.step;clearInterval(clock);
   clock=setInterval(()=>{if(my===seq)tickHead("ememifying","now");else clearInterval(clock)},100);tickHead("ememifying","now");
@@ -594,7 +614,7 @@ ${last.answer.trim()}
    for(;i<list.length;i++){if(my!==seq)return;show(list,i);await ops[list[i]](r)}
    if(my!==seq)return;
    r.line=r.task?`r1 followed task ${r.url.replace(/^.*by_attester\//,"").replace(/\.md$/,"")} want=${r.task.q.want} of=${r.task.q.of.replace(/^.*by_attester\//,"").replace(/\.md$/,"")} state=${r.task.state.replace(/ /g,"_")} replies=${r.task.rows.length}`:r.token?tokenLine(r.token):r.body?lineOf(r.body,r.url)+(r.secret?` key=${r.secret}`:""):"";agentLine.textContent=r.line;lineRow.hidden=!r.line;what.textContent=(r.shape||"").replace(/^It is /,"").replace(/^./,c=>c.toUpperCase());what.hidden=!r.shape;
-   out.classList.remove("stale");delete out.dataset.stale;
+   out.classList.remove("stale");delete out.dataset.stale;if(follow)followNext();
    show(list,i);clearInterval(clock);tickHead(r.bad?"ememified, with a finding":"ememified",r.bad?"bad":"ok");run=r;tab=r.full&&tab==="check"?"check":gives[0].arg;if(tab==="check")more2.open=true;
    const share=r.shareUrl||r.url;link.textContent=share;link.href=share;link.target="_blank";link.rel="noopener";grab.hidden=false;
    meta.className="meta"+(r.bad?" bad":"");
@@ -608,7 +628,9 @@ ${last.answer.trim()}
     // each result is a place in history: Back reopens the previous reference (a read, never a write or a rerun of a query)
     if(popping||location.search+location.hash===next)history.replaceState(null,"",next);else history.pushState(null,"",next);popping=false;
     store("emem.recent",[{url:r.token||r.shareUrl||r.url,title:r.title||r.url,shape:size},...(store("emem.recent")||[]).filter(x=>x.url!==(r.token||r.shareUrl||r.url))].slice(0,8));drawRecent()}
-   if(r.task){verbs.hidden=false;verbs.replaceChildren(...r.task.rows.map(x=>h("span",{class:"task"},h("a",{href:x.url,target:"_blank",rel:"noopener",class:x.ok?"w ok":"w bad",title:x.why||""},`${x.ok?"✓":"✗"} ${x.kind} · ${x.from}${x.why?` · ${x.why}`:""}`),
+   if(r.camera&&!r.pointer){verbs.hidden=false;verbs.replaceChildren(followBtn("refresh every 5 min",()=>r.input||box.value,300000,12,"survey the same cameras again every 5 minutes, at most 12 times: each survey is a new signed note with fresh clips"))}
+   else if(r.grantLinks?.length){verbs.hidden=false;verbs.replaceChildren(...r.grantLinks.map(g=>h("span",{class:"task"},`for ${g.to}: `,h("a",{href:g.url,target:"_blank",rel:"noopener",title:"opens only in the browser or agent holding that share key; the link itself carries no key"},g.url.replace(/^.*\//,"…/")))))}
+   else if(r.task){verbs.hidden=false;verbs.replaceChildren(...r.task.rows.map(x=>h("span",{class:"task"},h("a",{href:x.url,target:"_blank",rel:"noopener",class:x.ok?"w ok":"w bad",title:x.why||""},`${x.ok?"✓":"✗"} ${x.kind} · ${x.from}${x.why?` · ${x.why}`:""}`),
      x.kind==="deliver"&&x.ok?h("button",{onclick:async ev=>{ev.target.disabled=true;ev.target.textContent="verifying…";try{const n=await verifyHand(r.task,x,b=>stampNow(b,{spec}));ev.target.replaceWith(h("a",{href:n.url,target:"_blank",rel:"noopener"},"verified and signed"))}catch(e){ev.target.textContent=e.message}},title:"re-derive this delivery here and sign what you find, addressed to the requester"},"verify"):null)),
      ...(r.task.rows.length?[]:[h("span",{class:"note"},`no replies yet. The other key answers with: deliver: ${r.url} <result link>`)]))}
    else if(r.sampled){verbs.hidden=false;verbs.replaceChildren(h("button",{onclick:()=>{box.value=`all: ${r.shareUrl||r.url}`;start(box.value)},title:"read and check every section, not a sample"},`check all ${r.sampled.of} sections`))}
@@ -616,6 +638,7 @@ ${last.answer.trim()}
     h("button",{onclick:()=>{box.value=`more: ${r.url}`;start(box.value)},title:"hash the next 8 chunks, in the fixed order; the earlier rows are kept"},"hash 8 more"),
     h("button",{onclick:()=>{box.value=`witness: ${r.url}`;start(box.value)},title:"re-read the source with your key and sign what you find, addressed to the author"},"witness"),
     h("button",{onclick:()=>{box.value=`compare: ${r.url} `;box.focus()},title:"paste a second pointer after this one"},"compare with…"),
+    ...(/HLS/i.test((r.body.match(/^kind: (.+)$/m)||[])[1]||"")?[followBtn("follow live",()=>`more: ${run.url}`,60000,30,"re-read the playlist every minute and hash new segments onto the chain (one extension each time, at most 30); Stop ends it")]:[]),
     ...(r.witnesses||[]).slice(0,6).map(w=>h("a",{href:w.url,target:"_blank",rel:"noopener",class:w.ok?"w ok":"w bad",title:"a T1 key (keyed, unnamed): anyone can make one, so read witnesses as keys, not people"},`${w.ok?"✓":"✗"} ${w.from}`)));
    pics.replaceChildren(...(r.face?.nodes||[]),...(r.face?.canvases||[]).map(c=>{const d=c.cloneNode();d.getContext("2d").drawImage(c,0,0);d.setAttribute("role","img");d.setAttribute("aria-label",c.dataset.date?`frame of ${c.dataset.date}, drawn from pixels whose bytes matched their names`:`preview of ${r.title||"the result"}, drawn only from bytes that were hashed a moment ago`);return d}),...(r.face?.imgs||[]).slice(0,8).map(src=>h("img",{src,alt:"",class:"cam",crossorigin:"anonymous",onerror(){this.remove()}})));
    draw();
@@ -692,12 +715,12 @@ ${last.answer.trim()}
  addEventListener("dragover",e=>{e.preventDefault();drop.dataset.over=""});
  addEventListener("dragleave",e=>{if(!e.relatedTarget)delete drop.dataset.over});
  addEventListener("drop",e=>{e.preventDefault();delete drop.dataset.over;const f=[...(e.dataTransfer?.files||[])];if(f.length)start(f)});
- halt.onclick=()=>{RUN.ctl?.abort()};
+ halt.onclick=()=>{RUN.ctl?.abort();if(follow){clearTimeout(follow.timer);follow=null}};
  addEventListener("popstate",()=>{const k=(location.hash.match(/#k=([A-Za-z0-9_-]{43})$/)||[])[1],v=new URLSearchParams(location.search).get("s");if(!v)return;
   const ref=v.trim();if(!(NOTE.test(ref)||tokenType(ref,P.tokens)||CID.test(ref)||STH.test(ref)))return;popping=true;box.value=k?`${ref}#k=${k}`:ref;start(box.value)});
  addEventListener("keydown",e=>{if(e.key==="Escape"&&RUN.ctl)RUN.ctl.abort()});
  // a shared link only opens references (a note, a token, a file name, a log head); anything that would read a source or write is left in the box for you to run
- const kf=(location.hash.match(/#k=([A-Za-z0-9_-]{43})$/)||[])[1],q0=new URLSearchParams(location.search).get("s"),q=q0&&kf&&NOTE.test(q0)?`${q0}#k=${kf}`:q0;if(q){box.value=q;const ref=(NOTE.test(q.trim().replace(/#k=[A-Za-z0-9_-]{43}$/,""))||tokenType(q.trim(),P.tokens)||CID.test(q.trim())||STH.test(q.trim()))&&!/\s/.test(q.trim());
+ const kf=(location.hash.match(/#([kg])=([A-Za-z0-9_\/-]+)$/)||[]),q0=new URLSearchParams(location.search).get("s"),q=q0&&kf[1]&&NOTE.test(q0)?`${q0}#${kf[1]}=${kf[2]}`:q0;if(q){box.value=q;const ref=(NOTE.test(q.trim().replace(/#[kg]=[A-Za-z0-9_\/-]+$/,""))||tokenType(q.trim(),P.tokens)||CID.test(q.trim())||STH.test(q.trim()))&&!/\s/.test(q.trim());
   if(ref)start(q);else{work.hidden=false;head.replaceChildren();steps.replaceChildren(h("li",{},"a shared link put this in the box; it reads or writes, so it runs only when you press →"));box.focus()}}
 };
 boot().catch(e=>document.body.replaceChildren(document.createTextNode("emem.eio: "+e.message)));

@@ -27,9 +27,13 @@ export const tokens=t=>{const n=count(t);return"~"+(n<1000?n:(n/1000).toFixed(n<
 export const pool=async(items,n,fn)=>{let i=0;await Promise.all(Array.from({length:Math.min(n,items.length)},async()=>{while(i<items.length){const k=i++;await fn(items[k],k)}}))};
 export const store=(k,v)=>{try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||"null");localStorage.setItem(k,JSON.stringify(v))}catch{return null}};
 // the run in hand: Stop aborts every request it still has open, and no write starts after it
-export const RUN={ctl:null,req:0,bytes:0,wrote:[]};
-export const stopped=()=>{if(RUN.ctl?.signal.aborted)throw new Error("Stopped. Nothing more was read or written.")};
-export const net=async(url,init={})=>{const signal=init.signal||RUN.ctl?.signal;stopped();try{const x=await fetch(url,signal?{...init,signal}:init);if(RUN.ctl&&!init.signal){RUN.req++;if(init.method!=="HEAD")RUN.bytes+=+x.headers.get("content-length")||0}return x}catch(e){if(signal?.aborted)stopped();throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
+export const RUN={ctl:null,req:0,bytes:0,wrote:[],at:0,cap:{requests:Infinity,bytes:Infinity,seconds:Infinity},why:""};
+export const stopped=()=>{if(RUN.ctl?.signal.aborted)throw new Error(RUN.why||"Stopped. Nothing more was read or written.")};
+// a run that reaches a cap stops itself like a Stop, and says which cap it was
+const capped=()=>{if(!RUN.ctl||RUN.ctl.signal.aborted)return;const c=RUN.cap,s=(Date.now()-RUN.at)/1000;
+ const hit=RUN.req>=c.requests?`${c.requests} requests`:RUN.bytes>=c.bytes?`${(c.bytes/1e9).toFixed(1)} GB declared`:s>=c.seconds?`${c.seconds} seconds`:"";
+ if(hit){RUN.why=`Stopped: this run reached its budget of ${hit}. Nothing more was read or written.`;RUN.ctl.abort()}};
+export const net=async(url,init={})=>{const signal=init.signal||RUN.ctl?.signal;if(!init.signal)capped();stopped();try{const x=await fetch(url,signal?{...init,signal}:init);if(RUN.ctl&&!init.signal){RUN.req++;if(init.method!=="HEAD")RUN.bytes+=+x.headers.get("content-length")||0}return x}catch(e){if(signal?.aborted)stopped();throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
 
 // ---------- key: made in this browser, never sent anywhere ----------
 // The working key is a non-extractable CryptoKey kept in IndexedDB: a script that runs here can sign with it but can't read it.
@@ -67,6 +71,24 @@ export const sealText=async(body,secret)=>{const iv=crypto.getRandomValues(new U
  return`---\nemem: sealed.v1\ncipher: AES-256-GCM\niv: ${b64u(iv)}\n---\n\n${b64u(c)}\n`};
 export const openText=async(body,secret)=>{const iv=(body.match(/^iv: (\S+)$/m)||[])[1],c=body.replace(/^---\n[\s\S]*?\n---\n\n/,"").trim();
  try{return new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64u(iv)},await aes(secret),unb64u(c)))}catch{throw new Error("This note is encrypted, and the #k= in the link doesn't open it.")}};
+// per-agent grants: a private link's key wrapped to one recipient's X25519 share key (ECDH with a fresh key, HKDF-SHA256,
+// AES-GCM). The grant is an ordinary public note naming the recipient's share key; only that key's holder can unwrap it.
+let SHARE=null;
+export const shareKey=async()=>{if(SHARE)return SHARE;
+ const saved=await idb("readonly",st=>st.get("share")).catch(()=>null);if(saved?.priv){SHARE=saved;return SHARE}
+ const k=await crypto.subtle.generateKey({name:"X25519"},true,["deriveBits"]),priv=await crypto.subtle.importKey("pkcs8",await crypto.subtle.exportKey("pkcs8",k.privateKey),{name:"X25519"},false,["deriveBits"]);
+ SHARE={priv,pub:b64u(new Uint8Array(await crypto.subtle.exportKey("raw",k.publicKey)))};await idb("readwrite",st=>st.put(SHARE,"share")).catch(()=>{});return SHARE};
+const kek=async(shared,salt)=>crypto.subtle.deriveKey({name:"HKDF",hash:"SHA-256",salt,info:U("emem.grant.v1")},await crypto.subtle.importKey("raw",shared,"HKDF",false,["deriveKey"]),{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
+export const grantBody=async(secret,forPub,of)=>{if(!/^[A-Za-z0-9_-]{43}$/.test(forPub))throw new Error(`"${forPub}" is not a share key (43 characters, base64url).`);
+ const eph=await crypto.subtle.generateKey({name:"X25519"},true,["deriveBits"]),ephPub=new Uint8Array(await crypto.subtle.exportKey("raw",eph.publicKey)),rp=unb64u(forPub);
+ const shared=await crypto.subtle.deriveBits({name:"X25519",public:await crypto.subtle.importKey("raw",rp,{name:"X25519"},false,[])},eph.privateKey,256);
+ const iv=crypto.getRandomValues(new Uint8Array(12)),w=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},await kek(shared,new Uint8Array([...ephPub,...rp])),unb64u(secret)));
+ return`---\nemem: grant.v1\nof: ${of}\nfor: ${forPub}\neph: ${b64u(ephPub)}\niv: ${b64u(iv)}\nwrapped: ${b64u(w)}\n---\n\n# a key to one private link, readable only by share key ${forPub.slice(0,8)}\n`};
+export const openGrant=async body=>{const f=k=>(body.match(new RegExp(`^${k}: (\\S+)$`,"m"))||[])[1],me=await shareKey();
+ if(f("for")!==me.pub)throw new Error("This grant is for another share key, not this browser's.");
+ const ephPub=unb64u(f("eph")),shared=await crypto.subtle.deriveBits({name:"X25519",public:await crypto.subtle.importKey("raw",ephPub,{name:"X25519"},false,[])},me.priv,256);
+ try{return{secret:b64u(new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64u(f("iv"))},await kek(shared,new Uint8Array([...ephPub,...unb64u(me.pub)])),unb64u(f("wrapped"))))),of:f("of")}}
+ catch{throw new Error("This grant doesn't open with this browser's share key.")}};
 export const SECRET_LINK=/^(https:\/\/emem\.dev\/memories\/\S+\.md)#k=([A-Za-z0-9_-]{43})$/;
 
 // ---------- notes: named by the hash of their bytes, signed by the writer ----------
@@ -267,6 +289,21 @@ export const corpusStream=(S,onTick)=>{if(typeof EventSource==="undefined")retur
   const ok=ev.responder.pubkey_b32===S.signer&&I.ed.verify(I.b32decode(ev.signature.signature_b32),I.blake3(p),I.b32decode(S.signer));
   onTick({ok,cells:ev.corpus.distinct_cells,bands:ev.corpus.distinct_bands,facts:ev.corpus.facts_scanned,at:ev.served_at})}catch{onTick({ok:false})}});
  return es};
+// a second reader: emem.dev fetches exactly these bytes itself and signs their hash (POST /v1/range_hash). The receipt is
+// checked here: ed25519 over PreimageV1 "emem.range_hash.v1" {1 url, 2 u64-BE offset, 3 u64-BE length, 4 blake3 raw,
+// 5 etag|"absent", 6 fetched_at, 7 responder key raw, 8 fetched_url}.
+const pv1=(domain,segs)=>{const o=[...U("emem.preimage.v1\0")],d=U(domain),u32=n=>o.push(n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255);u32(d.length);o.push(...d);for(const[t,b]of segs){o.push(t);u32(b.length);o.push(...b)}return new Uint8Array(o)};
+const be=(n,w)=>{const b=new Uint8Array(w);let v=BigInt(n);for(let i=w-1;i>=0;i--){b[i]=Number(v&255n);v>>=8n}return b};
+export const rangeHash=async(url,offset,length,S)=>{const j=await json(await post(`${EMEM}/v1/range_hash`,{url,offset,length}));await verifier();const I=globalThis.ememVerifyInternals,r=j.receipt||{};
+ let signed=false;try{signed=r.responder_pubkey_b32===S.signer&&I.ed.verify(I.b32decode(r.signature_b32),I.blake3(pv1("emem.range_hash.v1",[[1,U(j.url)],[2,be(j.offset,8)],[3,be(j.length,8)],[4,I.b32decode(j.blake3_b32)],[5,U(j.etag||"absent")],[6,U(j.fetched_at)],[7,I.b32decode(r.responder_pubkey_b32)],[8,U(j.fetched_url)]])),I.b32decode(S.signer))}catch{}
+ return{hash:j.blake3_b32,signed,etag:j.etag,at:j.fetched_at}};
+// one row of a note's Merkle table, proved to the note's root with log2(n) hashes (GET /v1/tree/{cid}): the leaf is computed
+// here from the row itself (blake3(url ‖ u64-BE offset ‖ u64-BE length ‖ hash)), then walked up the served path
+export const treeRow=async(cid,row,root)=>{const j=await json(await net(`${EMEM}/v1/tree/${cid}?row=${encodeURIComponent(row.label)}`));await verifier();const I=globalThis.ememVerifyInternals;
+ const cat=(...a)=>{const r=new Uint8Array(a.reduce((n,x)=>n+x.length,0));let i=0;for(const x of a){r.set(x,i);i+=x.length}return r};
+ let h=I.blake3(cat(U(row.url||""),be(row.offset,8),be(row.length,8),I.b32decode(row.hash)));const mine=b32(h)===j.leaf_b32;
+ for(const p of j.path||[]){const x=I.b32decode(p.hash_b32);h=p.side==="left"?I.blake3(cat(x,h)):I.blake3(cat(h,x))}
+ return{ok:mine&&b32(h)===root&&j.root_b32===root,steps:(j.path||[]).length,rows:j.rows,token:j.token}};
 export const inboxOf=async k8=>(await json(await net(`${EMEM}/v1/inbox?to=${k8}&limit=500`))).messages||[];
 const byName=async(cid,S,tick)=>{
  tick("by name over A2A");
@@ -310,7 +347,8 @@ export const ask=async(q,S,tick)=>{
  tick("one handle for the evidence");
  const b=await post(`${EMEM}/v1/memory_bundle`,{triples:facts.map(f=>({cell,band:f.band})),purpose:`evidence for: ${q}`}).then(json).catch(()=>null);
  const handle=b?.bundle_token||facts[0]?.token||"",score=(env.algorithm_outcomes_summary||[])[0];
- const f={title:q,big:env.place_resolved.label,lines:[["answer",env.answer],...facts.map(x=>[x.band,`${fmt(x.value)} ${x.unit||""}`.trim()+`  ${x.token}`])],ok:signed,
+ const lp=env.live_perception,lpLine=lp?[["live perception",typeof lp==="string"?lp:[lp.summary||lp.label,lp.counts?JSON.stringify(lp.counts):"",lp.captured_at||lp.at].filter(Boolean).join(" · ").slice(0,220)||JSON.stringify(lp).slice(0,220)]]:[];
+ const f={title:q,big:env.place_resolved.label,lines:[["answer",env.answer],...lpLine,...facts.map(x=>[x.band,`${fmt(x.value)} ${x.unit||""}`.trim()+`  ${x.token}`])],ok:signed,
   proof:[signed?`✓ answer signed by emem.dev`:"✗ answer signature fails",`${env.fact_cids.length} facts cited`,b?"evidence bundled":""]};
  const url=b?`${EMEM}/v1/memory_bundle/${handle}`:handle;
  return{token:handle,url,cid:handle.split(":").pop(),title:q,face:f,body:`${env.place_resolved.label}\n\n${env.answer}\n\nEvidence (each is a signed fact):\n${facts.map(x=>`- ${x.band} = ${fmt(x.value)} ${x.unit||""}  ${x.token}`).join("\n")}${b?`\n\nAll of it, one handle: ${handle}`:""}`,

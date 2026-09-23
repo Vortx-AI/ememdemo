@@ -150,7 +150,40 @@ const tiff=async(url,tick)=>{
 };
 
 // ---------- OME-Zarr: every level, its chunk grid, and the chunks themselves ----------
+// Zarr v3: zarr.json per node; a sharded array stores many inner chunks per shard file, with an index at the shard's end
+// (u64 offset, u64 length per inner chunk, then a crc32c). The index is read by a suffix range and checked, and each inner
+// chunk becomes a row at (shard url, offset, length): named without reading the shard.
+const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0x82F63B78^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+const crc32c=b=>{let c=~0>>>0;for(const x of b)c=CRC[(c^x)&255]^(c>>>8);return(~c)>>>0};
+// the last n bytes: a suffix range ("bytes=-n") is not CORS-safelisted and would need a preflight, so read the size, then an ordinary range
+const suffix=async(url,n)=>{const{bytes:total}=await size(url);if(!total)throw new Error(`${new URL(url).host} doesn't expose ${url.split("/").pop()}'s size, so its shard index can't be found.`);return{b:await range(url,total-n,n),total}};
+const zarr3=async(base,root,tick)=>{
+ const all=[{label:"zarr.json",url:base+"zarr.json",offset:0,length:0,dflt:true}],about=[];let units=1;
+ const ms=root.attributes?.ome?.multiscales?.[0],paths=ms?ms.datasets.map(d=>d.path):[""];
+ const levels=[];for(const p of paths){const m=JSON.parse(new TextDecoder().decode(await whole(base+(p?p+"/":"")+"zarr.json")));levels.push({p,m});all.push({label:`${p||"."}/zarr.json`,url:base+(p?p+"/":"")+"zarr.json",offset:0,length:0,dflt:true});units++}
+ for(const [li,{p,m}] of levels.entries()){const sh=m.codecs?.find(c=>c.name==="sharding_indexed"),outer=m.chunk_grid.configuration.chunk_shape,grid=m.shape.map((s,i)=>Math.ceil(s/outer[i])),nS=grid.reduce((a,b)=>a*b,1);
+  const sep=m.chunk_key_encoding?.configuration?.separator||"/",key=idx=>(m.chunk_key_encoding?.name==="v2"?idx.join(sep):"c"+sep+idx.join(sep));
+  const idxOf=k=>{let r=k;const idx=grid.map(()=>0);for(let i=grid.length-1;i>=0;i--){idx[i]=r%grid[i];r=Math.floor(r/grid[i])}return idx};
+  if(!sh){units+=nS;for(const k of spread(nS,li===levels.length-1?Math.min(nS,64):8))all.push({label:`level ${p} chunk ${idxOf(k).join(",")}`,url:base+(p?p+"/":"")+key(idxOf(k)),offset:0,length:0,dflt:true});continue}
+  const inner=sh.configuration.chunk_shape,nI=outer.reduce((a,s,i)=>a*Math.ceil(s/inner[i]),1),atEnd=(sh.configuration.index_location||"end")==="end",crc=(sh.configuration.index_codecs||[]).some(c=>c.name==="crc32c");
+  units+=nS*nI;
+  // the smallest level's shards and a spread of the largest level's: read their indexes, name their inner chunks
+  const picks=li===levels.length-1?spread(nS,Math.min(nS,4)):li===0?spread(nS,2):[];
+  for(const k of picks){const u=base+(p?p+"/":"")+key(idxOf(k)),n=nI*16+(crc?4:0);tick(`reading shard index ${key(idxOf(k))} at level ${p}`);
+   const{b,total}=atEnd?await suffix(u,n):{b:await range(u,0,n),total:0};if(crc){const want=new DataView(b.buffer,b.byteOffset+n-4,4).getUint32(0,true);if(crc32c(b.subarray(0,n-4))!==want)throw new Error(`The shard index of ${u} fails its crc32c.`)}
+   all.push({label:`level ${p} shard ${key(idxOf(k))} index`,url:u,offset:atEnd?total-n:0,length:n,ranged:true,dflt:true});
+   const dv=new DataView(b.buffer,b.byteOffset),got=[];for(let i=0;i<nI;i++){const o=dv.getBigUint64(i*16,true),l=dv.getBigUint64(i*16+8,true);if(o!==0xFFFFFFFFFFFFFFFFn)got.push({i,o:Number(o),l:Number(l)})}
+   const pick=new Set(spread(got.length,li===levels.length-1?Math.min(got.length,8):3));
+   got.forEach((c,j)=>all.push({label:`level ${p} shard ${key(idxOf(k))} inner ${c.i}`,url:u,offset:c.o,length:c.l,ranged:true,dflt:pick.has(j)}))}}
+ const m0=levels[0].m,sh0=m0.codecs?.find(c=>c.name==="sharding_indexed"),axes=m0.dimension_names||(ms?.axes||[]).map(a=>a.name);
+ about.push(`${m0.shape.join("×")} (${(axes||[]).join(", ")||"axes unnamed"}), ${m0.data_type}, Zarr v3${sh0?`, shards of ${m0.chunk_grid.configuration.chunk_shape.join("×")} holding inner chunks of ${sh0.configuration.chunk_shape.join("×")}`:""}`,
+  `${levels.length} level${levels.length>1?"s":""}, ${units.toLocaleString("en")} units; inner chunks are read by byte range inside their shard, after the shard's index passes its crc32c`);
+ if(ms?.version)about.push(`OME-Zarr ${ms.version||root.attributes.ome.version}`);
+ return{kind:"Zarr v3 array (sharded)",all,units,about,whole:true};
+};
 const zarr=async(url,tick)=>{
+ const base0=url.replace(/\/(\.zattrs|\.zgroup|zarr\.json)?$/,"")+"/";
+ const zj=await whole(base0+"zarr.json").catch(()=>null);if(zj)return zarr3(base0,JSON.parse(new TextDecoder().decode(zj)),tick);
  const base=url.replace(/\/(\.zattrs|\.zgroup)?$/,"")+"/",zattrs=JSON.parse(new TextDecoder().decode(await whole(base+".zattrs")));
  const ms=zattrs.multiscales?.[0];if(!ms)throw new Error("No multiscales in .zattrs; this is not an OME-Zarr image.");
  const all=[{label:".zattrs",url:base+".zattrs",offset:0,length:0,dflt:true}],about=[],levels=[];let units=0;
@@ -174,8 +207,9 @@ const hls=async(url,tick)=>{
   media=vs[0].u;text=new TextDecoder().decode(await whole(media));
  }
  const segs=[...text.matchAll(/#EXTINF:([\d.]+)[^\n]*\n([^\n#][^\n]*)/g)].map(m=>({dur:+m[1],u:new URL(m[2].trim(),media).href}));
- const live=!/#EXT-X-ENDLIST/.test(text);
- return{kind:live?"live HLS feed":"HLS video",all:[{label:"playlist",url:media,offset:0,length:0,dflt:true},...segs.map((s,i)=>({label:`segment ${i} · ${s.dur}s`,url:s.u,offset:0,length:0,dflt:i<120}))],units:segs.length+1,whole:true,chained:true,
+ const live=!/#EXT-X-ENDLIST/.test(text),seq=live?+(text.match(/#EXT-X-MEDIA-SEQUENCE:(\d+)/)||[])[1]||0:0;
+ // a live window slides: segments are named by their media sequence number, and each playlist version is its own row
+ return{kind:live?"live HLS feed":"HLS video",all:[{label:live?`playlist at sequence ${seq}`:"playlist",url:media,offset:0,length:0,dflt:true},...segs.map((s,i)=>({label:`segment ${seq+i} · ${s.dur}s`,url:s.u,offset:0,length:0,dflt:i<120}))],units:segs.length+1,whole:true,chained:true,
   about:[`${segs.length} segments, ${Math.round(segs.reduce((a,s)=>a+s.dur,0))} s`,live?"live: running this again extends the chain; earlier links never change":"on demand (the playlist is closed)"]};
 };
 
@@ -353,6 +387,72 @@ const photo=async(url,tick,bytes)=>{
   about:[[x.make,x.model].filter(Boolean).join(" ")||"camera not recorded",x.when?`taken ${x.when}`:"time not recorded",x.lat!=null?`at ${x.lat.toFixed(5)}, ${x.lng.toFixed(5)}${x.alt!=null?`, ${Math.round(x.alt)} m`:""} (from its EXIF)`:"no place in its EXIF","the whole picture is hashed; the preview is drawn from those bytes"]};
 };
 
+// ---------- climate data (NetCDF-3 classic / 64-bit offset): the header lists every variable's type, shape and byte range ----------
+const NCT={1:["byte",1],2:["char",1],3:["short",2],4:["int",4],5:["float",4],6:["double",8]};
+const netcdf3=async(url,tick,bytes)=>{
+ let buf=await range(url,0,Math.min(bytes||1<<20,1<<20));const v2=buf[3]===2||buf[3]===5,big=buf[3]===5;let p=4;
+ const need=async n=>{if(p+n>buf.length){if(buf.length>=64<<20)throw new Error("NetCDF header is implausibly large.");const more=await range(url,buf.length,Math.max(n,buf.length));const b=new Uint8Array(buf.length+more.length);b.set(buf);b.set(more,buf.length);buf=b}};
+ const u32=async()=>{await need(4);const v=new DataView(buf.buffer,buf.byteOffset+p,4).getUint32(0);p+=4;return v};
+ const u64=async()=>{await need(8);const v=Number(new DataView(buf.buffer,buf.byteOffset+p,8).getBigUint64(0));p+=8;return v};
+ const len=big?u64:u32,name=async()=>{const n=await len();await need(n);const t=new TextDecoder().decode(buf.subarray(p,p+n));p+=n+((4-n%4)%4);return t};
+ const atts=async()=>{const tag=await u32(),n=await len();const out={};if(tag===0&&n===0)return out;for(let i=0;i<n;i++){const k=await name(),t=await u32(),m=await len(),[,w]=NCT[t]||["?",1],sz=m*w;await need(sz);
+   const raw=buf.subarray(p,p+sz);out[k]=t===2?new TextDecoder().decode(raw).replace(/[\0\s]+$/,""):[...Array(Math.min(m,4)).keys()].map(j=>{const d=new DataView(raw.buffer,raw.byteOffset+j*w,w);return t===5?d.getFloat32(0):t===6?d.getFloat64(0):t===3?d.getInt16(0):t===4?d.getInt32(0):raw[j]}).join(",");p+=sz+((4-sz%4)%4)}return out};
+ const numrecs=await len();await u32();const nd=await len(),dims=[];for(let i=0;i<nd;i++)dims.push({name:await name(),size:await len()});
+ const gatt=await atts();await u32();const nv=await len(),vars=[];
+ for(let i=0;i<nv;i++){const nm=await name(),nds=await len(),ids=[];for(let j=0;j<nds;j++)ids.push(await len());const va=await atts(),t=await u32(),vsize=await u32(),begin=v2?await u64():await u32();vars.push({nm,ids,va,t,vsize,begin})}
+ const hdr=p,recvars=vars.filter(v=>v.ids.length&&dims[v.ids[0]].size===0),recsize=recvars.length===1?recvars[0].vsize:recvars.reduce((a,v)=>a+v.vsize,0);
+ const stat=t=>b=>{const[,w]=NCT[t]||[];if(t!==5&&t!==6)return"";const dv=new DataView(b.buffer,b.byteOffset,b.length);let n=0,sum=0,lo=Infinity,hi=-Infinity;for(let o=0;o+w<=b.length;o+=w*Math.max(1,Math.floor(b.length/w/20000))){const x=t===5?dv.getFloat32(o):dv.getFloat64(o);if(!Number.isFinite(x)||Math.abs(x)>=9.9e36)continue;n++;sum+=x;lo=Math.min(lo,x);hi=Math.max(hi,x)}return n?`mean ${(sum/n).toPrecision(5)} min ${lo.toPrecision(5)} max ${hi.toPrecision(5)}`:""};
+ const shape=v=>v.ids.map(i=>dims[i].size||numrecs).join(","),unit=v=>v.va.units?` (${v.va.units})`:"";
+ const chunks=[];for(const v of vars){const T=(NCT[v.t]||["?"])[0];
+  if(recvars.includes(v))for(let r=0;r<numrecs;r++)chunks.push({label:`variable ${v.nm} ${T}[${shape(v)}] record ${r}`,offset:v.begin+r*recsize,length:v.vsize,stats:stat(v.t),small:false});
+  else chunks.push({label:`variable ${v.nm} ${T}[${shape(v)}]`,offset:v.begin,length:v.vsize,stats:stat(v.t),small:v.vsize<=65536})}
+ // the defaults favour the main gridded variable (the largest per record), so the pointer samples what the file is for
+ const mainV=[...vars].sort((a,b)=>b.vsize-a.vsize)[0],isMain=c=>c.label.startsWith(`variable ${mainV?.nm} `);
+ const pickC=new Set([...firstBy(chunks.filter(c=>!c.small&&isMain(c)),c=>c.label,8),...firstBy(chunks.filter(c=>!c.small&&!isMain(c)),c=>c.label,2)]);
+ const main=vars.filter(v=>v.ids.length>=2).map(v=>`${v.nm}${unit(v)}`).slice(0,8);
+ // a preview: the main variable's first level, if its last two dimensions are lat and lon
+ const md=mainV?mainV.ids.map(i=>dims[i]):[],la=md.at(-2),lo=md.at(-1),geo=la&&lo&&/lat/i.test(la.name)&&/lon/i.test(lo.name)&&(mainV.t===5||mainV.t===6);
+ const field=geo?{w:lo.size,h:la.size}:null,w8=geo?NCT[mainV.t][1]:0,flip=geo;
+ const dec=geo?b=>{const dv=new DataView(b.buffer,b.byteOffset,b.length),W=field.w,Hh=field.h,v=new Float64Array(W*Hh);
+  for(let y=0;y<Hh;y++)for(let x=0;x<W;x++){const o=(y*W+x)*w8;if(o+w8>b.length){v[(Hh-1-y)*W+x]=NaN;continue}const q=mainV.t===5?dv.getFloat32(o):dv.getFloat64(o);v[(Hh-1-y)*W+x]=Number.isFinite(q)&&Math.abs(q)<9.9e36?q:NaN}return v}:null;
+ return{kind:`climate data (NetCDF-3 ${v2?"64-bit offset":"classic"})`,units:chunks.length+1,field,
+  all:[{label:"header: dimensions, attributes, every variable's type, shape and byte range",offset:0,length:hdr,dflt:true},...chunks.map(c=>({...c,dflt:c.small||pickC.has(c),...(dec&&isMain(c)&&pickC.has(c)?{decode:async b=>dec(b)}:{})}))],
+  about:[`dimensions: ${dims.map(d=>`${d.name} ${d.size||`${numrecs} (records)`}`).join(", ")}`,`${vars.length} variables; gridded: ${main.join(", ")}`,gatt.title||gatt.source?String(gatt.title||gatt.source).trim().slice(0,140):"",gatt.institution?`from ${String(gatt.institution).trim().slice(0,100)}`:"",gatt.experiment_id?`experiment ${gatt.experiment_id}${gatt.variant_label?`, ${gatt.variant_label}`:""}`:"","float variables carry mean, min and max over the bytes read (fill values skipped)"].filter(Boolean)};
+};
+
+// ---------- HDF5 / NetCDF-4: the superblock is checked and named; the file is covered by 4 MiB ranges ----------
+const hdf5=async(url,tick,bytes)=>{
+ let at=-1,b=null;for(const o of[0,512,1024,2048]){b=await range(url,o,96);if(b[0]===0x89&&String.fromCharCode(...b.slice(1,4))==="HDF"){at=o;break}}
+ if(at<0)throw new Error("Not an HDF5 file (no signature).");const ver=b[8],os=ver<2?b[13]:b[9];
+ const s=await file(url,tick,bytes);const keep=new Set(spread(s.all.length,8));s.all=s.all.map((c,i)=>({...c,dflt:keep.has(i)}));s.kind=`HDF5 / NetCDF-4 (superblock v${ver}, ${os}-byte addresses)`;
+ s.all[0]={...s.all[0],label:`superblock at ${at} and first bytes`};
+ s.about=[`HDF5 superblock v${ver} at byte ${at}; ${os}-byte offsets`,`${s.units} ranges of 4 MiB; its datasets and chunk B-trees are not listed yet, so rows are byte ranges rather than variables`];return s};
+
+// ---------- lidar (COPC: cloud-optimized LAZ): a LAS 1.4 header, a copc info record, then an octree whose nodes are chunks ----------
+const copc=async(url,tick)=>{
+ const h=await range(url,0,589);if(String.fromCharCode(...h.slice(0,4))!=="LASF")throw new Error("Not a LAS/LAZ file.");
+ const dv=new DataView(h.buffer,h.byteOffset),hs=dv.getUint16(94,true),toPts=dv.getUint32(96,true),fmt=h[104]&0x3f,n=Number(dv.getBigUint64(247,true))||dv.getUint32(107,true);
+ const uid=new TextDecoder().decode(h.slice(hs+2,hs+18)).replace(/\0/g,"");if(uid!=="copc")throw new Error("A LAS/LAZ file, but not COPC (no copc info record first).");
+ const ci=hs+54,g=o=>dv.getFloat64(ci+o,true),rootOff=Number(dv.getBigUint64(ci+40,true)),rootLen=Number(dv.getBigUint64(ci+48,true));
+ const bb=[dv.getFloat64(187,true),dv.getFloat64(179,true),dv.getFloat64(203,true),dv.getFloat64(195,true)]; // min x, max x ... (LAS: max x @179, min x @187, max y @195, min y @203)
+ tick("reading the octree hierarchy");const page=await range(url,rootOff,rootLen),pv=new DataView(page.buffer,page.byteOffset),nodes=[];
+ for(let o=0;o+32<=page.length;o+=32){const d=pv.getInt32(o,true),x=pv.getInt32(o+4,true),y=pv.getInt32(o+8,true),z=pv.getInt32(o+12,true),off=Number(pv.getBigUint64(o+16,true)),bs=pv.getInt32(o+24,true),pc=pv.getInt32(o+28,true);
+  if(pc>0&&bs>0)nodes.push({label:`octree node ${d}-${x}-${y}-${z} · ${pc.toLocaleString("en")} points`,offset:off,length:bs,d,pc})}
+ nodes.sort((a,b)=>a.d-b.d||a.offset-b.offset);const pick=new Set([nodes[0],...firstBy(nodes.slice(1),c=>c.label,7)]);
+ return{kind:"lidar point cloud (COPC)",units:nodes.length+2,
+  all:[{label:"LAS header and records (incl. copc info, CRS)",offset:0,length:toPts,dflt:true},{label:"octree hierarchy (root page)",offset:rootOff,length:rootLen,dflt:true},...nodes.map(c=>({...c,dflt:pick.has(c)}))],
+  about:[`${n.toLocaleString("en")} points, LAS point format ${fmt}`,`octree: ${nodes.length} nodes in the root page, down to depth ${Math.max(...nodes.map(c=>c.d))}; each node is a LAZ-compressed chunk`,`extent x ${bb[0].toFixed(1)}…${bb[1].toFixed(1)}, y ${bb[2].toFixed(1)}…${bb[3].toFixed(1)} (in the file's CRS), spacing ${g(32).toFixed(2)}`]};
+};
+
+// a .nc is NetCDF-3 (CDF\x01/\x02/\x05) or NetCDF-4 (HDF5): the first bytes decide
+const ncOrH5=async(url,tick,bytes)=>{const m=await range(url,0,4);return String.fromCharCode(m[0],m[1],m[2])==="CDF"?netcdf3(url,tick,bytes):hdf5(url,tick,bytes)};
+
+// ---------- private buckets: a presigned URL's credential is used for this run and never stored ----------
+const CRED=/^(x-amz-|x-goog-)|^(signature|expires|key-pair-id|policy|sig|se|sp|sv|sr|st|skoid|sktid|skt|ske|sks|skv|token|access_token)$/i;
+export const stripCred=u=>{try{const x=new URL(u);let gone=0;for(const k of[...x.searchParams.keys()])if(CRED.test(k)){x.searchParams.delete(k);gone++}return{url:gone?x.toString().replace(/\?$/,""):u,withheld:gone>0}}catch{return{url:u,withheld:false}}};
+// a fresh presigned URL may stand in for a stored source, but only for the same object (same origin and path)
+const sameObject=(a,b)=>{try{const x=new URL(a),y=new URL(b);return x.origin===y.origin&&x.pathname===y.pathname}catch{return false}};
+
 // ---------- tiled maps (PMTiles v3): a 127-byte header, directories of tile ids, then the tiles ----------
 const gunzip=async b=>new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
 const pmDir=d=>{let p=0;const v=()=>{let r=0,m=1,b;do{b=d[p++];r+=(b&0x7f)*m;m*=128}while(b&0x80);return r};
@@ -435,7 +535,7 @@ const flatgeobuf=async(url,tick,bytes)=>{
   ...(env&&env.length>=4&&env[2]-env[0]<=20&&env[3]-env[1]<=20?{place:{lat:+(((env[1]+env[3])/2).toFixed(6)),lng:+(((env[0]+env[2])/2).toFixed(6)),bbox:env.slice(0,4)}}:{})};
 };
 
-const pick=u=>/\.pmtiles(\?|$)/i.test(u)?pmtiles:/\.parquet(\?|$)/i.test(u)?parquet:/\.fgb(\?|$)/i.test(u)?flatgeobuf:/\.mp4(\?|$)|\.m4v(\?|$)|\.mov(\?|$)/i.test(u)?mp4:/\.jpe?g(\?|$)/i.test(u)?photo:/\.splat(\?|$)/i.test(u)||/\.ply(\?|$)/i.test(u)?splats:/\.safetensors(\?|$)/i.test(u)?safetensors:/\.gguf(\?|$)/i.test(u)?gguf:/\.m3u8(\?|$)/i.test(u)?hls:/\.zarr(\/|$)/i.test(u)?zarr:/\.dcm(\?|$)/i.test(u)?dicom:/\.tiff?(\?|$)/i.test(u)?tiff:null;
+const pick=u=>/\.copc\.laz(\?|$)/i.test(u)?copc:/\.nc(\?|$)|\.nc4(\?|$)|\.h5(\?|$)|\.hdf5?(\?|$)/i.test(u)?ncOrH5:/\.pmtiles(\?|$)/i.test(u)?pmtiles:/\.parquet(\?|$)/i.test(u)?parquet:/\.fgb(\?|$)/i.test(u)?flatgeobuf:/\.mp4(\?|$)|\.m4v(\?|$)|\.mov(\?|$)/i.test(u)?mp4:/\.jpe?g(\?|$)/i.test(u)?photo:/\.splat(\?|$)/i.test(u)||/\.ply(\?|$)/i.test(u)?splats:/\.safetensors(\?|$)/i.test(u)?safetensors:/\.gguf(\?|$)/i.test(u)?gguf:/\.m3u8(\?|$)/i.test(u)?hls:/\.zarr(\/|$)/i.test(u)?zarr:/\.dcm(\?|$)/i.test(u)?dicom:/\.tiff?(\?|$)/i.test(u)?tiff:null;
 const FILEISH=/^(point:\s*)?https?:\/\/\S+?(\.pmtiles|\.fgb|\.m3u8|\.zarr\/?|\.dcm|\.safetensors|\.gguf|\.splat|\.ply|\.jpe?g|\.m4v|\.tiff?|\.nc|\.h5|\.hdf5|\.las|\.laz|\.parquet|\.mp4|\.mov|\.bin|\.zip)(\?\S*)?$|^point:\s*https?:\/\/\S+$/i;
 // a folder: a Hugging Face repository (or a folder in it), or an S3 prefix ending in /
 export const DIR=/^https:\/\/huggingface\.co\/(datasets\/|spaces\/)?[\w.-]+\/[\w.-]+(\/tree\/[^/\s]+(\/\S*)?)?\/?$|^https:\/\/[a-z0-9.-]+\.s3(\.[a-z0-9-]+)?\.amazonaws\.com\/\S*\/$/i;
@@ -465,6 +565,8 @@ const assemble=(s,chunks)=>{
   const v=new Float64Array(m.w*m.h).fill(NaN);
   for(const c of got){const{x,y,tw,th}=c.grab;for(let j=0;j<th&&y+j<m.h;j++)for(let i=0;i<tw&&x+i<m.w;i++){const q=c.pix[j*tw+i];v[(y+j)*m.w+x+i]=q===m.nodata?NaN:q}}
   return{kind:"grid",w:m.w,h:m.h,v}}
+ // a gridded variable: one level of the first record read, as a map (north up)
+ if(s.field){const c=chunks.filter(c=>c.pix).sort((a,b)=>a.offset-b.offset)[0];return c?{kind:"grid",w:s.field.w,h:s.field.h,v:c.pix,ramp:true}:null}
  if(s.points){const p=s.points();return p.xs.length?{kind:"points",...p}:null}
  if(s.frames){const f=chunks.filter(c=>c.pix&&c.grab?.video).sort((a,b)=>a.grab.t-b.grab.t).map(c=>c.pix);return f.length?{kind:"frames",frames:f}:null}
  return null;
@@ -472,17 +574,17 @@ const assemble=(s,chunks)=>{
 
 // a pointer reopened: the same picture, drawn only from chunks that still hash to the pointer's rows
 export const previewOf=async(body,tick=()=>{})=>{
- const src=field(body,"source"),rd=src&&pick(src);if(!rd||![tiff,dicom,splats,mp4,photo,pmtiles].includes(rd))return null;
+ const src=field(body,"source"),rd=src&&pick(src);if(!rd||![tiff,dicom,splats,mp4,photo,pmtiles,ncOrH5].includes(rd))return null;
  const rows=new Map(parseRows(body).map(r=>[r.label,r])),{bytes}=await size(src).catch(()=>({}));
  const s=await rd(src,()=>{},bytes);
  if(s.preview){// a scan is read whole: every row must still match before its pixels are shown
   for(const c of s.all){const r=rows.get(c.label);if(r&&H(s.bytes.slice(c.offset,c.offset+c.length))!==r.hash)return null}return s.preview}
- let want=s.all.filter(c=>rows.has(c.label)&&((c.decode&&(s.mosaic||s.frames))||(s.sample&&/^splats/.test(c.label))));
+ let want=s.all.filter(c=>rows.has(c.label)&&((c.decode&&(s.mosaic||s.frames||s.field))||(s.sample&&/^splats/.test(c.label))));
  if(s.mosaic?.strips)want=want.filter((_,i,a)=>spread(a.length,96).includes(i));
  if(s.sample)want=want.filter((_,i,a)=>spread(a.length,4).includes(i));
  let n=0;
  await pool(want,6,async c=>{const b=await range(src,c.offset,c.length);if(H(b)!==rows.get(c.label).hash)return;
-  if(c.decode&&(s.mosaic||s.frames))c.pix=await c.decode(b).catch(()=>null);if(s.sample)s.sample(c,b);tick(`${++n}/${want.length}`)});
+  if(c.decode&&(s.mosaic||s.frames||s.field))c.pix=await c.decode(b).catch(()=>null);if(s.sample)s.sample(c,b);tick(`${++n}/${want.length}`)});
  return assemble(s,want);
 };
 
@@ -510,39 +612,45 @@ export const probe=async(raw,tick,opts={})=>{
  const more=Math.max(0,opts.more|0);
  if(more){const rest=s.all.filter(c=>!pickSet.has(c));(s.chained?rest:rest.map(c=>[order(c.label),c]).sort((a,b)=>a[0]<b[0]?-1:1).map(x=>x[1])).slice(0,more).forEach(c=>pickSet.add(c))}
  const chunks=s.all.filter(c=>pickSet.has(c));
+ // a live chain keeps the rows whose segments have since left the playlist, so it grows instead of restarting
+ const listed=new Set(s.all.map(c=>c.label));
+ if(s.chained&&opts.have)chunks.unshift(...prev.filter(r=>!listed.has(r.label)&&!r.absent).map(r=>({label:r.label,url:r.url,offset:r.offset,length:r.length,hash:r.hash,kept:true,gone:true})));
  // rows carried over from the earlier pointer are not re-read, except a spread of two, which must still match
- const carried=chunks.filter(c=>had.has(c.label)&&!had.get(c.label).absent);
+ const carried=chunks.filter(c=>had.has(c.label)&&!had.get(c.label).absent&&!c.gone); // expired live segments can't be re-read
  for(const i of spread(carried.length,2)){const c=carried[i],r=had.get(c.label),b=c.url?await whole(c.url):await range(url,r.offset,r.length);if(H(b)!==r.hash)throw new Error(`${c.label} no longer matches the pointer being extended; the source changed.`)}
  for(const c of carried){const r=had.get(c.label);Object.assign(c,{hash:r.hash,length:r.length,statsText:r.stats,kept:true})}
  let done=0,read=0,halted=null;
  // a Stop keeps what was already hashed: the rows so far become a partial pointer the person may choose to keep
  await pool(chunks,6,async c=>{
   if(c.hash){done++;if(!c.kept)read+=c.length;return}
-  const b=s.bytes&&!c.url?s.bytes.slice(c.offset,c.offset+c.length):c.url?await whole(c.url).catch(e=>e.status===404?null:Promise.reject(e)):await range(url,c.offset,c.length);
-  if(b===null){c.absent=true;c.hash=ZERO;c.length=0}else{c.hash=H(b);if(c.url)c.length=b.length;read+=b.length;if(c.stats)c.statsText=await Promise.resolve(c.stats(b)).catch(()=>"");if(c.decode&&(s.mosaic||s.frames))c.pix=await c.decode(b).catch(()=>null);if(s.sample)s.sample(c,b)}
+  const b=s.bytes&&!c.url?s.bytes.slice(c.offset,c.offset+c.length):c.url&&c.ranged?await range(c.url,c.offset,c.length):c.url?await whole(c.url).catch(e=>e.status===404?null:Promise.reject(e)):await range(url,c.offset,c.length);
+  if(b===null){c.absent=true;c.hash=ZERO;c.length=0}else{c.hash=H(b);if(c.url)c.length=b.length;read+=b.length;if(c.stats)c.statsText=await Promise.resolve(c.stats(b)).catch(()=>"");if(c.decode&&(s.mosaic||s.frames||s.field))c.pix=await c.decode(b).catch(()=>null);if(s.sample)s.sample(c,b)}
   tick(`${++done}/${chunks.length} chunks · ${mb(read)} read`);
  }).catch(e=>{if(!/^Stopped/.test(e.message))throw e;halted=e});
  if(halted){const got=chunks.filter(c=>c.hash);if(!got.length)throw halted;chunks.splice(0,chunks.length,...got)}
- for(const c of chunks)if(c.url===url)c.url="";
+ for(const c of chunks)if(c.url===url)c.url="";else if(c.url)c.url=stripCred(c.url).url; // rows never carry a credential
  let total=s.streamed?s.bytes:s.whole?null:bytes,est=null;
  if(s.whole){const got=chunks.filter(c=>!c.absent&&/chunk|segment/.test(c.label));if(got.length)est=Math.round(got.reduce((a,c)=>a+c.length,0)/got.length*(s.units-s.all.filter(c=>!/chunk|segment/.test(c.label)).length))}
  const place=s.place&&opts.placeAbout&&!halted?await opts.placeAbout(s.place).catch(()=>[]):[];
  // a row at the source itself is written "·" and hashed with an empty url
- const r=s.chained?chain(chunks):root(chunks),name=decodeURIComponent(url.split("/").filter(Boolean).pop()||host),withStats=chunks.some(c=>c.statsText);
- const rows=chunks.map(c=>`| ${c.label} | ${c.url&&c.url!==url?c.url:"·"} | ${c.offset} | ${c.length} | ${c.absent?"absent (fill value)":c.hash} |${withStats?` ${(c.statsText||"").replace(/\|/g,"/")} |`:""}`);
+ const r=s.chained?chain(chunks):root(chunks),name=decodeURIComponent(stripCred(url).url.split("?")[0].split("/").filter(Boolean).pop()||host),withStats=chunks.some(c=>c.statsText);
+ const rows=chunks.map(c=>`| ${c.label} | ${c.url&&c.url!==url?stripCred(c.url).url:"·"} | ${c.offset} | ${c.length} | ${c.absent?"absent (fill value)":c.hash} |${withStats?` ${(c.statsText||"").replace(/\|/g,"/")} |`:""}`);
  const prevCid=opts.have?(opts.haveUrl||"").split("/").pop().replace(/\.md$/,""):"";
- const body=`---\nemem: pointer.v1\nsource: ${url}\nbytes: ${total??(est?`about ${est} (estimated from the chunks read)`:"unknown")}\netag: ${etag||"not exposed"}\nkind: ${s.kind}\nchunks: ${chunks.length} of ${s.units} hashed${halted?" (stopped early: a partial pointer; more: continues it)":""}\n${s.chained?"chain":"root"}: ${r}\nhash: blake3-256 of each chunk's bytes\norder: defaults, then by blake3(label without type or shape)\n${prevCid?`extends: ${prevCid}\n`:""}${s.place?`place: ${s.place.lat},${s.place.lng}\nbbox: ${s.place.bbox.join(",")}\n`:""}---\n\n# ${name}\n\n> ${s.kind} at ${host}${total?`, ${mb(total)}`:est?`, about ${mb(est)}`:""}.\n\n${s.about.map(a=>"- "+a).join("\n")}\n- ${chunks.length} of ${s.units} chunks hashed${prevCid?`; extends ${prevCid}, whose ${carried.length} rows are kept and 2 of them re-read`:""}; more can be hashed later, in a fixed order, without re-reading these\n${place.length?`\n## Place\n\n${place.map(a=>"- "+a).join("\n")}\n`:""}\n## Chunks\n\n| what | url (· is the source) | offset | length | blake3 |${withStats?" stats |":""}\n|---|---|---|---|---|${withStats?"---|":""}\n${rows.join("\n")}\n`;
+ const pub=stripCred(url);
+ const body=`---\nemem: pointer.v1\nsource: ${pub.url}\n${pub.withheld?"credential: presigned URL withheld (never stored); re-read with a fresh one\n":""}bytes: ${total??(est?`about ${est} (estimated from the chunks read)`:"unknown")}\netag: ${etag||"not exposed"}\nkind: ${s.kind}\nchunks: ${chunks.length} of ${s.units} hashed${halted?" (stopped early: a partial pointer; more: continues it)":""}\n${s.chained?"chain":"root"}: ${r}\nhash: blake3-256 of each chunk's bytes\norder: defaults, then by blake3(label without type or shape)\n${prevCid?`extends: ${prevCid}\n`:""}${s.place?`place: ${s.place.lat},${s.place.lng}\nbbox: ${s.place.bbox.join(",")}\n`:""}---\n\n# ${name}\n\n> ${s.kind} at ${host}${total?`, ${mb(total)}`:est?`, about ${mb(est)}`:""}.\n\n${s.about.map(a=>"- "+a).join("\n")}\n- ${chunks.length} of ${s.units} chunks hashed${prevCid?`; extends ${prevCid}, whose ${carried.length} rows are kept and 2 of them re-read`:""}; more can be hashed later, in a fixed order, without re-reading these\n${place.length?`\n## Place\n\n${place.map(a=>"- "+a).join("\n")}\n`:""}\n## Chunks\n\n| what | url (· is the source) | offset | length | blake3 |${withStats?" stats |":""}\n|---|---|---|---|---|${withStats?"---|":""}\n${rows.join("\n")}\n`;
  const preview=assemble(s,chunks);
  if(halted)throw Object.assign(new Error(`Stopped after hashing ${chunks.length} chunks. Nothing was published.`),{partial:{body,url,name,kind:s.kind,bytes:total,est,read,chunks,units:s.units,rootHash:r,chained:!!s.chained,about:s.about,place:s.place,preview}});
  return{body,url,name,kind:s.kind,bytes:total,est,read,chunks,units:s.units,rootHash:r,chained:!!s.chained,about:s.about,place:s.place,preview};
 };
 
 // re-read a spread of chunks from the source and compare: is the data still what the pointer says?
-export const recheck=async(body,tick,k=6)=>{
- const src=field(body,"source"),want=(body.match(/^(root|chain): (\S+)/m)||[]),all=parseRows(body),chunks=all.filter(c=>!c.absent);
+export const recheck=async(body,tick,k=6,via)=>{
+ const stored=field(body,"source");if(via&&!sameObject(via,stored))throw new Error("That fresh URL points at a different object than the pointer's source.");
+ if(!via&&/^presigned/.test(field(body,"credential")||""))throw new Error(`This pointer's source is a private bucket. Re-read it with a fresh presigned URL: <pointer link> with <fresh URL for ${stored}>`);
+ const src=via||stored,want=(body.match(/^(root|chain): (\S+)/m)||[]),all=parseRows(body),chunks=all.filter(c=>!c.absent);
  const table=want[1]==="chain"?chain(all)===want[2]:root(all)===want[2];
  let ok=0,n=0;const rows=[];
- for(const i of spread(chunks.length,k)){const c=chunks[i];const b=c.url?await whole(c.url):await range(src,c.offset,c.length);n++;const now=H(b),good=now===c.hash;if(good)ok++;rows.push({...c,now,ok:good});tick(`${n}/${Math.min(k,chunks.length)} from the source`)}
+ for(const i of spread(chunks.length,k)){const c=chunks[i];const b=c.url&&/ (inner \d+|index)$/.test(c.label)?await range(c.url,c.offset,c.length):c.url?await whole(c.url):await range(src,c.offset,c.length);n++;const now=H(b),good=now===c.hash;if(good)ok++;rows.push({...c,now,ok:good});tick(`${n}/${Math.min(k,chunks.length)} from the source`)}
  return{src,table,ok,n,rows};
 };
 
@@ -569,7 +677,7 @@ const list=async(url,tick)=>{
   for(let page=0;next&&page<10;page++){const x=await net(next);if(!x.ok)throw new Error(`Hugging Face answered ${x.status} for ${hf[2]}.`);
    for(const e of await x.json())if(e.type==="file")out.push({path:e.path,size:e.size,hash:e.lfs?.oid?`sha256:${e.lfs.oid}`:`git-sha1:${e.oid}`,url:`https://huggingface.co/${hf[1]||""}${hf[2]}/resolve/${rev}/${e.path.split("/").map(encodeURIComponent).join("/")}`});
    next=((x.headers.get("link")||"").match(/<([^>]+)>;\s*rel="next"/)||[])[1];tick(`${out.length} files listed`)}
-  return{out,host:"huggingface.co",name:`${hf[2]}${sub?"/"+sub:""} @ ${rev}`,kind:`Hugging Face ${kind.replace(/s$/,"")} repository`}}
+  return{out,truncated:!!next,host:"huggingface.co",name:`${hf[2]}${sub?"/"+sub:""} @ ${rev}`,kind:`Hugging Face ${kind.replace(/s$/,"")} repository`}}
  const u=new URL(url),prefix=decodeURIComponent(u.pathname.slice(1)),base=`${u.origin}/`;let token="";
  for(let page=0;page<10;page++){const x=await net(`${base}?list-type=2&prefix=${encodeURIComponent(prefix)}${token?`&continuation-token=${encodeURIComponent(token)}`:""}`);
   if(!x.ok)throw new Error(`${u.host} answered ${x.status} to a listing; the bucket may not allow public listing.`);
@@ -577,18 +685,18 @@ const list=async(url,tick)=>{
   for(const m of t.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)){const g=k=>(m[1].match(new RegExp(`<${k}>([^<]*)</${k}>`))||[])[1]||"";const key=g("Key").replace(/&amp;/g,"&");
    if(!key.endsWith("/"))out.push({path:key.slice(prefix.length),size:+g("Size"),hash:`etag:${g("ETag").replace(/&quot;|"/g,"")}`,url:base+key.split("/").map(encodeURIComponent).join("/")})}
   tick(`${out.length} files listed`);token=/<IsTruncated>true/.test(t)?(t.match(/<NextContinuationToken>([^<]+)</)||[])[1]:"";if(!token)break}
- return{out,host:u.host,name:prefix||u.host,kind:"S3 folder"};
+ return{out,truncated:!!token,host:u.host,name:prefix||u.host,kind:"S3 folder"};
 };
 const rowOf=f=>({url:f.url,offset:0,length:f.size,hash:H(U(`${f.path}\n${f.size}\n${f.hash}`))});
 const folder=async(url,tick)=>{
  tick("reading the listing");
- const{out,host,name,kind}=await list(url,tick);if(!out.length)throw new Error("That folder lists no files.");
+ const{out,host,name,kind,truncated}=await list(url,tick);if(!out.length)throw new Error("That folder lists no files.");
  out.sort((a,b)=>a.path<b.path?-1:1);
  const total=out.reduce((a,f)=>a+f.size,0),r=root(out.map(rowOf)),big=out.filter(f=>f.size>=64e6).length,pointable=out.filter(f=>FILEISH.test(f.url)).length;
  const exts=Object.entries(out.reduce((m,f)=>{const e=(f.path.match(/\.([a-z0-9]{1,12})$/i)||[,"(none)"])[1].toLowerCase();m[e]=(m[e]||0)+f.size;return m},{})).sort((a,b)=>b[1]-a[1]).slice(0,6);
  const about=[`${out.length} files, ${mb(total)} in all${big?`; ${big} of them over 64 MB`:""}`,`by size: ${exts.map(([e,n])=>`${e} ${mb(n)}`).join(", ")}`,
   `publisher hashes kept: ${[...new Set(out.map(f=>f.hash.split(":")[0]))].join(", ")}`,pointable?`${pointable} files can be pointed at chunk by chunk: paste a file's url`:""].filter(Boolean);
- const body=`---\nemem: directory.v1\nsource: ${url}\nfiles: ${out.length}\nbytes: ${total}\nkind: ${kind}\nroot: ${r}\nhash: each row is blake3(path, size, publisher hash); the root is a Merkle tree over (url, 0, size, row hash) in path order\n---\n\n# ${name}\n\n> ${kind} at ${host}: ${out.length} files, ${mb(total)}.\n\n${about.map(a=>"- "+a).join("\n")}\n\n## Files\n\n| path | url | bytes | publisher hash |\n|---|---|---|---|\n${out.map(f=>`| ${f.path.replace(/\|/g,"%7C")} | ${f.url} | ${f.size} | ${f.hash} |`).join("\n")}\n`;
+ const body=`---\nemem: directory.v1\nsource: ${url}\nfiles: ${out.length}\nlisted: ${truncated?"first 10 pages only (truncated): files beyond them are not named here":"complete"}\nbytes: ${total}\nkind: ${kind}\nroot: ${r}\nhash: each row is blake3(path, size, publisher hash); the root is a Merkle tree over (url, 0, size, row hash) in path order\n---\n\n# ${name}\n\n> ${kind} at ${host}: ${out.length} files, ${mb(total)}.\n\n${about.map(a=>"- "+a).join("\n")}\n\n## Files\n\n| path | url | bytes | publisher hash |\n|---|---|---|---|\n${out.map(f=>`| ${f.path.replace(/\|/g,"%7C")} | ${f.url} | ${f.size} | ${f.hash} |`).join("\n")}\n`;
  return{body,url,name,kind,bytes:total,est:null,read:0,chunks:out,units:out.length,rootHash:r,chained:false,about,folder:true};
 };
 // list the folder again and compare: which files are unchanged, changed, new or gone
@@ -596,21 +704,24 @@ export const relist=async(body,tick)=>{
  const src=field(body,"source"),want=field(body,"root");
  const was=new Map([...body.matchAll(/^\| (.+?) \| (https:\S+) \| (\d+) \| (\S+:\S+) \|$/gm)].map(m=>[m[1].replace(/%7C/g,"|"),{path:m[1].replace(/%7C/g,"|"),url:m[2],size:+m[3],hash:m[4]}]));
  const table=root([...was.values()].map(rowOf))===want;
- const{out}=await list(src,tick),now=new Map(out.map(f=>[f.path,f]));
- let same=0;const changed=[],added=[],gone=[];
- for(const[p,f]of was){const g=now.get(p);if(!g)gone.push(p);else if(g.size===f.size&&g.hash===f.hash)same++;else changed.push(p)}
+ const{out,truncated}=await list(src,tick),now=new Map(out.map(f=>[f.path,f]));
+ let same=0;const changed=[],added=[],gone=[],unseen=[];
+ // a listing that stopped early (10 pages) says nothing about files it didn't reach: they are unseen, never "gone"
+ for(const[p,f]of was){const g=now.get(p);if(!g)(truncated?unseen:gone).push(p);else if(g.size===f.size&&g.hash===f.hash)same++;else changed.push(p)}
  for(const p of now.keys())if(!was.has(p))added.push(p);
- return{src,table,same,changed,added,gone,n:was.size};
+ return{src,table,same,changed,added,gone,unseen,truncated,n:was.size};
 };
 
 // ---------- a preview drawn from bytes that were hashed: a grid (raster, scan) or points seen from above (splats) ----------
 export const drawPreview=pv=>{
  if(!pv||typeof document==="undefined")return null;
  const cv=document.createElement("canvas");cv.className="preview";
+ // a field of measurements gets a perceptual ramp (viridis stops); scans and elevation stay grey
+ const VIRIDIS=t=>{const S=[[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]],x=t*(S.length-1),i=Math.min(S.length-2,Math.floor(x)),f=x-i;return S[i].map((v,k)=>v+(S[i+1][k]-v)*f)};
  if(pv.kind==="grid"){const{w,h,v}=pv,sc=Math.min(1,320/Math.max(w,h)),W=Math.max(1,Math.round(w*sc)),Hh=Math.max(1,Math.round(h*sc));cv.width=W;cv.height=Hh;
   const vals=[];for(let i=0;i<v.length;i+=Math.max(1,Math.floor(v.length/20000)))if(Number.isFinite(v[i]))vals.push(v[i]);vals.sort((a,b)=>a-b);
   const lo=vals[Math.floor(vals.length*.02)]??0,hi=vals[Math.floor(vals.length*.98)]??1,g=cv.getContext("2d"),img=g.createImageData(W,Hh);
-  for(let y=0;y<Hh;y++)for(let x=0;x<W;x++){const q=v[Math.floor(y/sc)*w+Math.floor(x/sc)],o=(y*W+x)*4;if(!Number.isFinite(q)){img.data[o+3]=0;continue}const t=Math.max(0,Math.min(1,(q-lo)/(hi-lo||1)))*255;img.data.set([t,t,t,255],o)}
+  for(let y=0;y<Hh;y++)for(let x=0;x<W;x++){const q=v[Math.floor(y/sc)*w+Math.floor(x/sc)],o=(y*W+x)*4;if(!Number.isFinite(q)){img.data[o+3]=0;continue}const f=Math.max(0,Math.min(1,(q-lo)/(hi-lo||1)));if(pv.ramp){const c=VIRIDIS(f);img.data.set([c[0],c[1],c[2],255],o)}else{const t=f*255;img.data.set([t,t,t,255],o)}}
   g.putImageData(img,0,0);return cv}
  if(pv.kind==="frames")return pv.frames[0];
  if(pv.kind==="rgba"){const h=Math.round(pv.aspect?pv.w*pv.aspect:pv.h),sc=Math.min(1,320/Math.max(pv.w,h));cv.width=Math.max(1,Math.round(pv.w*sc));cv.height=Math.max(1,Math.round(h*sc));

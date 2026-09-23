@@ -8,7 +8,7 @@ const f=(b,k)=>(b.match(new RegExp(`^${k}: (.+)$`,"m"))||[])[1]||"";
 const sq=v=>String(v).trim().replace(/,\s+/g,",").replace(/\s+/g,"_");
 const mb=n=>!n?"":n>=1e9?(n/1e9).toFixed(2)+"GB":n>=1e6?(n/1e6).toFixed(1)+"MB":(n/1e3).toFixed(1)+"KB";
 const short=u=>sq(String(u).replace(/^https?:\/\//,"").replace(/^(.{24}).*(.{22})$/,"$1…$2"));
-const KIND=[[/BigTIFF/i,"bigtiff"],[/GeoTIFF/i,"cog"],[/safetensors/i,"safetensors"],[/GGUF/i,"gguf"],[/Zarr/i,"zarr"],[/HLS/i,"hls"],[/DICOM/i,"dicom"],[/video/i,"mp4"],[/observation/i,"observation"],[/photograph/i,"jpeg"],[/splats/i,"splats"],[/PMTiles/i,"pmtiles"],[/Parquet/i,"parquet"],[/FlatGeobuf/i,"fgb"],[/file/i,"file"]];
+const KIND=[[/BigTIFF/i,"bigtiff"],[/GeoTIFF/i,"cog"],[/safetensors/i,"safetensors"],[/GGUF/i,"gguf"],[/Zarr/i,"zarr"],[/HLS/i,"hls"],[/DICOM/i,"dicom"],[/video/i,"mp4"],[/observation/i,"observation"],[/photograph/i,"jpeg"],[/splats/i,"splats"],[/PMTiles/i,"pmtiles"],[/NetCDF-3/i,"netcdf"],[/HDF5/i,"hdf5"],[/COPC/i,"copc"],[/Zarr v3/i,"zarr3"],[/Parquet/i,"parquet"],[/FlatGeobuf/i,"fgb"],[/file/i,"file"]];
 export const refOf=url=>{const m=String(url).match(/by_attester\/([a-z2-7]{8})\/(.+)\.md$/);return m?`${m[1]}/${m[2]}`:String(url)};
 // brief: for a catalog, only what chooses an item; hash-valued keys (root, bundle, rasterset, head, sth, spec) live in the note, one fetch away
 const HASHY=/^(root|rasterset|bundle|head|sth|spec)=/;
