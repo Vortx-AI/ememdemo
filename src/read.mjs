@@ -10,8 +10,9 @@ const LIB={
 };
 const READER="https://r.jina.ai/";
 
+import {net} from "./emem.mjs";
+
 // ---------- plumbing ----------
-export const net=async(url,init)=>{try{return await fetch(url,init)}catch{throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
 const loaded={};
 const script=(src,global)=>loaded[src]??=new Promise((ok,no)=>{const s=document.createElement("script");s.src=src;s.onload=()=>ok(window[global]);s.onerror=()=>no(new Error("Could not load a reader from cdn.jsdelivr.net. Check your connection."));document.head.append(s)});
 export const ext=n=>(n.match(/\.([a-z0-9]+)$/i)?.[1]||"").toLowerCase();
@@ -151,7 +152,13 @@ const ocrPdf=async(doc,name,tick)=>{
 };
 const imageDoc=async(file,name,tick)=>{
  tick("reading image text");
- const text=(await(await ocr()).recognize(file)).data.text;
+ const bmp=await createImageBitmap(file),cv=document.createElement("canvas");cv.width=bmp.width;cv.height=bmp.height;
+ const g=cv.getContext("2d");g.drawImage(bmp,0,0);
+ // OCR reads dark text on light; light-on-dark images (terminals, dark mode) are inverted first
+ const px=g.getImageData(0,0,cv.width,cv.height),d=px.data;let sum=0,n=0;
+ for(let i=0;i<d.length;i+=4*97){sum+=d[i]*.3+d[i+1]*.59+d[i+2]*.11;n++}
+ if(sum/n<110){for(let i=0;i<d.length;i+=4){d[i]=255-d[i];d[i+1]=255-d[i+1];d[i+2]=255-d[i+2]}g.putImageData(px,0,0)}
+ const text=(await(await ocr()).recognize(cv)).data.text;
  if(!text.trim())throw new Error(`${name}: no text found in the image.`);
  return{title:name,md:textMd(text),what:"image, text read by OCR"};
 };
@@ -187,7 +194,7 @@ const epubDoc=async buf=>{
 export const toDoc=async(it,kinds,tick)=>{
  const name=it.name,e=ext(name),kind=kinds[e];
  if(it.text!=null)return{name,title:"",md:tidy(it.text),kind:"prose",what:"pasted text"};
- if(it.remote)return webDoc(it.remote,tick);
+ if(it.remote)return webDoc(it.remote,kinds,tick);
  if(!kind)throw new Error(`${name}: ${/^(mp3|wav|m4a|ogg|flac|mp4|mov|webm|mkv|avi)$/.test(e)?"audio and video are not read yet":`.${e||"?"} files are not read`}.`);
  let buf;if(it.file)buf=await it.file.arrayBuffer();else{const x=await net(it.url);if(!x.ok)throw new Error(`${name}: could not be fetched (${x.status}).`);buf=await x.arrayBuffer()}
  let d;
@@ -207,9 +214,23 @@ export const toDoc=async(it,kinds,tick)=>{
  return{name,title:one(d.title),md:d.md,kind:"prose",what:d.what};
 };
 
-// web pages go through a reader that returns markdown; its preamble is metadata, not content
-const webDoc=async(url,tick)=>{
- tick("reading page");
+// a file served with open CORS is read here by the same readers as a dropped file;
+// a web page goes through a reader that returns markdown, whose preamble is metadata, not content
+const TYPES={"application/pdf":"pdf","text/plain":"txt","text/markdown":"md","text/csv":"csv","application/json":"json","application/epub+zip":"epub",
+ "application/vnd.openxmlformats-officedocument.wordprocessingml.document":"docx","application/vnd.openxmlformats-officedocument.presentationml.presentation":"pptx",
+ "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":"xlsx","image/png":"png","image/jpeg":"jpg","image/webp":"webp"};
+const webDoc=async(url,kinds,tick)=>{
+ tick("reading link");
+ const direct=await fetch(url).catch(()=>null);
+ if(direct?.ok){
+  const type=(direct.headers.get("content-type")||"").split(";")[0].trim().toLowerCase(),u=new URL(url);
+  const pe=ext(u.pathname),e=kinds[pe]?pe:TYPES[type]||"";
+  if(e&&kinds[e]){
+   const base=decodeURIComponent(u.pathname.split("/").filter(Boolean).pop()||u.host),name=ext(base)===e?base:`${base}.${e}`;
+   const d=await toDoc({name,file:new File([await direct.blob()],name)},kinds,tick);
+   return{...d,what:`${d.what} from ${u.host}`};
+  }
+ }
  const x=await net(READER+url);if(!x.ok)throw new Error(`Could not read ${url} (${x.status}).`);
  const t=await x.text(),at=t.indexOf("Markdown Content:");
  const title=one((t.match(/^Title:\s*(.+)$/m)||[])[1]);

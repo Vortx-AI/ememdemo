@@ -8,10 +8,16 @@
 #   flow name : a b c      steps in order; each output type must be the next input type
 #   rule ...               checked at load; a broken rule stops the page, like a compiler
 
+mark    ./src/img/mark-64.png
+link    gallery  #gallery
+link    A2A      https://emem.dev/a2a
+link    channel  https://emem.dev/channel
+link    docs     https://emem.dev/docs
+link    GitHub   https://github.com/Vortx-AI/emem
+
 say     Turn any file into a link your AI agent can read.
 in      Drop files, paste text, or paste a URL or GitHub repo
 note    Public: anyone with the link can read it.
-empty   your link appears here
 blank   Nothing to read yet. Drop a file, or paste text, a URL or a GitHub repo.
 
 kind docs   : pdf docx pptx xlsx epub html htm md mdx rst txt
@@ -35,14 +41,17 @@ step fetch  : url      -> notes
 step prove  : notes    -> link
 flow open   : fetch prove
 
-give index <<
+step resolve : name    -> link
+flow resolve : resolve
+
+give preview <<
 {index}
 >>
 
 give AGENTS.md <<
 ## Context: {title}
 Before writing code, read {link}
-{shape} Fetch only the sections the task needs. If it does not say something, do not guess.
+{shape} Fetch only what the task needs. If it does not say something, do not guess.
 >>
 
 give chat <<
@@ -51,37 +60,28 @@ When you rely on it, quote it word for word in "double quotes". If it does not s
 >>
 
 give curl <<
-curl -s {link}
-curl -s {first}
+{curl}
 
-# each file is named by the hash of its bytes; recompute it (pip install blake3):
-curl -s {link} | python3 -c "import sys,blake3,base64;print(base64.b32encode(blake3.blake3(sys.stdin.buffer.read()).digest(16)).decode().rstrip('=').lower())"
-# expect {cid}
+{verify}
 >>
 
 give MCP <<
 claude mcp add --transport http emem https://emem.dev/mcp/full
-# then, in any MCP agent: read {link}
-emem_memory_view {"file_cid":"{cid}"}
+# then, in any MCP agent:
+{mcp}
 >>
 
-# shown in the index tab before anything is dropped: a real excerpt, so the output is visible first
-sample <<
-# RFC 9110: HTTP Semantics
+give A2A <<
+# any agent, no SDK and no key: every emem tool is also an A2A skill
+{a2a}
 
-> 194-page PDF. ~113k tokens in 23 sections. Read this index, then fetch only the sections your task needs.
-
-## Sections
-
-- [9. Methods · pp. 71–79](…): ~6k tokens · 9.1. Overview; 9.2.1. Safe Methods; 9.2.2. Idempotent Methods; 9.3.1. GET; 9.3.3. POST
-- [15. Status Codes · pp. 125–133](…): ~6k tokens · 15.1. Overview of Status Codes; 15.3.1. 200 OK; 15.3.2. 201 Created; 15.4. Redirection 3xx
-- [15.4.1. 300 Multiple Choices · pp. 133–142](…): ~6k tokens · 15.5.1. 400 Bad Request; 15.5.4. 403 Forbidden; 15.5.21. 422 Unprocessable Content
-  … one line per section. Your agent reads this first, then opens only what it needs.
+# all skills, from the agent card
+curl -s https://emem.dev/.well-known/agent-card.json
 >>
 
 check   Paste your AI's answer. Every "quote" in it is checked against the source.
 
 rule words say 6..12
-rule plain say in note empty blank : cid blake3 ed25519 hash signed token emem: sha256 attester bundle
-rule typed make open
-rule carry give : {link} {index}
+rule plain say in note blank : cid blake3 ed25519 hash signed token emem: sha256 attester bundle
+rule typed make open resolve
+rule carry give : {link} {index} {curl} {mcp} {a2a}
