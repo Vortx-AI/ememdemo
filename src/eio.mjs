@@ -412,7 +412,7 @@ const numberHeld=(n,sentence,src,srcNums,prose)=>{
 const grounding=(answer,source,prose=true)=>{
  const grams=new Set(words3(source)),src=norm(source).replace(/(\d),(\d)/g,"$1$2");
  const srcNums=[...src.matchAll(/\d+(?:\.\d+)?/g)].map(m=>({v:Number(m[0]),at:m.index}));
- const sentences=answer.split(/(?<=[.!?])\s+|\n+/).map(x=>x.trim()).filter(Boolean);
+ const sentences=answer.replace(/([.!?])\s+/g,"$1\n").split(/\n+/).map(x=>x.trim()).filter(Boolean);
  const traced=sentences.filter(x=>x.split(/\s+/).length>=6).map(x=>{const g=words3(x);return{x,score:g.length?g.filter(y=>grams.has(y)).length/g.length:0}});
  const numbers=sentences.flatMap(x=>[...new Set(nums(x))].map(n=>({n,ok:numberHeld(n,x,src,srcNums,prose),x})));
  return{traced,numbers};
@@ -582,7 +582,7 @@ ${last.answer.trim()}
  const backup=()=>{const t=exportKey();if(!t)return;const a=h("a",{href:URL.createObjectURL(new Blob([t],{type:"application/json"})),download:`emem-key-${JSON.parse(t).pub_b32.slice(0,8)}.json`});a.click()};
  restore.onchange=async()=>{try{const pub=await importKey(await restore.files[0].text());showKey({pub})}catch(e){who.textContent=e.message}};
  const showKey=k=>who.replaceChildren(h("span",{title:"emem's enlistment ladder (GET /v1/enlist): a key made here signs its own namespace, which is T1 (keyed). Naming (T2) and organisation evidence (T4) aren't set up by this page, so agents should weigh this key as unnamed."},"T1 "),"key ",h("a",{href:`${EMEM}/memories/by_attester/${k.pub.slice(0,8)}/`,target:"_blank",rel:"noopener",title:"every file this key has stored, listed by emem"},k.pub.slice(0,8))," · ",...(()=>{const st=keyState();return st?.recoverable?[h("button",{class:"link",onclick:backup,title:"a recovery file can be made only now, while this key is being set up; after a reload it is locked to this device"},"back up now")," · "]:st?.stored==="device"?[h("span",{title:"the key can sign but can't be read or exported, even by scripts on this page"},"device-only")," · "]:[]})(),h("button",{class:"link",onclick:()=>restore.click()},"restore"),restore," · ",h("button",{class:"link",title:"your share key: give it to someone who wants to grant you a private link; it can only receive",onclick:async ev=>{const s=await shareKey();try{await navigator.clipboard.writeText(s.pub);ev.target.textContent="share key copied"}catch{ev.target.textContent=s.pub}}},"share key"));
- key().then(showKey).catch(()=>who.textContent="emem.dev");
+ key().then(showKey).catch(()=>who.replaceChildren(h("span",{title:"everything that reads and checks works here; making links needs Ed25519 in WebCrypto (Chrome 137+, Safari 17+, Firefox 129+)"},"this browser can read and check, but can't sign: update it to make links")));
 
  // the latest click wins: an older run keeps going but may no longer touch the page
  let seq=0;const busy=on=>document.querySelector("main").setAttribute("aria-busy",String(on));

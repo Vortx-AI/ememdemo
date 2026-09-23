@@ -132,6 +132,8 @@ source ${b32(blake3(U(src)).slice(0,16))}
 ${lines.join("\n")}
 `;
 const m=await store(manifest);
+// a copy next to the page, so the site still boots when emem.dev is briefly unreachable; the sha256 pin makes either copy equal
+fs.writeFileSync(ROOT+"seal.md",manifest);
 console.log("manifest",m.url);
 
 // ---------- 4. pin it ----------

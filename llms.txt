@@ -41,7 +41,7 @@ pointed cog 7rn7fxbl75o5cijqpnok5oc7rq src=esahubble.org size=214.8MB hashed=97/
 pointed cog jxz6pghlsjbohvx6s5iw6yek4m src=astrogeo-ard.s3.us-west-2.amazonaws.com size=1.0MB hashed=34/34 by=third-party t=Moon_terrain,Kaguya
 pointed cog 4uweu43yaiik2mw5nc4eznztbu src=esahubble.org size=180.1MB hashed=97/920 by=third-party t=Sombrero_galaxy
 # disaster
-pointed hdf5 kp4jgaqtc442ojdzx45oohynvu src=huggingface.co size=848.0MB hashed=8/203 by=third-party t=Hurricane_Katrina,the_weather_model_run
+pointed hdf5 boupyjevzwv6qlj2q477tvmkmi src=huggingface.co size=848.0MB hashed=8/203 by=third-party t=Hurricane_Katrina,the_weather_model_run
 framed timelapse ota6xerxrqzya5txb4jxvzpb2q at=20.878,-156.682 frames=4 years=2022-2025 by=combined t=Lahaina,before_and_after_fire
 pointed bigtiff bafppksajtcekqt62r3thg3a5u src=maxar-opendata.s3.amazonaws.com size=71.2MB hashed=78/1566 at=20.757,-156.382 by=third-party t=Maui_fires,50_cm
 # 3d

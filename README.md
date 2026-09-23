@@ -13,7 +13,7 @@ The box takes anything:
 | an emem link | the link re-checked: every file is re-hashed against its name |
 | any emem token: `emem:fact`, `bundle`, `cell`, `entity`, `raster`, `cube`, `rasterset`, `state` | the record it names, resolved and its signature checked in the browser |
 | a bare file name (26 characters) | the file, read by name over **A2A**, with its author's signature checked |
-| a link to large data: model weights (safetensors, GGUF), GeoTIFF/COG/BigTIFF, OME-Zarr, HLS video, DICOM, MP4, PMTiles, Parquet, FlatGeobuf, NetCDF-3 (variables and records, with a map of the main field), NetCDF-4/HDF5, COPC lidar (octree nodes), Zarr v3 with sharding (inner chunks from each shard's crc32c-checked index), 3DGS `.ply`, or any file with byte ranges | a **pointer**: the data stays at its source; emem holds its address, chunk hashes and statistics |
+| a link to large data: model weights (safetensors, GGUF), GeoTIFF/COG/BigTIFF, OME-Zarr, HLS video, DICOM, MP4, PMTiles, Parquet, FlatGeobuf, NetCDF-3 (variables and records, with a map of the main field), NetCDF-4/HDF5 (every variable's name, type, shape and storage read from the file's own headers: v1/v2 object headers, compact and dense links in a fractal heap; rows are 4 MiB ranges), COPC lidar (octree nodes), Zarr v3 with sharding (inner chunks from each shard's crc32c-checked index), 3DGS `.ply`, or any file with byte ranges | a **pointer**: the data stays at its source; emem holds its address, chunk hashes and statistics |
 | a Hugging Face repository or an S3 folder ending in `/` | a **listing** of every file with its publisher's content hash; nothing downloaded |
 | several links, one per line | one index over all of them |
 | `cameras: London` | 12 street cameras: each clip hashed again, the sun recomputed, the counts labelled as a detector's reading |
@@ -472,6 +472,13 @@ rule   gallery show
 - **Ask** only answers questions about places, and takes 2–30 s depending on how warm emem.dev is.
 - **Not supported:** `emem:trace` / `emem:attestation` have no public examples, so the page does not claim to resolve them. `emem:state` has no MCP tool; the page says so.
 - **Chat apps:** plain ChatGPT, Claude or Gemini sessions may decline to open links. Coding agents, MCP and A2A clients do open them.
+
+## Browsers and availability
+
+- The page runs in current Chrome, Edge, Firefox and Safari. Reading and checking need nothing unusual. Making links needs Ed25519 in WebCrypto (Chrome 137+, Safari 17+, Firefox 129+). A browser without it says it can read and check but can't sign.
+- Page code avoids syntax that older Safari can't parse (a test keeps regex lookbehind out). A browser too old to run it says so instead of showing a syntax error.
+- The pinned manifest is fetched from emem.dev, retried once, and otherwise read from `./seal.md` next to the page. The sha256 pin makes either copy the same file, so a brief emem.dev outage doesn't take the site down. Site files come from this site first and are restored from emem.dev only if a copy doesn't match.
+- `BASE_URL=https://vortx-ai.github.io/ememdemo/ npm run test:browser` runs the whole suite against the deployed site.
 
 ## Tests
 

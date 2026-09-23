@@ -4,9 +4,10 @@ import {chromium} from "playwright-core";
 import {spawn} from "child_process";
 import fs from "fs";
 import assert from "assert/strict";
-const ROOT=new URL("..",import.meta.url).pathname,PORT=+process.env.PORT||8790,BASE=`http://localhost:${PORT}/`;
-const MANIFEST=(fs.readFileSync(ROOT+"index.html","utf8").match(/by_attester\/[a-z2-7]{8}\/([a-z2-7]{26})\.md/)||[])[1];
-const srv=spawn("python3",["-m","http.server",String(PORT)],{cwd:ROOT,stdio:"ignore"});await new Promise(r=>setTimeout(r,800));
+// BASE_URL=https://vortx-ai.github.io/ememdemo/ runs the same cases against the deployed site (no local server)
+const ROOT=new URL("..",import.meta.url).pathname,PORT=+process.env.PORT||8790,BASE=process.env.BASE_URL||`http://localhost:${PORT}/`;
+const MANIFEST=((process.env.BASE_URL?await (await fetch(BASE)).text():fs.readFileSync(ROOT+"index.html","utf8")).match(/by_attester\/[a-z2-7]{8}\/([a-z2-7]{26})\.md/)||[])[1];
+const srv=process.env.BASE_URL?{kill(){}}:spawn("python3",["-m","http.server",String(PORT)],{cwd:ROOT,stdio:"ignore"});await new Promise(r=>setTimeout(r,800));
 const b=await chromium.launch({executablePath:process.env.CHROMIUM||undefined,args:["--ignore-certificate-errors"]});
 let pass=0,fail=0;
 const open=async(q="",setup)=>{const ctx=await b.newContext({viewport:{width:1200,height:900}}),pg=await ctx.newPage();const errs=[];pg.on("pageerror",e=>errs.push(e.message));
@@ -20,6 +21,8 @@ await test("a flipped byte in a site file is restored from emem",async keep=>{co
  assert.match(await foot(o.pg),/1 restored from emem/)});
 await test("a flipped byte in the manifest stops the page",async keep=>{const o=await open("",pg=>pg.route(`**/${MANIFEST}.md`,async rt=>{const r=await rt.fetch();rt.fulfill({response:r,body:(await r.text())+" "})}));keep(o);
  assert.match(await foot(o.pg),/refused to run[\s\S]*does not match the sha256/)});
+await test("the page still boots when emem.dev can't serve the manifest (copy next to the page, same sha256)",async keep=>{const o=await open("",pg=>pg.route(`**/emem.dev/**/${MANIFEST}.md`,rt=>rt.abort()));keep(o);
+ assert.match(await foot(o.pg),/sealed · (\d+) of \1 files checked/)});
 await test("the page can boot from emem alone",async keep=>{const o=await open("?boot=emem");keep(o);assert.match(await foot(o.pg),/all run from emem\.dev/)});
 for(const[label,fn]of[["a jargon hero",t=>t.replace(/^say .*$/m,"say     Get a signed emem token for any file right now today.")],["a broken flow",t=>t.replace("flow make   : read text split sign store link","flow make   : read split text sign store link")]])
  await test(`the page refuses ${label}`,async keep=>{const o=await open("?boot=local",pg=>pg.route("**/emem.eio",async rt=>{const r=await rt.fetch();rt.fulfill({response:r,body:fn(await r.text())})}));keep(o);

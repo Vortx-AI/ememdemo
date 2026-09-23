@@ -18,6 +18,8 @@ const READER="https://r.jina.ai/";
 import {net} from "./emem.mjs";
 
 // ---------- plumbing ----------
+// the same parts as splitting on a zero-width lookbehind for d, without one (older Safari cannot parse lookbehind)
+export const splitAfter=(t,d)=>{const out=[];let s=0;for(let i=d.length;i<t.length;i++)if(t.startsWith(d,i-d.length)){out.push(t.slice(s,i));s=i}out.push(t.slice(s));return out};
 // a sealed page loads third-party readers only after checking their bytes against the seal; unsealed, it loads them as they are
 const pin=u=>globalThis.__seal?.lib?.(u)??u;
 const loaded={};
@@ -325,7 +327,7 @@ export const blocksOf=(doc,multi)=>{
 
 // ---------- sections: blocks packed in order, breaking at top-level headings and file boundaries ----------
 const chop=(b,max)=>{
- const parts=b.text.split(b.code?/(?<=\n)/:/(?<=\n\n)/),out=[];let buf="";
+ const parts=splitAfter(b.text,b.code?"\n":"\n\n"),out=[];let buf="";
  for(let p of parts){
   while(p.length>max){if(buf){out.push(buf);buf=""}out.push(p.slice(0,max));p=p.slice(max)}
   if(buf&&buf.length+p.length>max){out.push(buf);buf=""}

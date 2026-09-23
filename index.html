@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' blob: 'sha256-4LUpbLBAR/FdlupJo5PAYKOE5g5GFy97oUk8hyQD+Ig=' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' blob: 'unsafe-inline'; img-src * data: blob:; media-src * blob:; font-src 'self' data:; connect-src * blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' blob: 'sha256-zT3CceLJOWW95YNoDorBi7/u38xY3QvkcwFSoWif+o4=' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' blob: 'unsafe-inline'; img-src * data: blob:; media-src * blob:; font-src 'self' data:; connect-src * blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="description" content="Turn any file into a link your AI agent can read.">
   <meta name="color-scheme" content="light dark">
@@ -32,7 +32,7 @@
     @media(prefers-reduced-motion:reduce){#boot img{animation:none}}
   </style>
   <script type="module">
-    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/skwqbvwiyv7r6q5yidajm5gph4.md",sha256:"59fb9fcf4621bc24bb75a991e76c83fa6465d7e0c47b45d50fbfebfd414c68f8",site:"ddzmyzhn7wy55qemazk3vqawzulzrzrt457xr7qgjvqr7mvanolq"};
+    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/ethl3hhn57e35765j4fdbdspci.md",sha256:"5a667753c5f748318e3a9529d5ac58c78f420b710dfa29eced79de021a30c50d",site:"ddzmyzhn7wy55qemazk3vqawzulzrzrt457xr7qgjvqr7mvanolq"};
     const mode=new URLSearchParams(location.search).get("boot");
     const hex=async b=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",b))].map(x=>x.toString(16).padStart(2,"0")).join("");
     const get=async u=>{const x=await fetch(u,{cache:"no-cache"});if(!x.ok)throw new Error(`${u} answered ${x.status}`);return x.arrayBuffer()};
@@ -44,7 +44,8 @@
     try{
       if(mode==="local"||!SEAL.url)await unsealed();
       else{
-        const mb=await get(SEAL.url);
+        // the manifest from emem.dev (twice, for a passing hiccup), else the copy next to this page: the sha256 below decides either way
+        const mb=await get(SEAL.url).catch(()=>new Promise(r=>setTimeout(r,1500)).then(()=>get(SEAL.url))).catch(()=>get("./seal.md"));
         if(await hex(mb)!==SEAL.sha256)throw new Error("The manifest at "+SEAL.url+" does not match the sha256 this page pins.");
         const text=new TextDecoder().decode(mb),seal=globalThis.__seal={url:SEAL.url,files:{},report:[],sealed_by:(text.match(/^sealed_by (\S+)/m)||[])[1]};
         // only the site's own key may seal it: the manifest must name that key and live in its namespace
@@ -71,7 +72,7 @@
         seal.lib=u=>libs[u]?libCache[u]??=get(u).then(async b=>{if(await hex(b)!==libs[u])throw new Error(u+" does not match its seal; it was not run.");return blob(b,"text/javascript")}):u;
         await import(urls["src/eio.mjs"]);
       }
-    }catch(e){refuse(e.message||String(e))}
+    }catch(e){refuse((e instanceof SyntaxError?"This browser is too old to run the page's code (it needs Safari 16.4+, Chrome 94+ or Firefox 115+). Update it and reload.\n\n":"")+(e.message||String(e)))}
   </script>
 </head>
 <body><div id="boot" role="status" aria-live="polite"><img src="./src/img/mark-64.png" alt="" width="40" height="40"><b>ememifying this page</b><span id="boot-say">reading the seal</span><ol id="boot-map"></ol><noscript>This page needs JavaScript: it checks every file it runs before running it.</noscript></div></body>

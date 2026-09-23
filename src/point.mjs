@@ -420,13 +420,62 @@ const netcdf3=async(url,tick,bytes)=>{
   about:[`dimensions: ${dims.map(d=>`${d.name} ${d.size||`${numrecs} (records)`}`).join(", ")}`,`${vars.length} variables; gridded: ${main.join(", ")}`,gatt.title||gatt.source?String(gatt.title||gatt.source).trim().slice(0,140):"",gatt.institution?`from ${String(gatt.institution).trim().slice(0,100)}`:"",gatt.experiment_id?`experiment ${gatt.experiment_id}${gatt.variant_label?`, ${gatt.variant_label}`:""}`:"","float variables carry mean, min and max over the bytes read (fill values skipped)"].filter(Boolean)};
 };
 
-// ---------- HDF5 / NetCDF-4: the superblock is checked and named; the file is covered by 4 MiB ranges ----------
+// ---------- HDF5 / NetCDF-4: rows are 4 MiB ranges (full coverage, never overlapping); the variables are read from the file's
+// own structure and listed: superblock → root group (symbol table, compact links, or dense links in a fractal heap) → each
+// dataset's object header (v1 or v2) → its dataspace, datatype, filters and layout.
 const hdf5=async(url,tick,bytes)=>{
- let at=-1,b=null;for(const o of[0,512,1024,2048]){b=await range(url,o,96);if(b[0]===0x89&&String.fromCharCode(...b.slice(1,4))==="HDF"){at=o;break}}
- if(at<0)throw new Error("Not an HDF5 file (no signature).");const ver=b[8],os=ver<2?b[13]:b[9];
- const s=await file(url,tick,bytes);const keep=new Set(spread(s.all.length,8));s.all=s.all.map((c,i)=>({...c,dflt:keep.has(i)}));s.kind=`HDF5 / NetCDF-4 (superblock v${ver}, ${os}-byte addresses)`;
- s.all[0]={...s.all[0],label:`superblock at ${at} and first bytes`};
- s.about=[`HDF5 superblock v${ver} at byte ${at}; ${os}-byte offsets`,`${s.units} ranges of 4 MiB; its datasets and chunk B-trees are not listed yet, so rows are byte ranges rather than variables`];return s};
+ let at=-1,sb=null;for(const o of[0,512,1024,2048]){sb=await range(url,o,160);if(sb[0]===0x89&&String.fromCharCode(...sb.slice(1,4))==="HDF"){at=o;break}}
+ if(at<0)throw new Error("Not an HDF5 file (no signature).");const ver=sb[8];
+ const s=await file(url,tick,bytes);const keep=new Set(spread(s.all.length,8));s.all=s.all.map((c,i)=>({...c,dflt:keep.has(i)}));s.kind=`HDF5 / NetCDF-4 (superblock v${ver})`;
+ s.all[0]={...s.all[0],label:`superblock and first bytes (${s.all[0].label})`};
+ let cat="";try{cat=await h5catalog(url,at,sb,bytes,tick)}catch(e){cat=`its variables couldn't be listed (${e.message})`}
+ s.about=[`HDF5 superblock v${ver} at byte ${at}; rows are ${s.units} ranges of 4 MiB covering every byte`,cat].filter(Boolean);return s};
+const h5catalog=async(url,at,sb,bytes,tick)=>{
+ const pages=new Map(),P=65536;let reads=0;
+ const pageOf=n=>{if(!pages.has(n)){if(++reads>400)throw new Error("metadata is spread over too many pages");pages.set(n,range(url,at+n*P,Math.min(P,Math.max(1,(bytes||Infinity)-at-n*P))))}return pages.get(n)};
+ const rd=async(a,n)=>{const out=new Uint8Array(n);let o=0;while(o<n){const p=Math.floor((a+o)/P),pg=await pageOf(p),off=(a+o)%P,k=Math.min(n-o,pg.length-off);if(k<=0)throw new Error("read past the end");out.set(pg.subarray(off,off+k),o);o+=k}return new DataView(out.buffer)};
+ const u=(dv,o,n)=>n===8?Number(dv.getBigUint64(o,true)):n===4?dv.getUint32(o,true):n===2?dv.getUint16(o,true):dv.getUint8(o);
+ const sig=(dv,o=0)=>String.fromCharCode(dv.getUint8(o),dv.getUint8(o+1),dv.getUint8(o+2),dv.getUint8(o+3));
+ const ver=sb[8],sd=new DataView(sb.buffer,sb.byteOffset),os=ver<2?sb[13]:sb[9];if(os!==8)throw new Error(`${os}-byte addresses`);
+ // object header messages, v1 or v2, following continuation blocks
+ const messages=async a=>{const h=await rd(a,32),out=[],blocks=[];let v2=false,ocrd=false;
+  if(sig(h)==="OHDR"){v2=true;const fl=h.getUint8(5);let o=6;if(fl&0x20)o+=16;if(fl&0x10)o+=4;const cs=[1,2,4,8][fl&3];blocks.push([a+o+cs,u(h,o,cs)]);ocrd=!!(fl&4)}
+  else if(h.getUint8(0)===1)blocks.push([a+16,h.getUint32(8,true)]);else throw new Error("unknown object header");
+  let guard=0;while(blocks.length&&guard++<32){const[b0,len]=blocks.shift(),b=await rd(b0,len);let o=0;
+   while(o+(v2?4:8)<=len-(v2?4:0)){let t,sz;if(v2){t=b.getUint8(o);sz=b.getUint16(o+1,true);o+=4+(ocrd?2:0)}else{t=b.getUint16(o,true);sz=b.getUint16(o+2,true);o+=8}
+    if(o+sz>len)break;const dv=new DataView(b.buffer,b.byteOffset+o,sz);out.push({t,dv});if(t===0x10){const ca=u(dv,0,8),cl=u(dv,8,8);blocks.push(v2?[ca+4,cl-4]:[ca,cl])}o+=sz}}
+  return out};
+ // a link message (compact group, or an object in a dense group's fractal heap): name → object header address
+ const link=(dv,o)=>{if(dv.getUint8(o)!==1)return null;const f=dv.getUint8(o+1);let p=o+2,type=0;if(f&8)type=dv.getUint8(p++);if(f&4)p+=8;if(f&0x10)p++;
+  const ns=1<<(f&3),nl=u(dv,p,ns);p+=ns;const name=new TextDecoder().decode(new Uint8Array(dv.buffer,dv.byteOffset+p,nl));p+=nl;if(type!==0)return{name,end:p+2+u(dv,p,2)};return{name,oh:u(dv,p,8),end:p+8}};
+ let links=[];
+ const root=ver<2?u(sd,(ver===1?60:56)+8,8):u(sd,12+8*3,8),rm=await messages(root);
+ const stab=rm.find(m=>m.t===0x11),linfo=rm.find(m=>m.t===0x2);
+ for(const m of rm.filter(m=>m.t===0x6)){const l=link(m.dv,0);if(l?.oh!=null)links.push(l)}
+ if(stab){ // old-style group: B-tree of symbol table nodes, names in a local heap
+  const bt=u(stab.dv,0,8),hp=await rd(u(stab.dv,8,8),32),names=new Uint8Array((await rd(u(hp,24,8),Math.min(u(hp,8,8),1<<20))).buffer),nameAt=o=>{let e=o;while(e<names.length&&names[e])e++;return new TextDecoder().decode(names.subarray(o,e))};
+  const walk=async a=>{const n=await rd(a,24);if(sig(n)!=="TREE")throw new Error("bad group B-tree");const lvl=n.getUint8(5),k=n.getUint16(6,true),body=await rd(a+24,(k*2+1)*8);
+   for(let i=0;i<k;i++){const c=u(body,8+i*16,8);if(lvl>0)await walk(c);else{const sn=await rd(c,8),cnt=sn.getUint16(6,true),es=await rd(c+8,cnt*40);for(let j=0;j<cnt;j++)links.push({name:nameAt(u(es,j*40,8)),oh:u(es,j*40+8,8)})}}};
+  await walk(bt)}
+ if(linfo){ // dense group: link messages are objects in a fractal heap; its direct blocks are read in order
+  const fl=linfo.dv.getUint8(1),fh=u(linfo.dv,2+(fl&1?8:0),8),H=await rd(fh,160);if(sig(H)!=="FRHP")throw new Error("no fractal heap");
+  const filt=H.getUint16(7,true),hflags=H.getUint8(9);let o=10+4+8+8+8+8+8+8+8+8+8+8+8+8;const width=H.getUint16(o,true),start=u(H,o+2,8),maxDirect=u(H,o+10,8),maxHeap=H.getUint16(o+18,true);o+=18+2+2;
+  const rootAddr=u(H,o,8),rows=H.getUint16(o+8,true);if(filt)throw new Error("the link heap is filtered");
+  const offBytes=Math.ceil(maxHeap/8),direct=async(a,size)=>{const d=await rd(a,size);if(sig(d)!=="FHDB")return;let p=5+8+offBytes+(hflags&2?4:0);while(p<size-4){const l=link(d,p);if(!l)break;if(l.oh!=null)links.push(l);p=l.end}};
+  if(rows===0)await direct(rootAddr,start);
+  else{const ib=await rd(rootAddr,5+8+offBytes+rows*width*8),n=Math.min(rows*width,256);let base=5+8+offBytes;
+   for(let k=0;k<n;k++){const a=u(ib,base+k*8,8),r=Math.floor(k/width),size=start*2**Math.max(0,r-1);if(a&&a!==0xFFFFFFFFFFFFFFFF&&size<=maxDirect)await direct(a,size)}}}
+ if(!links.length)throw new Error("no links found in the root group");
+ // each dataset: shape, type, filters, layout
+ const TYPES={0:"int",1:"float",3:"string",6:"compound",9:"vlen"},vars=[];tick(`reading ${links.length} object headers`);
+ for(const l of links.slice(0,300)){let ms;try{ms=await messages(l.oh)}catch{continue}
+  const sp=ms.find(m=>m.t===1),dt=ms.find(m=>m.t===3),ly=ms.find(m=>m.t===8),fp=ms.find(m=>m.t===0xB);if(!sp||!ly)continue;
+  const sv=sp.dv.getUint8(0),rank=sp.dv.getUint8(1),dims=[...Array(rank).keys()].map(i=>u(sp.dv,(sv===1?8:4)+i*8,8));
+  const cls=dt?dt.dv.getUint8(0)&15:-1,esz=dt?dt.dv.getUint32(4,true):0,lc=ly.dv.getUint8(1);
+  vars.push({name:l.name,desc:`${l.name} ${TYPES[cls]||"type"+cls}${esz*8}[${dims.join(",")}] ${["compact","contiguous","chunked","virtual"][lc]||"?"}${fp?`, ${fp.dv.getUint8(1)} filter${fp.dv.getUint8(1)===1?"":"s"}`:""}`,n:dims.reduce((a,b)=>a*b,1)*esz})}
+ vars.sort((a,b)=>b.n-a.n);
+ return`${vars.length} variables, read from the file's own headers (${reads} metadata pages): ${vars.slice(0,24).map(v=>v.desc).join("; ")}${vars.length>24?` … and ${vars.length-24} more`:""}`;
+};
 
 // ---------- lidar (COPC: cloud-optimized LAZ): a LAS 1.4 header, a copc info record, then an octree whose nodes are chunks ----------
 const copc=async(url,tick)=>{
