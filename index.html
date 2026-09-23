@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' blob: 'sha256-vsWQnaUosTU5EDO8f1Zym0u2e/VwMc152PjaSOBr8NI=' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' blob: 'unsafe-inline'; img-src * data: blob:; media-src * blob:; font-src 'self' data:; connect-src *; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' blob: 'sha256-q3/Z338pON1bORBOqH1CdY1EEJtx98c/UBjqZ0Eep2U=' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' blob: 'unsafe-inline'; img-src * data: blob:; media-src * blob:; font-src 'self' data:; connect-src *; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="description" content="Turn any file into a link your AI agent can read.">
   <meta name="color-scheme" content="light dark">
@@ -32,7 +32,7 @@
     @media(prefers-reduced-motion:reduce){#boot img{animation:none}}
   </style>
   <script type="module">
-    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/bwevyvdz7frvq3hq7ktxank7ry.md",sha256:"a0bfb1ee51dbb765067d5be4f0056d9c164a0ed1a5e9b11ac9b730ad5e400781"};
+    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/rhyn466rxcifjh7s7uvlrty6xa.md",sha256:"1b1c6c71a5e7a9b7d894638fbbbecf3e85c2833a15a5f1e8c7812c9194a4e8b5"};
     const mode=new URLSearchParams(location.search).get("boot");
     const hex=async b=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",b))].map(x=>x.toString(16).padStart(2,"0")).join("");
     const get=async u=>{const x=await fetch(u,{cache:"no-cache"});if(!x.ok)throw new Error(`${u} answered ${x.status}`);return x.arrayBuffer()};
