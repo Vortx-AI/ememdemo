@@ -209,7 +209,7 @@ sections: layers ; terrain derived ; composite (emem:raster) ; cross-checks ; dr
 verify: resolve bundle ; each token resolves to one signed fact
 >>
 spec grid.v1 <<
-fields: kind(city|forest) place at grid bands bundle <band> units(band=unit) read(date) receipts
+fields: kind(city|forest) place at grid bands bundle <band> units(band=unit; …) read(date) receipts
 row: | row,col | cell | value per band |
 values are sample locations, not area coverage ; bundle binds each band's facts
 >>
@@ -392,8 +392,8 @@ show cities : Phoenix: green vs heat <<
 tag   city grid
 by    combined
 from  city: Phoenix, Arizona
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/bn2qhnuudufwkasravlspenxvu.md
-thumb https://emem.dev/memories/by_attester/ddzmyzhn/psurc2mnpzronkzz5rbw4ggdtm.md
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/jnt6yrjflrxu3apgde37ykn55e.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/ua4kwtok3hd7txfwxqf5m5nxna.md
 pin   city heat map
 >>
 

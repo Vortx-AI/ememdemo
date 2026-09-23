@@ -33,12 +33,12 @@ export const readRequest=async url=>{const q=await signedNote(url);
  return{...q,from:f(q.body,"from"),to:f(q.body,"to"),want:f(q.body,"want"),of:f(q.body,"of"),expires:f(q.body,"expires")}};
 
 export const claim=async(url,stamp)=>{const q=await readRequest(url);
- return write("claim.v1",q.from,`claim ${q.cid.slice(0,8)}`,{request:url},`r1 claimed request ${q.cid.slice(0,8)}`,stamp,q.cid.slice(0,8))};
+ return write("claim.v1",q.from,`claim ${q.cid.slice(0,8)}`,{request:url,"In reply to":q.cid},`r1 claimed request ${q.cid.slice(0,8)}`,stamp,q.cid.slice(0,8))};
 
 export const deliver=async(input,stamp)=>{const[,url,result]=input.match(DELIVER),q=await readRequest(url),k=await key();
  if(q.to!==k.pub)throw new Error(`This request was addressed to ${q.to.slice(0,8)}, not to this browser's key ${k.pub.slice(0,8)}.`);
  const res=await getNote(result).catch(()=>null);if(!res||res.ok===false)throw new Error("The result must be an emem link whose bytes match its name.");
- return write("deliver.v1",q.from,`deliver ${q.cid.slice(0,8)} ${res.cid.slice(0,8)}`,{request:url,result},lineOf(res.body,result),stamp,q.cid.slice(0,8))};
+ return write("deliver.v1",q.from,`deliver ${q.cid.slice(0,8)} ${res.cid.slice(0,8)}`,{request:url,"In reply to":q.cid,result},lineOf(res.body,result),stamp,q.cid.slice(0,8))};
 
 // re-derive a delivery: the result must match its name, and must be the thing that was asked for
 const rederive=async(q,d)=>{const res=await getNote(d.result).catch(()=>null);if(!res)return{ok:false,why:"result unreachable"};if(res.ok===false)return{ok:false,why:"result's bytes don't match its name"};
@@ -55,8 +55,11 @@ export const follow=async(url,tick)=>{const q=await readRequest(url),cid=q.cid; 
  // any key, so they come from the requester's inbox, read in full (its page size is not capped), and are counted as keys.
  tick?.("reading the requested key's folder");const own=(await json(await net(`${EMEM}/memories/by_attester/${q.to.slice(0,8)}/arcade/?limit=5000`))).entries||[];
  const fromTo=own.map(e=>e.path).filter(p=>new RegExp(`/arcade/(claim|deliver)-${cid.slice(0,8)}-\\d{8}-\\d{6}-to-${q.from.slice(0,8)}\\.md$`).test(p)).map(p=>({path:p}));
- tick?.("reading the requester's inbox");const first=await json(await net(`${EMEM}/v1/inbox?to=${q.from.slice(0,8)}&limit=500`));
- const all=first.truncated&&first.total_matched>500?(await json(await net(`${EMEM}/v1/inbox?to=${q.from.slice(0,8)}&limit=${first.total_matched}`))).messages||[]:first.messages||[];
+ // verifications come from the request's own thread (notes whose "In reply to:" names it), so junk sent to the requester
+ // can't fill the page; older notes without that line are still found in the full inbox
+ tick?.("reading the request's thread");const thread=await json(await net(`${EMEM}/v1/inbox?to=${q.from.slice(0,8)}&in_reply_to=${cid}&limit=500`)).catch(()=>({messages:[]}));
+ const first=await json(await net(`${EMEM}/v1/inbox?to=${q.from.slice(0,8)}&limit=500`));
+ const all=[...(thread.messages||[]),...(first.truncated&&first.total_matched>500?(await json(await net(`${EMEM}/v1/inbox?to=${q.from.slice(0,8)}&limit=${first.total_matched}`))).messages||[]:first.messages||[])];
 const vv=all.filter(m=>new RegExp(`: verify ${cid.slice(0,8)} `).test(m.title||"")).slice(0,60);
  const seenP=new Set(),mine=[...fromTo,...all.filter(m=>new RegExp(`: (claim|deliver) ${cid.slice(0,8)} `).test(m.title||"")),...vv].filter(m=>!seenP.has(m.path)&&seenP.add(m.path));
  const rows=[];let i=0;
@@ -73,4 +76,4 @@ const vv=all.filter(m=>new RegExp(`: verify ${cid.slice(0,8)} `).test(m.title||"
 // anyone may verify a delivery: re-derive it here, and sign what was found, addressed to the requester
 export const verify=async(t,row,stamp)=>{const d=await rederive(t.q,row),k=await key();
  if(row.key===k.pub)throw new Error("A key can't verify its own delivery.");
- return write("verify.v1",t.q.from,`verify ${t.cid.slice(0,8)} ${d.ok?"ok":"no"}`,{request:t.q.url,deliver:row.url,verdict:`${d.ok?"ok":"no"}: ${d.why}`},`r1 checked delivery ${c8(row.url)} verdict=${d.ok?"ok":"no"}`,stamp,t.cid.slice(0,8))};
+ return write("verify.v1",t.q.from,`verify ${t.cid.slice(0,8)} ${d.ok?"ok":"no"}`,{request:t.q.url,"In reply to":t.cid,deliver:row.url,verdict:`${d.ok?"ok":"no"}: ${d.why}`},`r1 checked delivery ${c8(row.url)} verdict=${d.ok?"ok":"no"}`,stamp,t.cid.slice(0,8))};

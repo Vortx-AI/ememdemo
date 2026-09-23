@@ -6,7 +6,7 @@ spec r1 zfvycnaf23e42vziworfhy3dp4
 spec pointer.v1 mlxrdcys43hao7cz554s46bp7a
 spec directory.v1 n7ru5f4chhdzs4auqwjaes2dru
 spec world.v1 alwayt3sakc77bbqlt46qnvm4y
-spec grid.v1 ynwmblhdrznigrqfmsx7aizagq
+spec grid.v1 4rfibs74i7ma3tezrn7bcdgidm
 spec timelapse.v1 eq3rondjfbzv7qpkwfyqijoid4
 spec camera.v1 an5nnuvuvu23xlchntfeul5zby
 spec track.v1 b5lmdatbymxjtttsobn2p7qshy
@@ -62,7 +62,7 @@ listed folder lo2r67wc6j3nsibudljr7lhrmi src=huggingface.co files=26 size=5.63GB
 pointed fgb aqq3465nvlazh7xzy7jkiqii4q src=flatgeobuf.org size=7.9MB hashed=4/4 by=third-party t=Every_US_county,with_its_spatial_index
 mapped forest dzhe5a7rsjtnmc35qqwxybys5u at=-9.729,-63.030 grid=12x12 bands=hansen.tree_cover_2000,hansen.loss_year,indices.ndvi receipts=144/144 by=combined t=Amazon_forest_loss_since_2000
 # cities
-mapped city bn2qhnuudufwkasravlspenxvu at=33.448,-112.074 grid=12x12 bands=indices.ndvi,modis.lst_day_8day,overture.buildings.count receipts=144/144 by=combined t=Phoenix:_green_vs_heat
+mapped city jnt6yrjflrxu3apgde37ykn55e at=33.448,-112.074 grid=12x12 bands=indices.ndvi,modis.lst_day_8day,overture.buildings.count receipts=144/144 by=combined t=Phoenix:_green_vs_heat
 framed timelapse gpnxkvkwz22ug4jeqexggiy63q at=25.420,51.489 frames=5 years=2017-2025 by=combined t=Lusail,a_city_rising
 mapped city cfbt6bctfgnfoun347mgobvkku at=12.971,77.593 grid=12x12 bands=indices.ndvi,modis.lst_day_8day,overture.buildings.count receipts=144/144 by=combined t=Bengaluru:_green_vs_heat
 # robotics

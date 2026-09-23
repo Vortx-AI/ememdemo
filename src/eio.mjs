@@ -1,5 +1,5 @@
 // eio runtime: compiles emem.eio, enforces its rules, draws the page, runs its flows against emem.dev.
-import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia,guard,exportKey,importKey,keyState,newSecret,sealText,openText,SEALED,SECRET_LINK,driftOf,corpusStream,shareKey,grantBody,openGrant,rangeHash,treeRow,witnesses,placeFacts,post,SPECS,specify,RUN,who as writerOf} from "./emem.mjs";
+import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia,guard,exportKey,importKey,keyState,newSecret,sealText,openText,SEALED,SECRET_LINK,driftOf,corpusStream,shareKey,grantBody,openGrant,rangeHash,treeRow,witnesses,placeFacts,post,SPECS,specify,RUN,json,who as writerOf} from "./emem.mjs";
 import {toDoc,REPO,repoItems,blocksOf,pack,describe,injections} from "./read.mjs";
 import {compile} from "./lang.mjs";
 import {line as lineOf,tokenLine} from "./line.mjs";
@@ -7,7 +7,7 @@ import {WORLD,locate,layers,weave} from "./world.mjs";
 import {REEL,parse as reelParse,frames as reelFrames,fromCubes,bind as reelBind,paint,play,reelNote} from "./reel.mjs";
 import {CAMERA,look,keep,rehash} from "./camera.mjs";
 import {GRID,sample,paintGrid,gridNote,gridFromNote,findings,bindGrid} from "./grid.mjs";
-import {head,head as logHead,stamp,stampOf,since,cosign} from "./time.mjs";
+import {head,head as logHead,stamp,stampOf,since,cosign,included} from "./time.mjs";
 import {REQUEST,DELIVER,TASKS,CLAIM,request as askAgent,claim as claimTask,deliver as handBack,follow,verify as verifyHand} from "./hand.mjs";
 import {POINTABLE,probe,recheck,relist,compare,parseRows,reread,mb,drawPreview,previewOf} from "./point.mjs";
 
@@ -127,7 +127,7 @@ const ops={
   const top=await getNote(r.input);
   if(r.grantRef){const g=await getNote(`${EMEM}/memories/by_attester/${r.grantRef}.md`);if(g.ok===false)throw new Error("That grant's bytes don't match its name.");
    const o=await openGrant(g.body);if(o.of!==r.input)throw new Error("That grant is for a different note.");r.secret=o.secret}
-  const clear=async c=>{if(!SEALED.test(c.body))return c;if(!r.secret)throw new Error("This note is encrypted. Its link needs the #k=… part that the writer shared.");return{...c,sealed:true,body:await openText(c.body,r.secret)}};
+  const clear=async c=>{if(!SEALED.test(c.body))return c;if(!r.secret)throw new Error("This note is encrypted. Its link needs the #k=… part that the writer shared.");return{...c,sealed:true,raw:c.body,body:await openText(c.body,r.secret)}};
   Object.assign(top,await clear(top));Object.assign(r,{url:top.url,cid:top.cid,body:top.body});if(top.sealed)r.shareUrl=`${top.url}#k=${r.secret}`;
   const kids=[...new Set(top.body.match(LINKS)||[])].filter(u=>u!==top.url).slice(0,r.spec.max);
   // index first: a big index is checked by its own name, plus the first and last sections and two chosen at random here
@@ -263,6 +263,11 @@ const ops={
   const st=stampOf(r.checked[0].body);
   if(st){const t=await since(st,r.spec.signer).catch(e=>({ok:false,why:e.message}));
    r.proof+=t.ok?` · written after log entry ${st.size.toLocaleString("en")} (${st.at.slice(0,16).replace("T"," ")} UTC); the log has grown ${(t.grown||0).toLocaleString("en")} entries since and still holds that history`:` · ✗ time: ${t.why||"the log's history since this was stamped does not verify"}`;
+   // and the upper bound: the note's bytes are an entry in the log, proved to a signed head here
+   const inc=await included(U(r.checked[0].raw||r.checked[0].body),r.spec.signer).catch(()=>null);
+   if(inc?.ok){const gap=inc.index-st.size;r.proof+=` · logged as entry ${inc.index.toLocaleString("en")} (inclusion proof checked here): written after the log held ${st.size.toLocaleString("en")} entries and ${gap<=0?"as the very next entry":`at most ${gap.toLocaleString("en")} entries later`}`}
+   else if(inc?.missing)r.proof+=" · no upper bound: the log has no entry for these bytes (emem began logging memory writes after this was written)";
+   else if(inc&&!inc.ok){r.proof+=` · ✗ log inclusion: ${inc.why}`;r.bad=true}
    if(!t.ok)r.bad=true}
   return r},
  async prove0(r){
@@ -481,7 +486,10 @@ const boot=async()=>{
   const res=await Promise.all(keep.slice(0,-1).map(h=>since({size:h.size,root:h.root,at:h.at},spec.signer).then(x=>x.ok).catch(()=>null)));
   const bad=res.filter(x=>x===false).length,ok=res.filter(x=>x===true).length;
   if(ok||bad)live.title=bad?`✗ today's log does not hold ${bad} head${bad>1?"s":""} this browser saw earlier: a rewritten history, or a different one shown to you`:`today's log still holds all ${ok} earlier head${ok>1?"s":""} this browser saw, since ${keep[0].at.slice(0,10)} (RFC 9162 consistency, checked here)`;
-  if(bad){headBad=true;live.classList.add("bad")}};
+  if(bad){headBad=true;live.classList.add("bad")}
+  // who else watches the log: emem's own count of independent operators (distinct organisations), not a count of keys
+  const w=await net(`${EMEM}/v1/log/witnesses`).then(json).catch(()=>null);
+  if(w)live.title+=` · outside oversight: ${w.independent_operator_count} independent operator${w.independent_operator_count===1?"":"s"} (distinct organisations) ha${w.independent_operator_count===1?"s":"ve"} co-signed this log; the current head is ${w.head_is_independently_witnessed?"":"not yet "}independently witnessed${w.freshest_independent_operator_entries_behind?` (the freshest operator co-signature is ${w.freshest_independent_operator_entries_behind.toLocaleString("en")} entries behind)`:""}`};
  let pinned=false,headBad=false;
  const beat=async()=>{try{const t=await logHead(spec.signer);if(!pinned){pinned=true;pinHeads(t).catch(()=>{})}live.className="live"+(headBad?" bad":"")+(lastSize&&t.tree_size>lastSize?" up":"");live.replaceChildren("log ",h("b",{},t.tree_size.toLocaleString("en")),lastSize&&t.tree_size>lastSize?` +${t.tree_size-lastSize}`:"");lastSize=t.tree_size}catch(e){console.warn("live:",e.message)}setTimeout(beat,61e3)};
  document.body.replaceChildren(

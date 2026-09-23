@@ -55,7 +55,7 @@ Every receipt must verify against the key 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6
 - Mars, December 2024: https://emem.dev/memories/by_attester/ddzmyzhn/fi67bt4rxkic3ssuag2v2hskly.md (from https://esahubble.org/media/archives/images/original/heic2505b.tif)
 - Lahaina, before and after fire: https://emem.dev/memories/by_attester/ddzmyzhn/ota6xerxrqzya5txb4jxvzpb2q.md (from timelapse: 20.878, -156.683 | 2022-2025 09)
 - Amazon forest loss since 2000: https://emem.dev/memories/by_attester/ddzmyzhn/dzhe5a7rsjtnmc35qqwxybys5u.md (from forest: -9.73, -63.03)
-- Phoenix: green vs heat: https://emem.dev/memories/by_attester/ddzmyzhn/bn2qhnuudufwkasravlspenxvu.md (from city: Phoenix, Arizona)
+- Phoenix: green vs heat: https://emem.dev/memories/by_attester/ddzmyzhn/jnt6yrjflrxu3apgde37ykn55e.md (from city: Phoenix, Arizona)
 - Whirlpool galaxy, M51: https://emem.dev/memories/by_attester/ddzmyzhn/7rn7fxbl75o5cijqpnok5oc7rq.md (from https://esahubble.org/media/archives/images/original/heic0506a.tif)
 - Robot arms, 12 keyframes: https://emem.dev/memories/by_attester/ddzmyzhn/qcoylkllqzfqnsinn4af5i2mi4.md (from https://huggingface.co/datasets/lerobot/aloha_static_coffee/resolve/main/videos/observation.images.cam_high/chunk-000/file-000.mp4)
 - Lion and impala, Kruger: https://emem.dev/memories/by_attester/ddzmyzhn/2re7jfo2v34uwsqxkmpwxoxesu.md (from https://www.inaturalist.org/observations/39540446)

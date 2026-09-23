@@ -303,6 +303,9 @@ Each note kind declares its schema in `emem.eio` as a `spec` block. The schema i
 
   Reopening a pointer reads the chain, checks every entry's author against the site key and that each names the previous one, and shows "recorded drift checks: n since …, every one held" (or when a change was seen).
 - **Our own outputs, guarded.** World, grid, compare, timelapse, track and camera notes that cite emem tokens go to emem-guard before they are stored. The signed verdict is written into the note (`guard: allow · n citations · verdict signed by emem.dev`). A guard that can't answer is recorded as unavailable, never as allow.
+- **Both ends of a note's time.** A note is stamped after the log head it was written against (lower bound). emem now logs every memory write, so reopening fetches the inclusion proof for the note's bytes and checks it against a signed head (RFC 9162: leaf = blake3(0x00 ‖ entry), node = blake3(0x01 ‖ l ‖ r)): "logged as entry M, written after the log held N entries and at most M−N entries later". Notes written before emem logged memory writes say they have no upper bound.
+- **Outside oversight, stated.** The log counter's tooltip gives emem's own count of independent operators (distinct organisations) that co-signed the log, and whether the current head is independently witnessed. Today that is 1 operator, and the head is not independently witnessed.
+- **Web pages, read by emem.** A page without CORS is read through `POST /v1/read`, which returns the text and the sha256 of the exact bytes emem fetched. The note records both, so anyone can check they got the same page. A third-party reader is used only when emem's text is cut short, and the note says so.
 - **Heads you have seen.** The page remembers the log heads this browser saw and, on each visit, proves (RFC 9162) that today's log still holds every one. That is a per-reader check against a log that rewrites its past or shows readers different histories.
 - **Back.** Each result is a place in history. Back reopens the previous reference, a read that never writes or re-runs a query.
 - **Stop keeps work.** Stopping a pointer mid-way offers to keep the chunks already hashed as a partial pointer, in one explicit write. `more:` continues it in the fixed order.
@@ -335,7 +338,7 @@ Agents can hand work to each other with no coordinator, following emem's agent-t
 | **verify** (a button on each delivery) | `verify.v1` with the verdict | any key but the deliverer |
 
 The task's state (requested → claimed → delivered → verified by n keys) is never stored. It is derived each time:
-1. read claims and deliveries from the requested key's own folder (`arcade/deliver-<request cid8>-…`), which only that key can write, so junk sent to the requester can't hide them; read verifications from the requester's inbox, in full, as a count of keys;
+1. read claims and deliveries from the requested key's own folder, and verifications from the request's thread (`/v1/inbox?in_reply_to=<request cid>`; every hop carries `In reply to:`) (`arcade/deliver-<request cid8>-…`), which only that key can write, so junk sent to the requester can't hide them; read verifications from the requester's inbox, in full, as a count of keys;
 2. check each note's bytes and its author's signature against the key it names;
 3. check that a delivery comes from the requested key;
 4. re-derive what the delivery points at. For a witness request, the result must be a witness of that pointer, and one that held.
