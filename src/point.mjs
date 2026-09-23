@@ -18,7 +18,16 @@ const range=async(url,from,len)=>{
  const x=await net(url,{headers:{range:`bytes=${from}-${from+len-1}`}});
  if(x.status===200){const n=+x.headers.get("content-length")||0;if(n>len*2&&n>8e6)throw new Error(`${new URL(url).host} ignores byte ranges, so it cannot be read in place.`)}
  else if(x.status!==206)throw new Error(`${url} answered ${x.status}.`);
- const b=new Uint8Array(await x.arrayBuffer());return x.status===200?b.slice(from,from+len):b;
+ // the answer must be the bytes asked for: same start (when the server exposes Content-Range), never longer than asked
+ const cr=(x.headers.get("content-range")||"").match(/bytes (\d+)-(\d+)\/(\d+|\*)/);
+ if(x.status===206&&cr&&+cr[1]!==from)throw new Error(`${new URL(url).host} answered bytes from ${cr[1]}, not ${from}.`);
+ // read no further than needed: a server that ignores the range is cut off once it has sent from+len bytes
+ const want=x.status===200?from+len:len,rd=x.body?.getReader();let b;
+ if(rd){const parts=[];let got=0;while(got<want){const{done,value}=await rd.read();if(done)break;parts.push(value);got+=value.length}
+  if(got>=want)rd.cancel().catch(()=>{});b=new Uint8Array(got);let o=0;for(const p of parts){b.set(p,o);o+=p.length}}
+ else b=new Uint8Array(await x.arrayBuffer());
+ if(x.status===206&&b.length>len)throw new Error(`${new URL(url).host} sent ${b.length} bytes for a ${len}-byte range.`);
+ return x.status===200?b.slice(from,from+len):b;
 };
 const whole=async url=>{const x=await net(url);if(!x.ok)throw Object.assign(new Error(`${url} answered ${x.status}.`),{status:x.status});return new Uint8Array(await x.arrayBuffer())};
 // size from HEAD; if the server hides it there, from the total in a one-byte range answer, when it exposes that
@@ -438,7 +447,7 @@ export const probe=async(raw,tick,opts={})=>{
  const r=s.chained?chain(chunks):root(chunks),name=decodeURIComponent(url.split("/").filter(Boolean).pop()||host),withStats=chunks.some(c=>c.statsText);
  const rows=chunks.map(c=>`| ${c.label} | ${c.url&&c.url!==url?c.url:"·"} | ${c.offset} | ${c.length} | ${c.absent?"absent (fill value)":c.hash} |${withStats?` ${(c.statsText||"").replace(/\|/g,"/")} |`:""}`);
  const prevCid=opts.have?(opts.haveUrl||"").split("/").pop().replace(/\.md$/,""):"";
- const body=`---\nemem: pointer.v1\nsource: ${url}\nbytes: ${total??(est?`about ${est} (estimated from the chunks read)`:"unknown")}\netag: ${etag||"not exposed"}\nkind: ${s.kind}\nchunks: ${chunks.length} of ${s.units} hashed\n${s.chained?"chain":"root"}: ${r}\nhash: blake3-256 of each chunk's bytes\norder: defaults, then by blake3(label without type or shape)\n${prevCid?`extends: ${prevCid}\n`:""}${s.place?`place: ${s.place.lat},${s.place.lng}\nbbox: ${s.place.bbox.join(",")}\n`:""}---\n\n# ${name}\n\n> ${s.kind} at ${host}${total?`, ${mb(total)}`:est?`, about ${mb(est)}`:""}. The data stays there; this note is its address and its proofs. Read any chunk from the source by URL and byte range, then check its BLAKE3 hash below. ${s.chained?"Each link of the chain hashes the previous link with the next segment.":"The root is a Merkle tree over (url, offset, length, hash) of every row, in order."}\n\n${s.about.map(a=>"- "+a).join("\n")}\n- ${chunks.length} of ${s.units} chunks hashed${prevCid?`; extends ${prevCid}, whose ${carried.length} rows are kept and 2 of them re-read`:""}; more can be hashed later, in a fixed order, without re-reading these\n${place.length?`\n## Place\n\n${place.map(a=>"- "+a).join("\n")}\n`:""}\n## Chunks\n\n| what | url (· is the source) | offset | length | blake3 |${withStats?" stats |":""}\n|---|---|---|---|---|${withStats?"---|":""}\n${rows.join("\n")}\n`;
+ const body=`---\nemem: pointer.v1\nsource: ${url}\nbytes: ${total??(est?`about ${est} (estimated from the chunks read)`:"unknown")}\netag: ${etag||"not exposed"}\nkind: ${s.kind}\nchunks: ${chunks.length} of ${s.units} hashed\n${s.chained?"chain":"root"}: ${r}\nhash: blake3-256 of each chunk's bytes\norder: defaults, then by blake3(label without type or shape)\n${prevCid?`extends: ${prevCid}\n`:""}${s.place?`place: ${s.place.lat},${s.place.lng}\nbbox: ${s.place.bbox.join(",")}\n`:""}---\n\n# ${name}\n\n> ${s.kind} at ${host}${total?`, ${mb(total)}`:est?`, about ${mb(est)}`:""}.\n\n${s.about.map(a=>"- "+a).join("\n")}\n- ${chunks.length} of ${s.units} chunks hashed${prevCid?`; extends ${prevCid}, whose ${carried.length} rows are kept and 2 of them re-read`:""}; more can be hashed later, in a fixed order, without re-reading these\n${place.length?`\n## Place\n\n${place.map(a=>"- "+a).join("\n")}\n`:""}\n## Chunks\n\n| what | url (· is the source) | offset | length | blake3 |${withStats?" stats |":""}\n|---|---|---|---|---|${withStats?"---|":""}\n${rows.join("\n")}\n`;
  const preview=assemble(s,chunks);
  return{body,url,name,kind:s.kind,bytes:total,est,read,chunks,units:s.units,rootHash:r,chained:!!s.chained,about:s.about,place:s.place,preview};
 };
@@ -494,7 +503,7 @@ const folder=async(url,tick)=>{
  const exts=Object.entries(out.reduce((m,f)=>{const e=(f.path.match(/\.([a-z0-9]{1,12})$/i)||[,"(none)"])[1].toLowerCase();m[e]=(m[e]||0)+f.size;return m},{})).sort((a,b)=>b[1]-a[1]).slice(0,6);
  const about=[`${out.length} files, ${mb(total)} in all${big?`; ${big} of them over 64 MB`:""}`,`by size: ${exts.map(([e,n])=>`${e} ${mb(n)}`).join(", ")}`,
   `publisher hashes kept: ${[...new Set(out.map(f=>f.hash.split(":")[0]))].join(", ")}`,pointable?`${pointable} files can be pointed at chunk by chunk: paste a file's url`:""].filter(Boolean);
- const body=`---\nemem: directory.v1\nsource: ${url}\nfiles: ${out.length}\nbytes: ${total}\nkind: ${kind}\nroot: ${r}\nhash: each row is blake3(path, size, publisher hash); the root is a Merkle tree over (url, 0, size, row hash) in path order\n---\n\n# ${name}\n\n> A ${kind} at ${host}: ${out.length} files, ${mb(total)}. Only the listing was read; no file was downloaded. Each row keeps the publisher's own content hash, so any download can be checked against it, and the root commits to the whole listing: add, drop or change one file and it changes.\n\n${about.map(a=>"- "+a).join("\n")}\n\n## Files\n\n| path | url | bytes | publisher hash |\n|---|---|---|---|\n${out.map(f=>`| ${f.path.replace(/\|/g,"%7C")} | ${f.url} | ${f.size} | ${f.hash} |`).join("\n")}\n`;
+ const body=`---\nemem: directory.v1\nsource: ${url}\nfiles: ${out.length}\nbytes: ${total}\nkind: ${kind}\nroot: ${r}\nhash: each row is blake3(path, size, publisher hash); the root is a Merkle tree over (url, 0, size, row hash) in path order\n---\n\n# ${name}\n\n> ${kind} at ${host}: ${out.length} files, ${mb(total)}.\n\n${about.map(a=>"- "+a).join("\n")}\n\n## Files\n\n| path | url | bytes | publisher hash |\n|---|---|---|---|\n${out.map(f=>`| ${f.path.replace(/\|/g,"%7C")} | ${f.url} | ${f.size} | ${f.hash} |`).join("\n")}\n`;
  return{body,url,name,kind,bytes:total,est:null,read:0,chunks:out,units:out.length,rootHash:r,chained:false,about,folder:true};
 };
 // list the folder again and compare: which files are unchanged, changed, new or gone

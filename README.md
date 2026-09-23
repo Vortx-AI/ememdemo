@@ -156,6 +156,15 @@ Every step declares its verbs in `emem.eio` (`step probe : remote -> hashes | pr
 - one line of verbs (done steps in the past tense with their time, the current one with a bar);
 - a **map** with one square per chunk, section, file or camera, filled as each is finished;
 - a head line: "ememifying 6.0 s", then "ememified 24.5 s", or "stopped" with the reason.
+- a **stop** button (or Esc) that aborts every request the run still has open; no write starts after it.
+- a shared `?s=` link only opens references (a note, a token, a file name, a log head). Anything that would read a source or write is put in the box and waits for you to press →.
+- nothing you drop, paste or choose is published until you press **Create public link**. The panel shows the title, the size, the first lines, your key and the exact name it will have. **keep it here** or Stop leaves nothing on emem.
+- a stopped or failed run lists every write that was already accepted (those can't be undone), and keeps the previous result on screen, dimmed and labelled.
+- the work head counts this run's requests and bytes read.
+- the result separates **stored note** or **signed record** (what was checked of the stored bytes or the signature) from **checked now** (what was re-read from the source), with the time of the check.
+- copied commands quote every value as data. An ask result's handoff reads the frozen evidence bundle; asking again is a separate, labelled command.
+- three ways in above the box: **point** a file, **sense** a place, **check** a link. Each one sets what the box expects.
+- gallery cards are checked when they scroll into view, at most four at a time. A card's state names what was checked: `✓ note` (its bytes hash to its name; the source is re-read only when opened), `✓ receipt` (emem.dev signed it; that says who, not that it is right), or `unreachable` (not checked, which is different from a failed check).
 
 The page itself boots the same way: before any of its code runs, the loader shows "ememifying this page" and fills one square per file as it matches the seal.
 
@@ -206,7 +215,7 @@ The pointer itself is a hash-named, signed note, so its name commits to all of i
 
 **Re-checking it.** Opening a pointer re-hashes the table against its root, then re-reads an even spread of chunks from the source. That is how a pointer detects data that changed after it was named. Tested: a clean source gives "6 of 6 sampled chunks still match"; one altered response gives "1 of 6 sampled chunks have CHANGED".
 
-**Coverage, stated.** Large sources are sampled deterministically. Every small tensor, every overview tile and the smallest Zarr level are hashed completely; large tensors are sampled by the hash of their name and the largest raster level evenly. The pointer says `chunks: 107 of 161 hashed`, and the same input gives the same pointer in any browser. DICOM pointers copy technical tags only (modality, size, spacing); patient fields stay at the source, and only their hash is recorded.
+**Coverage, stated.** Large sources are sampled deterministically. Every small tensor, every overview tile and the smallest Zarr level are hashed completely; large tensors are sampled by the hash of their name and the largest raster level evenly. The pointer says `chunks: 107 of 161 hashed`, and the same input selects the same chunks and rows in any browser. The note's own name can still differ between runs, because each note is stamped with the log head it was written after (`after: sth …`); the rows and root don't change. DICOM pointers copy technical tags only (modality, size, spacing); patient fields stay at the source, and only their hash is recorded.
 
 **Statistics per chunk.** Each hashed tensor, tile or pixel block also carries its mean, standard deviation, minimum and maximum, computed from the bytes that were hashed:
 - float tensors (F32, F16, BF16) directly;
@@ -250,10 +259,34 @@ Most websites ask you to trust whoever serves them. This one checks itself befor
 
 `emem.eio` compiles into the human page and, through `tools/seal.mjs`, into two files an agent can read:
 
-- **`llms.txt`:** every flow as the emem.dev call an agent can make itself (store, read and re-hash, check with emem-guard, ask), the token family table, the signer key, and the worked examples.
+- **`llms.txt`:** the whole site in about 3k tokens, written in **r1** lines (verbs first): the grammar, each note kind's schema by content id, the input verbs, the write and read calls, the signer key, and one brief line per gallery item, grouped by kind. Roots, bundles and stamps stay in the note, one fetch away.
+- **`llms-full.txt`:** the same interface as prose, for a reader that wants it. It isn't needed to use the site.
 - **`.well-known/agent-card.json`:** an A2A agent card whose skills run at emem.dev's A2A endpoint. The site has no server of its own.
 
 Both are sealed with the site, so an agent can check them the same way.
+
+### r1: one line per result
+
+```
+r1 <verb> <noun> <ref> key=value …        ref = <attester8>/<cid>  →  https://emem.dev/memories/by_attester/<ref>.md
+r1 pointed cog ddzmyzhn/wkxa7tcmw2orf7ujjf5yi66dhe src=esawebb.org size=143.7MB hashed=97/1690 root=etmgt35lbn sth=2188509
+r1 mapped forest ddzmyzhn/fss35xszeperjmoyxfqyeglr6i at=-9.72999,-63.03000 grid=12x12 bands=… receipts=144/144
+```
+
+Each note kind declares its schema in `emem.eio` as a `spec` block. The schema is stored once by its hash, and every new note carries `spec: <cid>`, so the page doesn't have to repeat prose in each note. Every result and gallery card has a **copy for agent** action that copies its line (about 30 tokens, against an average of about 2,900 for the notes themselves, measured on 11 gallery notes). `src/line.mjs` derives lines and is pure: the page, the seal tool and any agent get the same line from the same bytes.
+
+| verb | noun | from |
+|---|---|---|
+| pointed | cog, bigtiff, safetensors, gguf, zarr, hls, dicom, mp4, jpeg, observation, splats, file | pointer.v1 |
+| listed | folder | directory.v1 |
+| sensed | place | world.v1 |
+| mapped | city, forest | grid.v1 |
+| framed | timelapse | timelapse.v1 |
+| surveyed | cameras | camera.v1 |
+| chained | track | track.v1 |
+| diffed · witnessed · checked · drew | pointers · pointer · answer · thumb | compare, witness, check, thumb |
+| indexed · stored | doc · text | index and text notes |
+| resolve · pin · open | any emem token · log head · other links | tokens |
 
 ## Checks that leave proof
 
@@ -266,7 +299,7 @@ Both are sealed with the site, so an agent can check them the same way.
 There are 25 cards in 8 kinds (24 when unsealed): documents, in place, code, scans, places, agents, web, proof.
 
 - **All cards:** on load, each card re-hashes or re-verifies its result and shows the outcome (✓ or ✗). `open` loads it into the box.
-- **"Run it yourself":** on file and URL cards, this feeds the original input through the pipeline again. For fixed inputs the page confirms **"same file names as the gallery copy"**: the same bytes give the same names in any browser.
+- **"Run it yourself":** on file and URL cards, this feeds the original input through the pipeline again. Section notes of a fixed input keep the same names in any browser. The index and single-file notes carry the log head they were written after, so their names change with each run, and "same file names as the gallery copy" shows only when nothing was stamped differently.
 - **Places:** a signed elevation fact, a four-reading bundle, and a cube of Sentinel-2 pixels drawn from the signed grid (whose bytes hash to their name). There is also an entity, and a live question about a place.
 - **Agents:** the standard two agents ratified, read by name over A2A, and **the public channel, live**: every note any agent writes, as it is written, links from this page included.
 - **Proof:** emem.dev's transparency log head, with its signature checked in the browser, and **a file whose name lies**, so you can see a failed check.
@@ -338,7 +371,9 @@ rule   gallery show
 | `index.html` | the loader: checks every file against the pinned seal before running it |
 | `src/lang.mjs` | the eio compiler, pure, shared by the page and the seal tool |
 | `src/eio.mjs` | rules, page, flows, gallery, checks |
-| `tools/seal.mjs` | seals the site on emem and compiles `llms.txt` and the agent card |
+| `tools/seal.mjs` | seals the site on emem, stores the specs, and compiles `llms.txt`, `llms-full.txt` and the agent card |
+| `src/line.mjs` | r1 lines: one verb-first line per note or token, pure |
+| `src/grid.mjs` | city and forest grids: sample locations, units as the facts state them, correlation with its exclusions |
 | `src/read.mjs` | any input becomes markdown with headings, then sections and an index |
 | `src/reel.mjs` | timelapses: RGB cubes, verified frames, one rasterset |
 | `tools/thumbs.mjs` | gallery pictures as verified thumb notes |
