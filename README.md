@@ -473,6 +473,14 @@ rule   gallery show
 - **Not supported:** `emem:trace` / `emem:attestation` have no public examples, so the page does not claim to resolve them. `emem:state` has no MCP tool; the page says so.
 - **Chat apps:** plain ChatGPT, Claude or Gemini sessions may decline to open links. Coding agents, MCP and A2A clients do open them.
 
+## Tokens, compared
+
+Every result and card states what an agent spends against what the source would cost, using the same token estimator throughout:
+- the note it reads (a pointer ~1–6k tokens, an index ~4.5k) and its one r1 line (~30–120);
+- the source: text is counted as text (RFC 9110: ~105k, 23× more than its index); binary is counted as what its bytes would cost handed to a model as base64 (about 0.63 tokens per byte).
+
+The Webb TIFF is 143.7 MB ≈ 91M tokens against a 6.1k-token pointer (14,979× less), and the GPT-2 folder is 5.63 GB ≈ 3.6B tokens against 2.3k (1.5 million× less). `llms.txt` gives each catalog line `tok=` (the note's cost) and, for pointers and folders, `raw=`, so an agent can decide what to fetch before fetching it.
+
 ## Browsers and availability
 
 - The page runs in current Chrome, Edge, Firefox and Safari. Reading and checking need nothing unusual. Making links needs Ed25519 in WebCrypto (Chrome 137+, Safari 17+, Firefox 129+). A browser without it says it can read and check but can't sign.

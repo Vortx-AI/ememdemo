@@ -23,7 +23,14 @@ const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 // tokens, estimated from what text is made of, not its length: fitted by least squares against the o200k tokenizer
 // on 60 of this gallery's files and tested on the other 30 (median error 4.8%, 90th percentile 9.8%; length/4 gave 15.8% and 29.8%)
 export const count=t=>Math.max(1,Math.round(1.098*(t.match(/[A-Za-z]+/g)||[]).length+2.207*(t.match(/\d+/g)||[]).length+.569*(t.match(/[^\w\s]/g)||[]).length+.325*(t.match(/\n/g)||[]).length));
-export const tokens=t=>{const n=count(t);return"~"+(n<1000?n:(n/1000).toFixed(n<10000?1:0)+"k")+" tokens"};
+export const tok=n=>"~"+(n<1000?Math.round(n):n<1e6?(n/1000).toFixed(n<10000?1:0)+"k":n<1e9?(n/1e6).toFixed(n<1e7?1:0)+"M":(n/1e9).toFixed(1)+"B");
+export const tokens=t=>tok(count(t))+" tokens";
+// what a model would spend to take in bytes it can't read as text: the same estimator over base64, about 0.63 tokens per byte
+// (measured on random bytes and on this site's PNG sample). Text sources are counted as text instead.
+export const RAW=0.634;
+// the comparison a card or result states: what an agent reads (the note, or its line) against what the source would cost
+export const tokenCompare=({note,line,srcTok,srcBytes})=>{const src=srcTok??(srcBytes?srcBytes*RAW:null),n=count(note);
+ return{note:n,line:line?count(line):null,src,base64:srcTok==null&&!!srcBytes,x:src?Math.round(src/n):null}};
 export const pool=async(items,n,fn)=>{let i=0;await Promise.all(Array.from({length:Math.min(n,items.length)},async()=>{while(i<items.length){const k=i++;await fn(items[k],k)}}))};
 export const store=(k,v)=>{try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||"null");localStorage.setItem(k,JSON.stringify(v))}catch{return null}};
 // the run in hand: Stop aborts every request it still has open, and no write starts after it
@@ -366,7 +373,12 @@ export const summarize=async(s,S)=>{
  if(NOTE.test(s.emem)){
   const n=await getNote(s.emem),b=n.body,k=x=>(b.match(new RegExp(`^${x}: (.+)$`,"m"))||[])[1]||"",kind=k("emem"),st=/^after: sth /m.test(b)?"stamped":"";
   const state=n.ok?"✓ note":n.ok===false?"✗ name lies":"· unnamed",V=(...v)=>v.filter(Boolean).join(" · ");
-  const out=(big,verbs,peek)=>({ok:n.ok!==false,state,scope:n.ok?`checked ${new Date().toISOString().slice(11,19)}Z: this note's bytes hash to its name. The source it describes is re-read only when you open it.`:n.ok===false?"this note's bytes do not hash to its name":"this name makes no hash claim",line:lineOf(b,s.emem),nodes:[...(big?[["big",big]]:[]),["verbs",verbs],...(peek?[["peek",peek]]:[])]});
+  // tokens: the note an agent reads, against the source it names (text as text; binary as base64)
+  const bytesSrc=+(b.match(/^bytes: (?:about )?(\d+)/m)||[])[1]||0,claimed=(b.match(/(~[\d.]+[kMB]?) tokens in \d+ sections/)||[])[1];
+  const toTok=x=>x?+x.replace("~","").replace(/k$/,"e3").replace(/M$/,"e6").replace(/B$/,"e9"):null;
+  const tc=tokenCompare({note:b,line:lineOf(b,s.emem),srcTok:toTok(claimed),srcBytes:kind==="pointer.v1"||kind==="directory.v1"?bytesSrc:0});
+  const tline=["tok",`agent reads ${tok(tc.note)} tokens${tc.line?` (its line ${tok(tc.line)})`:""}${tc.src?` · source ${tok(tc.src)}${tc.base64?" as raw bytes":""} · ${tc.x.toLocaleString("en")}× less`:""}`];
+  const out=(big,verbs,peek)=>({ok:n.ok!==false,state,tc,scope:n.ok?`checked ${new Date().toISOString().slice(11,19)}Z: this note's bytes hash to its name. The source it describes is re-read only when you open it.`:n.ok===false?"this note's bytes do not hash to its name":"this name makes no hash claim",line:lineOf(b,s.emem),nodes:[...(big?[["big",big]]:[]),tline,["verbs",verbs],...(peek?[["peek",peek]]:[])]});
   if(kind==="pointer.v1"){const m=b.match(/^bytes: (about )?(\d+)/m);return out(m?`${m[1]?"~":""}${sz(+m[2])}`:"at source",V(`hashed ${k("chunks").replace(/ hashed$/,"")}`,"rooted",k("place")?"placed":"",st),"")}
   if(kind==="directory.v1")return out(sz(+k("bytes")),V(`listed ${k("files")} files`,"publisher hashes kept","rooted",st));
   if(kind==="world.v1"){const f=(b.match(/ · emem:fact:/g)||[]).length;return out(`${f} facts`,V("sensed","cross-checked",/^## drift/m.test(b)?"drift measured":"",/echo-verified/.test(b)?"echo-verified":"","bundled",st))}

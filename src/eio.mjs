@@ -1,5 +1,5 @@
 // eio runtime: compiles emem.eio, enforces its rules, draws the page, runs its flows against emem.dev.
-import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia,guard,exportKey,importKey,keyState,newSecret,sealText,openText,SEALED,SECRET_LINK,driftOf,corpusStream,shareKey,grantBody,openGrant,rangeHash,treeRow,witnesses,placeFacts,post,SPECS,specify,RUN,json,who as writerOf} from "./emem.mjs";
+import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia,guard,exportKey,importKey,keyState,newSecret,sealText,openText,SEALED,SECRET_LINK,driftOf,corpusStream,shareKey,grantBody,openGrant,rangeHash,treeRow,witnesses,placeFacts,post,SPECS,specify,RUN,json,tok,count,tokenCompare,who as writerOf} from "./emem.mjs";
 import {toDoc,REPO,repoItems,blocksOf,pack,describe,injections} from "./read.mjs";
 import {compile} from "./lang.mjs";
 import {line as lineOf,tokenLine} from "./line.mjs";
@@ -475,7 +475,7 @@ const boot=async()=>{
  const gives=P.all("give"),tabs=h("div",{class:"tabs",role:"tablist"}),pane=h("div",{class:"pane"});
  const code=h("pre",{class:"code",tabindex:"0"}),copy=h("button",{class:"copy"},"copy");
  const ans=h("textarea",{rows:"5",placeholder:T("check"),"aria-label":"answer to check"}),verdict=h("ol",{class:"verdict"}),guarded=h("p",{class:"guard"}),seal=h("button",{class:"seal",hidden:""},"seal this check"),sealed=h("p",{class:"sealed"});
- const pics=h("div",{class:"thumbs"}),what=h("p",{class:"what"}),scope=h("ul",{class:"scope"}),more2=h("details",{class:"raw"},h("summary",{},"details: preview, AGENTS.md, chat, curl, MCP, A2A, check"),tabs,pane),out=h("section",{class:"out",hidden:""},lineRow,what,h("div",{class:"row"},link,grab),scope,meta,verbs,pics,more2),recent=h("ol",{class:"recent"}),who=h("span");
+ const pics=h("div",{class:"thumbs"}),what=h("p",{class:"what"}),tokRow=h("p",{class:"tokrow"}),scope=h("ul",{class:"scope"}),more2=h("details",{class:"raw"},h("summary",{},"details: preview, AGENTS.md, chat, curl, MCP, A2A, check"),tabs,pane),out=h("section",{class:"out",hidden:""},lineRow,what,tokRow,h("div",{class:"row"},link,grab),scope,meta,verbs,pics,more2),recent=h("ol",{class:"recent"}),who=h("span");
  const chips=h("div",{class:"chips",role:"toolbar"}),cards=h("div",{class:"cards"}),more=h("button",{class:"more",hidden:""});
  // live: emem's log, signed and growing; the number is the log head's size, checked against the pinned key
  const live=h("span",{class:"live",title:"entries in emem.dev's signed, append-only log"});let lastSize=0;
@@ -622,6 +622,12 @@ ${last.answer.trim()}
    for(;i<list.length;i++){if(my!==seq)return;show(list,i);await ops[list[i]](r)}
    if(my!==seq)return;
    r.line=r.task?`r1 followed task ${r.url.replace(/^.*by_attester\//,"").replace(/\.md$/,"")} want=${r.task.q.want} of=${r.task.q.of.replace(/^.*by_attester\//,"").replace(/\.md$/,"")} state=${r.task.state.replace(/ /g,"_")} replies=${r.task.rows.length}`:r.token?tokenLine(r.token):r.body?lineOf(r.body,r.url)+(r.secret?` key=${r.secret}`:""):"";agentLine.textContent=r.line;lineRow.hidden=!r.line;what.textContent=(r.shape||"").replace(/^It is /,"").replace(/^./,c=>c.toUpperCase());what.hidden=!r.shape;
+   // tokens, side by side: what an agent reads here, against what the source would cost (text as text; binary as base64)
+   {const body=r.body||"",srcBytes=r.pointer?(r.p?.bytes||+(body.match(/^bytes: (?:about )?(\d+)/m)||[])[1]||0):0,claim=(body.match(/(~[\d.]+[kMB]?) tokens in \d+ sections/)||[])[1];
+    const srcTok=r.sampled&&claim?+claim.replace("~","").replace(/k$/,"e3").replace(/M$/,"e6").replace(/B$/,"e9"):(r.notes?.length>1||(r.kids?.length&&!r.sampled))&&r.text?count(r.text):null;
+    const tc=body&&!r.token?tokenCompare({note:body,line:r.line,srcTok,srcBytes}):null;tokRow.hidden=!tc;
+    if(tc)tokRow.replaceChildren(h("b",{},`${tok(tc.note)} tokens`)," for an agent to read this",tc.line?`, ${tok(tc.line)} for its one line`:"",
+     ...(tc.src?[". The source would be ",h("b",{},`${tok(tc.src)} tokens`),tc.base64?` if its ${mb(srcBytes)} were handed to a model as base64`:"",": ",h("b",{class:"x"},`${tc.x.toLocaleString("en")}× less`),"."]:["."]))}
    out.classList.remove("stale");delete out.dataset.stale;if(follow)followNext();
    show(list,i);clearInterval(clock);tickHead(r.bad?"ememified, with a finding":"ememified",r.bad?"bad":"ok");run=r;tab=r.full&&tab==="check"?"check":gives[0].arg;if(tab==="check")more2.open=true;
    const share=r.shareUrl||r.url;link.textContent=share;link.href=share;link.target="_blank";link.rel="noopener";grab.hidden=false;
