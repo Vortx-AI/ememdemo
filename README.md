@@ -156,6 +156,10 @@ Every step declares its verbs in `emem.eio` (`step probe : remote -> hashes | pr
 - one line of verbs (done steps in the past tense with their time, the current one with a bar);
 - a **map** with one square per chunk, section, file or camera, filled as each is finished;
 - a head line: "ememifying 6.0 s", then "ememified 24.5 s", or "stopped" with the reason.
+- a **stop** button (or Esc) that aborts every request the run still has open; no write starts after it.
+- a shared `?s=` link only opens references (a note, a token, a file name, a log head). Anything that would read a source or write is put in the box and waits for you to press →.
+- three ways in above the box: **point** a file, **sense** a place, **check** a link. Each one sets what the box expects.
+- gallery cards are checked when they scroll into view, at most four at a time. A card's state names what was checked: `✓ note` (its bytes hash to its name; the source is re-read only when opened), `✓ receipt` (emem.dev signed it; that says who, not that it is right), or `unreachable` (not checked, which is different from a failed check).
 
 The page itself boots the same way: before any of its code runs, the loader shows "ememifying this page" and fills one square per file as it matches the seal.
 
@@ -250,10 +254,34 @@ Most websites ask you to trust whoever serves them. This one checks itself befor
 
 `emem.eio` compiles into the human page and, through `tools/seal.mjs`, into two files an agent can read:
 
-- **`llms.txt`:** every flow as the emem.dev call an agent can make itself (store, read and re-hash, check with emem-guard, ask), the token family table, the signer key, and the worked examples.
+- **`llms.txt`:** the whole site in about 3k tokens, written in **r1** lines (verbs first): the grammar, each note kind's schema by content id, the input verbs, the write and read calls, the signer key, and one brief line per gallery item, grouped by kind. Roots, bundles and stamps stay in the note, one fetch away.
+- **`llms-full.txt`:** the same interface as prose, for a reader that wants it. It isn't needed to use the site.
 - **`.well-known/agent-card.json`:** an A2A agent card whose skills run at emem.dev's A2A endpoint. The site has no server of its own.
 
 Both are sealed with the site, so an agent can check them the same way.
+
+### r1: one line per result
+
+```
+r1 <verb> <noun> <ref> key=value …        ref = <attester8>/<cid>  →  https://emem.dev/memories/by_attester/<ref>.md
+r1 pointed cog ddzmyzhn/wkxa7tcmw2orf7ujjf5yi66dhe src=esawebb.org size=143.7MB hashed=97/1690 root=etmgt35lbn sth=2188509
+r1 mapped forest ddzmyzhn/fss35xszeperjmoyxfqyeglr6i at=-9.72999,-63.03000 grid=12x12 bands=… receipts=144/144
+```
+
+Each note kind declares its schema in `emem.eio` as a `spec` block. The schema is stored once by its hash, and every new note carries `spec: <cid>`, so the page doesn't have to repeat prose in each note. Every result and gallery card has a **copy for agent** action that copies its line (about 30 tokens, against an average of about 2,900 for the notes themselves, measured on 11 gallery notes). `src/line.mjs` derives lines and is pure: the page, the seal tool and any agent get the same line from the same bytes.
+
+| verb | noun | from |
+|---|---|---|
+| pointed | cog, bigtiff, safetensors, gguf, zarr, hls, dicom, mp4, jpeg, observation, splats, file | pointer.v1 |
+| listed | folder | directory.v1 |
+| sensed | place | world.v1 |
+| mapped | city, forest | grid.v1 |
+| framed | timelapse | timelapse.v1 |
+| surveyed | cameras | camera.v1 |
+| chained | track | track.v1 |
+| diffed · witnessed · checked · drew | pointers · pointer · answer · thumb | compare, witness, check, thumb |
+| indexed · stored | doc · text | index and text notes |
+| resolve · pin · open | any emem token · log head · other links | tokens |
 
 ## Checks that leave proof
 
@@ -338,7 +366,9 @@ rule   gallery show
 | `index.html` | the loader: checks every file against the pinned seal before running it |
 | `src/lang.mjs` | the eio compiler, pure, shared by the page and the seal tool |
 | `src/eio.mjs` | rules, page, flows, gallery, checks |
-| `tools/seal.mjs` | seals the site on emem and compiles `llms.txt` and the agent card |
+| `tools/seal.mjs` | seals the site on emem, stores the specs, and compiles `llms.txt`, `llms-full.txt` and the agent card |
+| `src/line.mjs` | r1 lines: one verb-first line per note or token, pure |
+| `src/grid.mjs` | city and forest grids: sample locations, units as the facts state them, correlation with its exclusions |
 | `src/read.mjs` | any input becomes markdown with headings, then sections and an index |
 | `src/reel.mjs` | timelapses: RGB cubes, verified frames, one rasterset |
 | `tools/thumbs.mjs` | gallery pictures as verified thumb notes |

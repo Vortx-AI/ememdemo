@@ -2,7 +2,7 @@
  "name": "ememdemo",
  "description": "Tokenise huge files for agents to use. A static page over emem.dev; these skills run at emem.dev's A2A endpoint.",
  "url": "https://emem.dev/a2a/tasks",
- "version": "kqqyum5w4sxrjtdo5uw6lyxwle",
+ "version": "wbcg6qvmfpc5sgmgvdptwkhzbq",
  "provider": {
   "organization": "Vortx AI",
   "url": "https://vortx.ai"

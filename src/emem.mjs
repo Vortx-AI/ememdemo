@@ -9,7 +9,11 @@ export const NOTE=/^https:\/\/emem\.dev\/memories\/\S+\.md$/;
 export const LINKS=/https:\/\/emem\.dev\/memories\/by_attester\/[a-z2-7]{8}\/[a-z2-7]{26}\.md/g;
 
 // ---------- bytes ----------
+import {line as lineOf} from "./line.mjs";
 export const U=s=>new TextEncoder().encode(s);
+// specs: each note kind's schema, named by the hash of its text (set from emem.eio at boot); a note carries "spec: <cid>"
+export const SPECS={};
+export const specify=body=>{const k=(body.match(/^emem: ([\w.-]+)$/m)||[])[1];return k&&SPECS[k]&&!/^spec: /m.test(body)?body.replace(/^(emem: [\w.-]+)$/m,`$1\nspec: ${SPECS[k]}`):body};
 const A="abcdefghijklmnopqrstuvwxyz234567";
 export const b32=u=>{let b=0,v=0,o="";for(const x of u){v=(v<<8)|x;b+=8;while(b>=5){o+=A[(v>>>(b-5))&31];b-=5}}if(b>0)o+=A[(v<<(5-b))&31];return o};
 const cat=(...a)=>{const r=new Uint8Array(a.reduce((n,x)=>n+x.length,0));let i=0;for(const x of a){r.set(x,i);i+=x.length}return r};
@@ -22,7 +26,10 @@ export const count=t=>Math.max(1,Math.round(1.098*(t.match(/[A-Za-z]+/g)||[]).le
 export const tokens=t=>{const n=count(t);return"~"+(n<1000?n:(n/1000).toFixed(n<10000?1:0)+"k")+" tokens"};
 export const pool=async(items,n,fn)=>{let i=0;await Promise.all(Array.from({length:Math.min(n,items.length)},async()=>{while(i<items.length){const k=i++;await fn(items[k],k)}}))};
 export const store=(k,v)=>{try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||"null");localStorage.setItem(k,JSON.stringify(v))}catch{return null}};
-export const net=async(url,init)=>{try{return await fetch(url,init)}catch{throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
+// the run in hand: Stop aborts every request it still has open, and no write starts after it
+export const RUN={ctl:null};
+export const stopped=()=>{if(RUN.ctl?.signal.aborted)throw new Error("Stopped. Nothing more was read or written.")};
+export const net=async(url,init={})=>{const signal=init.signal||RUN.ctl?.signal;stopped();try{return await fetch(url,signal?{...init,signal}:init)}catch(e){if(signal?.aborted)stopped();throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
 
 // ---------- key: made in this browser, never sent anywhere ----------
 let KEY=null;
@@ -54,10 +61,12 @@ const bucket={left:40,at:Date.now()};
 const slot=async()=>{for(;;){const now=Date.now();bucket.left=Math.min(40,bucket.left+(now-bucket.at)/1000*3.5);bucket.at=now;if(bucket.left>=1){bucket.left--;return}await new Promise(z=>setTimeout(z,(1-bucket.left)/3.5*1000+20))}};
 export const put=async(n,pub)=>{
  for(let attempt=0;;attempt++){
-  await slot();
+  stopped();await slot();stopped();
   const x=await net(WRITE,{method:"POST",headers:{"content-type":"application/json",accept:"application/json"},
    body:JSON.stringify({skill:"emem_memory_create",args:{path:n.path,file_text:n.body,kind:"resource",attester:{pubkey_b32:pub,sig_b32:n.sig}}})});
-  if(x.ok)return;
+  // a 200 can still carry a failed task: read it before calling the write done
+  const ok=x.ok?await x.clone().json().then(j=>!(j?.error||/^(failed|error|rejected)$/i.test(j?.status||j?.state||j?.result?.status||"")||j?.result?.isError)).catch(()=>true):false;
+  if(ok)return;
   if((x.status===429||x.status>=500)&&attempt<8){await new Promise(z=>setTimeout(z,1500*(attempt+1)));continue}
   const j=await x.json().catch(()=>({}));
   // same bytes, same name: if it is already there and hashes right, it is the same file
@@ -255,8 +264,8 @@ const sz=v=>v>=1e9?(v/1e9).toFixed(2)+" GB":v>=1e6?(v/1e6).toFixed(1)+" MB":(v/1
 export const summarize=async(s,S)=>{
  if(NOTE.test(s.emem)){
   const n=await getNote(s.emem),b=n.body,k=x=>(b.match(new RegExp(`^${x}: (.+)$`,"m"))||[])[1]||"",kind=k("emem"),st=/^after: sth /m.test(b)?"stamped":"";
-  const state=n.ok?"✓ matches":n.ok===false?"✗ name lies":"· unnamed",V=(...v)=>v.filter(Boolean).join(" · ");
-  const out=(big,verbs,peek)=>({ok:n.ok!==false,state,nodes:[...(big?[["big",big]]:[]),["verbs",verbs],...(peek?[["peek",peek]]:[])]});
+  const state=n.ok?"✓ note":n.ok===false?"✗ name lies":"· unnamed",V=(...v)=>v.filter(Boolean).join(" · ");
+  const out=(big,verbs,peek)=>({ok:n.ok!==false,state,scope:n.ok?`checked ${new Date().toISOString().slice(11,19)}Z: this note's bytes hash to its name. The source it describes is re-read only when you open it.`:n.ok===false?"this note's bytes do not hash to its name":"this name makes no hash claim",line:lineOf(b,s.emem),nodes:[...(big?[["big",big]]:[]),["verbs",verbs],...(peek?[["peek",peek]]:[])]});
   if(kind==="pointer.v1"){const m=b.match(/^bytes: (about )?(\d+)/m);return out(m?`${m[1]?"~":""}${sz(+m[2])}`:"at source",V(`hashed ${k("chunks").replace(/ hashed$/,"")}`,"rooted",k("place")?"placed":"",st),"")}
   if(kind==="directory.v1")return out(sz(+k("bytes")),V(`listed ${k("files")} files`,"publisher hashes kept","rooted",st));
   if(kind==="world.v1"){const f=(b.match(/ · emem:fact:/g)||[]).length;return out(`${f} facts`,V("sensed","cross-checked",/^## drift/m.test(b)?"drift measured":"",/echo-verified/.test(b)?"echo-verified":"","bundled",st))}
@@ -269,7 +278,7 @@ export const summarize=async(s,S)=>{
  }
  if(ASK.test(s.emem))return{ok:true,state:"live",nodes:[["verbs","asked live · answered signed · bundled"]]};
  const r=await resolveToken(s.emem,S),f=r.face;
- return{ok:!r.bad,state:r.bad?"✗":"✓ signed",nodes:[...(/\d/.test(f.big||"")&&f.big.length<=24?[["big",f.big]]:[]),...(f.canvases?.length?[["canvas",f.canvases]]:[]),["verbs",r.proof.replace(/✓ /g,"").split(" · ").slice(0,3).join(" · ")]]};
+ return{ok:!r.bad,state:r.bad?"✗ receipt":"✓ receipt",scope:`checked ${new Date().toISOString().slice(11,19)}Z: emem.dev's receipt for this token verifies against the pinned key. That says who signed it, not that the value is right.`,nodes:[...(/\d/.test(f.big||"")&&f.big.length<=24?[["big",f.big]]:[]),...(f.canvases?.length?[["canvas",f.canvases]]:[]),["verbs",r.proof.replace(/✓ /g,"").split(" · ").slice(0,3).join(" · ")]]};
 };
 
 
