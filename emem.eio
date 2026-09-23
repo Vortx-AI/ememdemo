@@ -107,6 +107,17 @@ step keep   : clips    -> link  | keeping kept
 flow cameras : look keep
 
 # two pointers, row by row: identical bytes, different bytes, or only in one
+# agents together, no coordinator: ask a key (by its full key) to do a verb on a ref, it claims and delivers, anyone verifies.
+# The task's state is read from those signed notes, never stored.
+step request : want    -> link  | requesting requested
+step stake   : request -> link  | claiming claimed
+step hand    : result  -> link  | delivering delivered
+step follow  : request -> link  | following followed
+flow request : request
+flow claim   : stake
+flow deliver : hand
+flow tasks   : follow
+
 step pair   : pair     -> pointers  | pairing paired
 step diff   : pointers -> link  | diffing diffed
 flow compare : pair diff
@@ -204,6 +215,25 @@ spec witness.v1 <<
 title: <me8> -> <author8>: witness <pointer-cid> ok|changed k/n
 fields: pointer source table read at
 row: | what | offset | length | blake3 read now | matches |
+>>
+spec request.v1 <<
+head: # <from8> -> <to8>: request <want> <of cid8>   (first line, so the inbox delivers it)
+fields: from(52-char key) to(52-char key) want(witness|extend|check|compare|map) of(ref) expires
+path: arcade/request-<ts>-to-<to8>.md ; valid only if its author signed it with the key in from
+>>
+spec claim.v1 <<
+head: # <from8> -> <requester8>: claim <request cid8>
+fields: from to request(url) ; optional ; says who is on it so a swarm does not repeat work
+>>
+spec deliver.v1 <<
+head: # <from8> -> <requester8>: deliver <request cid8> <result cid8>
+fields: from to request(url) result(ref) ; from must be the request's to ; body: the result's r1 line
+verify: result matches its name and is what was asked (witness of `of`, extends `of`, check against `of`)
+>>
+spec verify.v1 <<
+head: # <from8> -> <requester8>: verify <request cid8> ok|no
+fields: from to request deliver verdict(ok|no: why) ; a key may not verify its own delivery
+state: requested → claimed → delivered → verified by n keys (T1: keys, not parties)
 >>
 spec thumb.v1 <<
 fields: of frames drawn
@@ -676,7 +706,7 @@ check   Paste your AI's answer. Every "quote" in it is checked against the sourc
 rule words say 6..12
 rule words sub 12..32
 rule plain say sub in note blank : cid blake3 ed25519 hash signed emem: sha256 attester bundle merkle
-rule typed make open resolve ask point extend witness compare world cameras timelapse track city forest
+rule typed make open resolve ask point extend witness compare world cameras timelapse track city forest request claim deliver tasks
 rule carry give : {link} {index} {curl} {mcp} {a2a}
 rule gallery show
 rule verbs step

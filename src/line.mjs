@@ -29,6 +29,10 @@ const full=(body,url)=>{
  if(k==="compare.v1")return L("diffed","pointers",`same=${f(body,"same")}`,`changed=${f(body,"changed")}`,`only=${f(body,"only_a")}+${f(body,"only_b")}`);
  if(k==="witness.v1")return L("witnessed","pointer",`of=${refOf(f(body,"pointer"))}`,`read=${(f(body,"read").match(/^(\d+ of \d+)/)||[])[1]?.replace(" of ","/")}`);
  if(k==="check.v1")return L("checked","answer",`against=${refOf(f(body,"source"))}`,`guard=${sq(f(body,"guard"))}`);
+ if(k==="request.v1")return L("requested",f(body,"want"),`of=${refOf(f(body,"of"))}`,`to=${f(body,"to").slice(0,8)}`,`from=${f(body,"from").slice(0,8)}`);
+ if(k==="claim.v1")return L("claimed","request",`req=${refOf(f(body,"request"))}`);
+ if(k==="deliver.v1")return L("delivered","result",`req=${refOf(f(body,"request"))}`,`result=${refOf(f(body,"result"))}`);
+ if(k==="verify.v1")return L("checked","delivery",`req=${refOf(f(body,"request"))}`,`verdict=${sq(f(body,"verdict").split(":")[0])}`);
  if(k==="thumb.v1")return L("drew","thumb",`of=${refOf(f(body,"of"))}`,`frames=${f(body,"frames")}`);
  if(k==="issue-state.v1")return L("probed","issue",`id=${f(body,"issue")}`,`holds=${f(body,"holds")}`);
  const secs=(body.match(/^- \[[^\]]+\]\(https:\/\/emem\.dev\/memories\//gm)||[]).length;

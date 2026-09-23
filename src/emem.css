@@ -164,3 +164,4 @@ footer .link:hover{color:var(--fg)}
 .out .scope li{margin:.15em 0}.out .scope b{font-weight:600;margin-right:.3em}.out .scope .at{opacity:.6;font-size:12px}
 .out .raw>summary{cursor:pointer;opacity:.75;margin:.6em 0;font-size:13px}
 .out.stale{opacity:.55}.out.stale::before{content:attr(data-stale);display:block;font-size:12px;color:var(--no)}
+.verbs .task{display:inline-flex;gap:6px;align-items:center;margin:2px 8px 2px 0}

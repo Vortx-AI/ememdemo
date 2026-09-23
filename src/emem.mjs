@@ -61,9 +61,19 @@ const bucket={left:40,at:Date.now()};
 const slot=async()=>{for(;;){const now=Date.now();bucket.left=Math.min(40,bucket.left+(now-bucket.at)/1000*3.5);bucket.at=now;if(bucket.left>=1){bucket.left--;return}await new Promise(z=>setTimeout(z,(1-bucket.left)/3.5*1000+20))}};
 const there=async n=>{const back=await fetch(n.url).catch(()=>null);return!!(back?.ok&&cidOf(new Uint8Array(await back.arrayBuffer()))===n.cid)};
 const landed=n=>{if(RUN.ctl)RUN.wrote.push(n.url)};
+// a key made in this page writes at most CAP notes an hour, counted in this browser: a swarm can still mint keys,
+// which is why every result names its writer's tier (see who())
+export const CAP=400;
+const spend=()=>{const now=Date.now(),w=(store("emem.writes")||[]).filter(t=>now-t<3600e3);
+ if(w.length>=CAP)throw new Error(`This browser's key has written ${CAP} notes in the last hour, the most this page allows. Try again in ${Math.ceil((w[0]+3600e3-now)/60e3)} minutes.`);
+ w.push(now);store("emem.writes",w)};
+// who wrote a note, and what a peer may conclude about that key (emem's enlistment ladder, GET /v1/enlist).
+// Only what is computed here is claimed: a signed write with a full key is T1 (keyed); naming (T2) and affiliation (T4) need evidence this page doesn't hold.
+export const who=(url,site)=>{const k=(String(url).match(/by_attester\/([a-z2-7]{8})\//)||[])[1];if(!k)return null;
+ return{key:k,tier:"T1 keyed",site:k===site,says:k===site?"this site's key, pinned in its seal":"a key that signed its own namespace; not named, not affiliated"}};
 export const put=async(n,pub)=>{
  for(let attempt=0;;attempt++){
-  stopped();await slot();stopped();
+  stopped();if(!attempt)spend();await slot();stopped();
   // a retry after a timeout or 5xx may follow a write that was accepted: look before writing again
   if(attempt&&await there(n)){landed(n);return}
   let x;try{x=await net(WRITE,{method:"POST",headers:{"content-type":"application/json",accept:"application/json"},
@@ -213,6 +223,10 @@ const viewChecked=async cid=>{
   author=(ed.verify(sig,b3(v1),key)||ed.verify(sig,b3(v2),key))&&a.signed_path===n.path}catch{author=false}}
  return{n,same,author};
 };
+// a note at any path, with who wrote it proved offline: bytes re-hashed, and the author's signature over its path checked
+export const signedNote=async url=>{const g=await getNote(url),{n,same,author}=await viewChecked(g.cid);
+ return{url,body:g.body,cid:g.cid,key:n.attester_pubkey_b32,path:n.path,at:n.signed_at,ok:same&&author===true&&EMEM+n.path===url}};
+export const inboxOf=async k8=>(await json(await net(`${EMEM}/v1/inbox?to=${k8}&limit=500`))).messages||[];
 const byName=async(cid,S,tick)=>{
  tick("by name over A2A");
  const{n,same,author}=await viewChecked(cid);

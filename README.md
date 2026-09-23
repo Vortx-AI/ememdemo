@@ -162,6 +162,9 @@ Every step declares its verbs in `emem.eio` (`step probe : remote -> hashes | pr
 - a stopped or failed run lists every write that was already accepted (those can't be undone), and keeps the previous result on screen, dimmed and labelled.
 - the work head counts this run's requests and bytes read.
 - the result separates **stored note** or **signed record** (what was checked of the stored bytes or the signature) from **checked now** (what was re-read from the source), with the time of the check.
+- an index opens by checking its own name plus sections chosen at random here (first, last and two more). **check all** reads every section, and so does opening the check tab, since an answer is checked against the whole source.
+- every result names who wrote it and that key's tier on emem's ladder (`GET /v1/enlist`). A key made here is T1 (keyed, unnamed). Witnesses are shown as a count of keys, not of parties. A key made here writes at most 400 notes an hour.
+- OCR's worker, WASM core and English data are pinned by sha256 in the manifest like every other library, and loaded only from checked bytes, with no cache.
 - copied commands quote every value as data. An ask result's handoff reads the frozen evidence bundle; asking again is a separate, labelled command.
 - three ways in above the box: **point** a file, **sense** a place, **check** a link. Each one sets what the box expects.
 - gallery cards are checked when they scroll into view, at most four at a time. A card's state names what was checked: `✓ note` (its bytes hash to its name; the source is re-read only when opened), `✓ receipt` (emem.dev signed it; that says who, not that it is right), or `unreachable` (not checked, which is different from a failed check).
@@ -288,6 +291,32 @@ Each note kind declares its schema in `emem.eio` as a `spec` block. The schema i
 | indexed · stored | doc · text | index and text notes |
 | resolve · pin · open | any emem token · log head · other links | tokens |
 
+## Agents together: request, claim, deliver, verify
+
+Agents can hand work to each other with no coordinator, following emem's agent-to-agent standard v2:
+- full keys are pinned at first contact;
+- authorship is verified offline;
+- hand-offs are made as tokens;
+- claims are re-derived, never taken from prose.
+
+| type | writes | who may |
+|---|---|---|
+| `ask <52-char key> to witness: <ref>` | `request.v1`, addressed `A -> B` so emem's inbox delivers it | anyone; an 8-character prefix is refused (display-only, grindable) |
+| `claim: <request>` | `claim.v1` | optional; stops a swarm repeating work |
+| `deliver: <request> <result>` | `deliver.v1` with the result's r1 line | only the key the request named |
+| `tasks: <request>` | nothing; it reads | anyone |
+| **verify** (a button on each delivery) | `verify.v1` with the verdict | any key but the deliverer |
+
+The task's state (requested → claimed → delivered → verified by n keys) is never stored. It is derived each time:
+1. read every note addressed to the requester that names the request's content id;
+2. check each note's bytes and its author's signature against the key it names;
+3. check that a delivery comes from the requested key;
+4. re-derive what the delivery points at. For a witness request, the result must be a witness of that pointer, and one that held.
+
+"Verified by n keys" counts T1 keys (keyed, unnamed), not parties.
+
+Specs for all four kinds are in `emem.eio` and in `llms.txt`.
+
 ## Checks that leave proof
 
 - **emem-guard.** When an answer cites emem tokens, the check tab sends it to emem-guard, which resolves every citation and returns a signed **allow** or **deny** with a reason code. The page checks that verdict against the pinned key. Tested: "Bengaluru's elevation is 915.07 m (emem:fact:…)" gets **allow**; the same sentence with 870 gets **deny PROV_VALUE**.
@@ -373,6 +402,7 @@ rule   gallery show
 | `src/eio.mjs` | rules, page, flows, gallery, checks |
 | `tools/seal.mjs` | seals the site on emem, stores the specs, and compiles `llms.txt`, `llms-full.txt` and the agent card |
 | `src/line.mjs` | r1 lines: one verb-first line per note or token, pure |
+| `src/hand.mjs` | agents together: request, claim, deliver, verify; the task's state derived from signed notes |
 | `src/grid.mjs` | city and forest grids: sample locations, units as the facts state them, correlation with its exclusions |
 | `src/read.mjs` | any input becomes markdown with headings, then sections and an index |
 | `src/reel.mjs` | timelapses: RGB cubes, verified frames, one rasterset |
@@ -380,6 +410,7 @@ rule   gallery show
 | `src/time.mjs` | log-head stamps, co-signing, RFC 9162 consistency proofs |
 | `tools/probes.mjs`, `tools/issue-state.mjs` | open items as rerunnable probes; results stored as signed state notes |
 | `SECURITY.md` | threat model |
+| `tests/`, `.github/workflows/test.yml` | offline unit tests and live browser tests, run in CI |
 | `src/camera.mjs` | street cameras: geo.qa postcards, clips re-hashed, sun recomputed |
 | `src/world.mjs` | every layer at a place: recall, terrain, composite, algorithms, cross-checks, one bundle |
 | `src/point.mjs` | large data named where it lives: structure readers (COG/BigTIFF, Zarr, HLS, safetensors, GGUF, DICOM), chunk hashes and statistics, Merkle root or chain, place, extend, re-check, compare |
@@ -409,6 +440,18 @@ rule   gallery show
 - **Ask** only answers questions about places, and takes 2–30 s depending on how warm emem.dev is.
 - **Not supported:** `emem:trace` / `emem:attestation` have no public examples, so the page does not claim to resolve them. `emem:state` has no MCP tool; the page says so.
 - **Chat apps:** plain ChatGPT, Claude or Gemini sessions may decline to open links. Coding agents, MCP and A2A clients do open them.
+
+## Tests
+
+`npm test` runs `tests/unit.mjs` (offline: the eio compiler, specs, r1 lines, the handoff grammar) and `tests/browser.mjs`. The browser tests drive headless Chromium against live emem.dev, and each case retries once:
+- seal states: normal, a flipped byte in a site file, a flipped byte in the manifest, boot from emem only;
+- rule breaks;
+- a lying file name;
+- shared-link gating;
+- the publish gate;
+- index sampling with "check all".
+
+`.github/workflows/test.yml` runs both on every pull request.
 
 ## Run
 
