@@ -241,11 +241,12 @@ path: arcade/request-<ts>-to-<to8>.md ; valid only if its author signed it with 
 >>
 spec claim.v1 <<
 head: # <from8> -> <requester8>: claim <request cid8>
-fields: from to request(url) ; optional ; says who is on it so a swarm does not repeat work
+fields: from to request(url) ; optional ; says who is on it so a swarm does not repeat work ; path: arcade/claim-<request cid8>-<ts>-to-<requester8>.md
 >>
 spec deliver.v1 <<
 head: # <from8> -> <requester8>: deliver <request cid8> <result cid8>
 fields: from to request(url) result(ref) ; from must be the request's to ; body: the result's r1 line
+path: arcade/deliver-<request cid8>-<ts>-to-<requester8>.md in the requested key's folder (read from there, so inbox junk can't hide it)
 verify: result matches its name and is what was asked (witness of `of`, extends `of`, check against `of`)
 >>
 spec verify.v1 <<

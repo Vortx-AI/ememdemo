@@ -6,7 +6,7 @@
 //   verify.v1   anyone re-derives the result and signs what they found
 // The task's state is never stored: it is derived by reading those notes, checking each one's bytes and its author's
 // signature, and re-checking what a delivery points at. A count of verifiers is a count of keys (T1), not of parties.
-import {EMEM,note,put,key,getNote,signedNote,inboxOf,cidOf,U} from "./emem.mjs";
+import {EMEM,note,put,key,getNote,signedNote,inboxOf,cidOf,U,net,json} from "./emem.mjs";
 import {line as lineOf} from "./line.mjs";
 export const VERBS=["witness","extend","check","compare","map"];
 export const REQUEST=/^ask\s+(\S+)\s+to\s+(\w+)\s*:\s*(\S+)$/i,DELIVER=/^deliver:\s*(https:\/\/emem\.dev\/memories\/\S+\.md)\s+(\S+)$/i,TASKS=/^tasks:\s*(https:\/\/emem\.dev\/memories\/\S+\.md)$/i,CLAIM=/^claim:\s*(https:\/\/emem\.dev\/memories\/\S+\.md)$/i;
@@ -15,9 +15,9 @@ const f=(b,k)=>(b.match(new RegExp(`^${k}: (.+)$`,"m"))||[])[1]||"";
 const at=()=>new Date().toISOString().replace(/[-:]/g,"").replace("T","-").slice(0,15);
 const c8=u=>(String(u).match(/([a-z2-7]{26})\.md$/)||[])[1]?.slice(0,8)||String(u).slice(-8);
 
-const write=async(kind,to,head,fields,r1,stamp)=>{const k=await key(),me=k.pub.slice(0,8);
+const write=async(kind,to,head,fields,r1,stamp,tag)=>{const k=await key(),me=k.pub.slice(0,8);
  const body=`# ${me} -> ${to.slice(0,8)}: ${head}\n\n---\nemem: ${kind}\nfrom: ${k.pub}\nto: ${to}\n${Object.entries(fields).map(([a,b])=>`${a}: ${b}`).join("\n")}\n---\n\n${r1}\n`;
- const b=stamp?await stamp(body):body,n=await note(b,k,`arcade/${kind.split(".")[0]}-${at()}-to-${to.slice(0,8)}.md`);await put(n,k.pub);return n};
+ const b=stamp?await stamp(body):body,n=await note(b,k,`arcade/${kind.split(".")[0]}-${tag?tag+"-":""}${at()}-to-${to.slice(0,8)}.md`);await put(n,k.pub);return n};
 
 export const request=async(input,stamp)=>{const[,to,verb,ref]=input.match(REQUEST);
  if(!KEY.test(to))throw new Error(`Name the agent by its full 52-character key. An 8-character prefix (${to.slice(0,8)}) is display-only and can be ground in GPU-hours.`);
@@ -33,12 +33,12 @@ export const readRequest=async url=>{const q=await signedNote(url);
  return{...q,from:f(q.body,"from"),to:f(q.body,"to"),want:f(q.body,"want"),of:f(q.body,"of"),expires:f(q.body,"expires")}};
 
 export const claim=async(url,stamp)=>{const q=await readRequest(url);
- return write("claim.v1",q.from,`claim ${q.cid.slice(0,8)}`,{request:url},`r1 claimed request ${q.cid.slice(0,8)}`,stamp)};
+ return write("claim.v1",q.from,`claim ${q.cid.slice(0,8)}`,{request:url},`r1 claimed request ${q.cid.slice(0,8)}`,stamp,q.cid.slice(0,8))};
 
 export const deliver=async(input,stamp)=>{const[,url,result]=input.match(DELIVER),q=await readRequest(url),k=await key();
  if(q.to!==k.pub)throw new Error(`This request was addressed to ${q.to.slice(0,8)}, not to this browser's key ${k.pub.slice(0,8)}.`);
  const res=await getNote(result).catch(()=>null);if(!res||res.ok===false)throw new Error("The result must be an emem link whose bytes match its name.");
- return write("deliver.v1",q.from,`deliver ${q.cid.slice(0,8)} ${res.cid.slice(0,8)}`,{request:url,result},lineOf(res.body,result),stamp)};
+ return write("deliver.v1",q.from,`deliver ${q.cid.slice(0,8)} ${res.cid.slice(0,8)}`,{request:url,result},lineOf(res.body,result),stamp,q.cid.slice(0,8))};
 
 // re-derive a delivery: the result must match its name, and must be the thing that was asked for
 const rederive=async(q,d)=>{const res=await getNote(d.result).catch(()=>null);if(!res)return{ok:false,why:"result unreachable"};if(res.ok===false)return{ok:false,why:"result's bytes don't match its name"};
@@ -50,8 +50,15 @@ const rederive=async(q,d)=>{const res=await getNote(d.result).catch(()=>null);if
 
 // the task, derived: every note addressed to the requester that names this request, each checked
 export const follow=async(url,tick)=>{const q=await readRequest(url),cid=q.cid; // the request's content id: its bytes, wherever they are stored
- tick?.("reading the requester's inbox");const inbox=await inboxOf(q.from.slice(0,8));
- const mine=inbox.filter(m=>new RegExp(`: (claim|deliver|verify) ${cid.slice(0,8)}`).test(m.title||"")).slice(0,40);
+ // claims and deliveries can only come from the requested key, so they are read from that key's own folder, which
+ // nobody else can write to: junk addressed to the requester can't push them out of view. Verifications may come from
+ // any key, so they come from the requester's inbox, read in full (its page size is not capped), and are counted as keys.
+ tick?.("reading the requested key's folder");const own=(await json(await net(`${EMEM}/memories/by_attester/${q.to.slice(0,8)}/arcade/?limit=5000`))).entries||[];
+ const fromTo=own.map(e=>e.path).filter(p=>new RegExp(`/arcade/(claim|deliver)-${cid.slice(0,8)}-\\d{8}-\\d{6}-to-${q.from.slice(0,8)}\\.md$`).test(p)).map(p=>({path:p}));
+ tick?.("reading the requester's inbox");const first=await json(await net(`${EMEM}/v1/inbox?to=${q.from.slice(0,8)}&limit=500`));
+ const all=first.truncated&&first.total_matched>500?(await json(await net(`${EMEM}/v1/inbox?to=${q.from.slice(0,8)}&limit=${first.total_matched}`))).messages||[]:first.messages||[];
+const vv=all.filter(m=>new RegExp(`: verify ${cid.slice(0,8)} `).test(m.title||"")).slice(0,60);
+ const seenP=new Set(),mine=[...fromTo,...all.filter(m=>new RegExp(`: (claim|deliver) ${cid.slice(0,8)} `).test(m.title||"")),...vv].filter(m=>!seenP.has(m.path)&&seenP.add(m.path));
  const rows=[];let i=0;
  for(const m of mine){tick?.(`${++i}/${mine.length}`);try{const n=await signedNote(EMEM+m.path),kind=(n.body.match(/^emem: (\w+)\.v1$/m)||[])[1];
   if(!n.ok||n.key!==f(n.body,"from")||f(n.body,"request")!==url){rows.push({kind:kind||"?",url:n.url,from:n.key?.slice(0,8)||m.from,ok:false,why:"author or request doesn't check"});continue}
@@ -66,4 +73,4 @@ export const follow=async(url,tick)=>{const q=await readRequest(url),cid=q.cid; 
 // anyone may verify a delivery: re-derive it here, and sign what was found, addressed to the requester
 export const verify=async(t,row,stamp)=>{const d=await rederive(t.q,row),k=await key();
  if(row.key===k.pub)throw new Error("A key can't verify its own delivery.");
- return write("verify.v1",t.q.from,`verify ${t.cid.slice(0,8)} ${d.ok?"ok":"no"}`,{request:t.q.url,deliver:row.url,verdict:`${d.ok?"ok":"no"}: ${d.why}`},`r1 checked delivery ${c8(row.url)} verdict=${d.ok?"ok":"no"}`,stamp)};
+ return write("verify.v1",t.q.from,`verify ${t.cid.slice(0,8)} ${d.ok?"ok":"no"}`,{request:t.q.url,deliver:row.url,verdict:`${d.ok?"ok":"no"}: ${d.why}`},`r1 checked delivery ${c8(row.url)} verdict=${d.ok?"ok":"no"}`,stamp,t.cid.slice(0,8))};

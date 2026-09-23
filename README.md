@@ -325,7 +325,7 @@ Agents can hand work to each other with no coordinator, following emem's agent-t
 | **verify** (a button on each delivery) | `verify.v1` with the verdict | any key but the deliverer |
 
 The task's state (requested → claimed → delivered → verified by n keys) is never stored. It is derived each time:
-1. read every note addressed to the requester that names the request's content id;
+1. read claims and deliveries from the requested key's own folder (`arcade/deliver-<request cid8>-…`), which only that key can write, so junk sent to the requester can't hide them; read verifications from the requester's inbox, in full, as a count of keys;
 2. check each note's bytes and its author's signature against the key it names;
 3. check that a delivery comes from the requested key;
 4. re-derive what the delivery points at. For a witness request, the result must be a witness of that pointer, and one that held.

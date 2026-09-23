@@ -13,8 +13,8 @@ spec track.v1 b5lmdatbymxjtttsobn2p7qshy
 spec compare.v1 lkmzfmx6h6k35ucblwm7q5crzq
 spec witness.v1 venbqbe5rsbbhjzc6j4xwrui7y
 spec request.v1 6gtkni2ajmhmaqpzkuqeprhy2e
-spec claim.v1 lx3ee4bk5i5xrrh2shonvmxwae
-spec deliver.v1 5w3ovwyrn5mwtkihiqydmy7lmi
+spec claim.v1 hvsr7rs7ofvzwuvhlxpix2qevy
+spec deliver.v1 srqfuov7xfalwbku3c3mtz6y2u
 spec verify.v1 2ws3xbqiklrnhf7ucuzmccth5y
 spec drift.v1 hc4zwfwlgeia4bvpmfmbtbjxkm
 spec sealed.v1 5c7q2lumilniezwjcferedq7ii
