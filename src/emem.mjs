@@ -42,8 +42,9 @@ export const key=async()=>{
 };
 
 // ---------- notes: named by the hash of their bytes, signed by the writer ----------
-export const note=async(body,k)=>{
- const bytes=U(body),cid=cidOf(bytes),path=`/memories/by_attester/${k.pub.slice(0,8)}/${cid}.md`;
+// a note may instead be addressed to another key (at = "arcade/<what>-<time>-to-<their 8>.md"); the signature covers that path
+export const note=async(body,k,at)=>{
+ const bytes=U(body),cid=cidOf(bytes),path=`/memories/by_attester/${k.pub.slice(0,8)}/${at||cid+".md"}`;
  const d=blake3(cat(U(`emem.memory_write.v2|create|${path}|`),blake3(bytes),U("|absent")));
  return{body,bytes,cid,path,url:EMEM+path,sig:b32(new Uint8Array(await crypto.subtle.sign("Ed25519",k.priv,d)))};
 };
@@ -183,8 +184,8 @@ export const resolveToken=async(name,S,tick=()=>{})=>{
 };
 
 // a file read by its name alone, over A2A, the way another agent would; bytes and authorship both checked here
-const byName=async(cid,S,tick)=>{
- tick("by name over A2A");
+// view a file by its name over A2A and check it here: do the bytes match the name, and did the key it names sign that path?
+const viewChecked=async cid=>{
  const task=await json(await post(`${EMEM}/a2a/tasks`,{skill:"emem_memory_view",args:{file_cid:cid}}));
  const n=task.artifacts?.[0]?.parts?.[0]?.data;if(!n?.content)throw new Error(`No file is named ${cid}.`);
  await verifier();const{blake3:b3,ed,b32decode,hex}=globalThis.ememVerifyInternals,bytes=U(n.content),full=b3(bytes);
@@ -193,7 +194,12 @@ const byName=async(cid,S,tick)=>{
  // emem accepts two signing formats (v1, and v2 which also binds the prior version); its authorship block always describes v1, so try both
  if(n.authorship?.sig_b32){try{const a=n.authorship,sig=b32decode(a.sig_b32),key=b32decode(a.attester_pubkey_b32);
   const v1=new Uint8Array([...U(`emem.memory_write|${a.verb}|${a.signed_path}|`),...full]),v2=new Uint8Array([...U(`emem.memory_write.v2|${a.verb}|${a.signed_path}|`),...full,...U("|absent")]);
-  author=ed.verify(sig,b3(v1),key)||ed.verify(sig,b3(v2),key)}catch{author=false}}
+  author=(ed.verify(sig,b3(v1),key)||ed.verify(sig,b3(v2),key))&&a.signed_path===n.path}catch{author=false}}
+ return{n,same,author};
+};
+const byName=async(cid,S,tick)=>{
+ tick("by name over A2A");
+ const{n,same,author}=await viewChecked(cid);
  const title=(n.content.match(/^#\s+(.+)$/m)||[])[1]||n.path.split("/").pop();
  const f={title,big:title,lines:[["written by",short(n.attester_pubkey_b32)],["kind",n.memory_kind],["signed",day(n.signed_at)],["path",n.path]],ok:same&&author!==false,
   proof:[same?"✓ bytes match the name":"✗ bytes do not match the name",author?`author ${short(n.attester_pubkey_b32)} signed it`:author===false?"✗ author signature fails":""]};
@@ -248,6 +254,15 @@ export const summarize=async(s,S)=>{
  if(NOTE.test(s.emem)){
   const n=await getNote(s.emem),secs=[...n.body.matchAll(/^- \[([^\]]+)\]\(/gm)].map(m=>m[1]);
   const lead=(n.body.match(/^> (.+)$/m)||[])[1]||"",text=n.body.replace(/^---\n[\s\S]*?\n---\n\n/,"");
+  // a pointer: the data stays at its source; the card says how much is there against how little is here
+  if(/^emem: pointer\.v1$/m.test(n.body)){
+   const sz=v=>v>=1e9?(v/1e9).toFixed(2)+" GB":v>=1e6?(v/1e6).toFixed(1)+" MB":(v/1e3).toFixed(1)+" KB",b=n.body.match(/^bytes: (about )?(\d+)/m),c=(n.body.match(/^chunks: (.+)$/m)||[])[1];
+   return{ok:n.ok!==false,state:n.ok?"✓ matches its name":"✗ name does not match",nodes:[["big",b?`${b[1]?"~":""}${sz(+b[2])}`:"at the source"],["stat",`stays at the source · ${sz(n.body.length)} on emem · ${c}`],["peek",n.body.split("\n").filter(l=>/^- /.test(l)).map(l=>l.slice(2)).slice(0,3).join("\n")]]};
+  }
+  // a comparison of two pointers: how many units are byte-identical, how many differ
+  if(/^emem: compare\.v1$/m.test(n.body)){const f=k=>+(n.body.match(new RegExp(`^${k}: (\\d+)`,"m"))||[])[1]||0;
+   return{ok:n.ok!==false,state:n.ok?"✓ matches its name":"✗ name does not match",nodes:[["big",`${f("same")} identical`],["stat",`${f("changed")} differ · ${f("only_a")} only in A · ${f("only_b")} only in B`],["peek",n.body.split("\n").filter(l=>/^- /.test(l)).map(l=>l.slice(2)).slice(0,3).join("\n")]]};
+  }
   return{ok:n.ok!==false,state:n.ok?"✓ matches its name":n.ok===false?"✗ name does not match":"· not named by its hash",nodes:secs.length
    ?[["stat",`${secs.length} sections · ${(lead.match(/~[\d.]+k? tokens/)||[""])[0]} · index ${tokens(n.body)}`],["peek",secs.slice(0,4).join("\n")]]
    :[["stat",tokens(text)],["peek",text.split("\n").filter(l=>l.trim()).slice(0,4).join("\n")]]};
@@ -256,6 +271,23 @@ export const summarize=async(s,S)=>{
  const r=await resolveToken(s.emem,S),f=r.face;
  // a card's big line is for values ("915.1 m", "2 dates"); a name is already the card's title
  return{ok:!r.bad,state:r.proof.split(" · ")[0],nodes:[...(/\d/.test(f.big||"")&&f.big.length<=24?[["big",f.big]]:[]),...(f.canvases?.length?[["canvas",f.canvases]]:[]),["peek",f.lines.filter(([,v])=>v).slice(0,4).map(([k,v])=>`${k}: ${v}`).join("\n")]]};
+};
+
+// who else re-read a pointer's source: witness notes addressed to its author, each checked here for bytes and signature
+export const witnesses=async(pointerUrl,cid)=>{
+ const author=pointerUrl.split("/").at(-2),j=await json(await net(`${EMEM}/v1/inbox?to=${author}&limit=200`));
+ const mine=(j.messages||[]).filter(m=>m.from!==author&&new RegExp(`: witness ${cid} (ok|changed) \\d+/\\d+$`).test(m.title||"")).slice(0,12);
+ const seen=new Map();
+ await pool(mine,4,async m=>{try{const{n,same,author:signed}=await viewChecked(m.file_cid);
+  if(same&&signed&&n.content.includes(`pointer: ${pointerUrl}`)&&n.attester_pubkey_b32.startsWith(m.from))seen.set(m.from,{from:m.from,ok:/ ok \d/.test(m.title),at:m.signed_at,url:EMEM+m.path})}catch{}});
+ return[...seen.values()];
+};
+
+// a raster's centre, in emem's own terms: the cell it falls in, and signed facts about that cell
+export const placeFacts=async({lat,lng})=>{
+ const l=await json(await net(`${EMEM}/v1/locate?lat=${lat}&lng=${lng}`)),cell=l.cell64||l.cell;
+ const r=await json(await post(`${EMEM}/v1/recall`,{cell,bands:["copdem30m.elevation_mean","indices.ndvi","era5.t2m"]}));
+ return[`centre cell ${cell} (emem:cell, about 10 m across)`,...(r.facts||[]).map(f=>`${f.band} ${fmt(f.value)}${f.unit?" "+f.unit:""}: ${f.memory_token}`)];
 };
 
 // the public channel, live: every note any agent writes, as it is written

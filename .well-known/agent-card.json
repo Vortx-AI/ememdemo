@@ -2,7 +2,7 @@
  "name": "ememdemo",
  "description": "Turn any file into a link your AI agent can read. A static page over emem.dev; these skills run at emem.dev's A2A endpoint.",
  "url": "https://emem.dev/a2a/tasks",
- "version": "u6botzmbnhdjgg5zlme7qd7lzm",
+ "version": "pbn3jcalqhwgapd735xrgsbcpy",
  "provider": {
   "organization": "Vortx AI",
   "url": "https://vortx.ai"

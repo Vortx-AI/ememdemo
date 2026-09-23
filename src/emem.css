@@ -71,6 +71,10 @@ footer a:hover{color:var(--fg)}
 .tries{display:flex;flex-wrap:wrap;align-items:center;gap:var(--u);margin:calc(1.5*var(--u)) 0 0;font:12px var(--mono);color:var(--mute)}
 .tries button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:3px 10px;font:12px var(--mono);color:var(--fg)}
 .tries button:hover{border-color:var(--fg)}
+.verbs{display:flex;flex-wrap:wrap;align-items:center;gap:var(--u);margin:var(--u) 0 calc(1.5*var(--u));font:12px var(--mono)}
+.verbs button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:3px 10px;font:12px var(--mono);color:var(--fg);cursor:pointer}
+.verbs button:hover{border-color:var(--fg)}
+.verbs .w{text-decoration:none}.verbs .w.ok{color:var(--ok)}.verbs .w.bad{color:var(--no)}
 .gallery{width:min(1180px,100% - 4*var(--u));margin:0 auto;padding:calc(4*var(--u)) 0 calc(8*var(--u));border-top:1px solid var(--line)}
 .more{display:block;margin:calc(3*var(--u)) auto 0;border:1px solid var(--line);background:transparent;padding:var(--u) calc(3*var(--u));font:12px var(--mono);color:var(--fg)}
 .more:hover{border-color:var(--fg)}
@@ -80,7 +84,8 @@ footer a:hover{color:var(--fg)}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(262px,1fr));gap:calc(2*var(--u))}
 .card{border:1px solid var(--line);background:var(--field);padding:calc(2*var(--u));display:flex;flex-direction:column;gap:var(--u);min-height:236px;cursor:pointer;transition:border-color .12s,transform .12s;text-align:left;color:inherit;font:inherit}
 .card:hover,.card:focus-visible{border-color:var(--fg);transform:translateY(-1px);outline:0}
-.card .head{display:flex;justify-content:space-between;align-items:center;font:11px var(--mono);color:var(--mute)}
+.card .head{display:flex;justify-content:space-between;align-items:center;gap:var(--u);font:11px var(--mono);color:var(--mute);white-space:nowrap}
+.card .head .state{overflow:hidden;text-overflow:ellipsis}
 .card .tag{border:1px solid var(--line);padding:1px 6px;color:var(--fg)}
 .card .state.ok{color:var(--ok)}
 .card .state.bad{color:var(--no)}

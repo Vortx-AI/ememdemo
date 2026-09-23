@@ -1,7 +1,12 @@
 // eio runtime: compiles emem.eio, enforces its rules, draws the page, runs its flows against emem.dev.
-import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia,guard,exportKey,importKey} from "./emem.mjs";
+import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia,guard,exportKey,importKey,witnesses,placeFacts} from "./emem.mjs";
 import {toDoc,REPO,repoItems,blocksOf,pack,describe} from "./read.mjs";
 import {compile} from "./lang.mjs";
+import {POINTABLE,probe,recheck,compare,parseRows,reread,mb} from "./point.mjs";
+
+// the verbs that act on pointers: extend one, witness one, compare two
+const MORE=/^more:\s*(https:\/\/emem\.dev\/memories\/\S+\.md)$/i,WITNESS=/^witness:\s*(https:\/\/emem\.dev\/memories\/\S+\.md)$/i,COMPARE=/^compare:\s*(https:\/\/emem\.dev\/memories\/\S+\.md)\s+(https:\/\/emem\.dev\/memories\/\S+\.md)$/i;
+const isPointer=b=>/^emem: pointer\.v1$/m.test(b),field=(b,k)=>(b.match(new RegExp(`^${k}: (.+)$`,"m"))||[])[1];
 
 // every rule is a promise the page makes; if the source breaks one, the page does not render
 const rules={
@@ -86,10 +91,51 @@ const ops={
   r.title=top.body.match(/^# (.+)$/m)?.[1]||top.body.match(/^source: (.+)$/m)?.[1]||"";
   return r;
  },
+ // large data, named where it lives: read its structure and hash its chunks at the source, then store only the pointer
+ async probe(r){r.p=await probe(r.input,r.tick,{placeAbout:placeFacts});return r},
+ // coverage grows by reading: the next chunks in the fixed order are hashed, the earlier rows are kept, and the new pointer names the one it extends
+ async extend(r){const top=r.checked[0];
+  if(!isPointer(top.body))throw new Error("Only a pointer can be extended.");if(top.ok===false)throw new Error("This pointer's name does not match its bytes; it is not extended.");
+  r.p=await probe(field(top.body,"source"),r.tick,{have:top.body,haveUrl:top.url,more:8,placeAbout:placeFacts});r.extends=top.url;return r},
+ async pin(r){
+  const k=await key(),n=await note(r.p.body,k);r.tick("storing the pointer");await put(n,k.pub);
+  const host=new URL(r.p.url).host;
+  Object.assign(r,{url:n.url,cid:n.cid,body:n.body,text:n.body,title:r.p.name,pointer:true,
+   proof:`${r.p.chunks.length} of ${r.p.units} chunks hashed at ${host} · ${mb(r.p.read)} read${r.extends?` · extends ${r.extends.split("/").pop().slice(0,8)}…`:""} · ${mb(n.bytes.length)} stored on emem`,
+   size:r.p.bytes?`${mb(r.p.bytes)} at the source`:r.p.est?`about ${mb(r.p.est)} at the source (estimated)`:"size unknown at the source",
+   shape:`It is a pointer to ${r.p.kind} at ${host}${r.p.bytes?` (${mb(r.p.bytes)})`:""}; the data stays there. Read any chunk from the source by URL and byte range and check its hash in the table.`});
+  Object.assign(r,pointerVia(r));return r},
  // any emem name: a token from the family, or a bare file name; resolved, and its receipt checked
  async resolve(r){Object.assign(r,await resolveToken(r.input,r.spec,r.tick));return r},
  // a question about a place, answered by emem.dev with signed facts
  async ask(r){Object.assign(r,await ask(r.input.match(ASK)[1].trim(),r.spec,r.tick));return r},
+ // a witness: this browser's key re-reads the source and signs what it found, addressed to the pointer's author
+ async attest(r){const top=r.checked[0];
+  if(!isPointer(top.body))throw new Error("Only a pointer can be witnessed.");if(top.ok===false)throw new Error("This pointer's name does not match its bytes; there is nothing to witness.");
+  const k=await key(),me=k.pub.slice(0,8),author=top.url.split("/").at(-2);
+  if(me===author)throw new Error("This pointer is yours; a witness must be another key. Send the link to another browser or agent, and let it witness.");
+  const c=await recheck(top.body,r.tick,6),good=c.table&&c.ok===c.n,now=new Date().toISOString(),at=now.replace(/[-:]/g,"").replace("T","-").slice(0,15);
+  const body=`# ${me} -> ${author}: witness ${top.cid} ${good?"ok":"changed"} ${c.ok}/${c.n}\n\n---\nemem: witness.v1\npointer: ${top.url}\nsource: ${c.src}\ntable: ${c.table?"matches its root":"does NOT match its root"}\nread: ${c.ok} of ${c.n} chunks match\nat: ${now}\n---\n\nThe key ${me} read these chunks from the source itself and hashed them. A witness says what one more reader saw; it does not make the data true.\n\n| what | offset | length | blake3 read now | matches |\n|---|---|---|---|---|\n${c.rows.map(x=>`| ${x.label} | ${x.offset} | ${x.length} | ${x.now} | ${x.ok?"yes":"NO"} |`).join("\n")}\n`;
+  r.tick("signing the witness");const n=await note(body,k,`arcade/witness-${at}-to-${author}.md`);await put(n,k.pub);
+  Object.assign(r,{url:n.url,cid:n.cid,body,text:body,title:`witness of ${(top.body.match(/^# (.+)$/m)||[])[1]||top.cid}`,bad:!good,
+   proof:`${c.ok} of ${c.n} chunks re-read from ${new URL(c.src).host} match${c.table?"":" · the table does NOT match its root"} · signed by ${me}, addressed to ${author}`,
+   shape:"It is a signed witness: another key read the source itself and says whether the pointer still holds.",size:`witness of ${top.cid}`});
+  Object.assign(r,readVia(r));return r},
+ // two pointers, row by row, by unit name: identical bytes, different bytes, or only in one
+ async pair(r){const[,a,b]=r.input.match(COMPARE);r.checked=[await getNote(a),await getNote(b)];
+  for(const x of r.checked){if(!isPointer(x.body))throw new Error(`${x.url} is not a pointer.`);if(x.ok===false)throw new Error(`${x.url} does not match its name.`)}
+  return r},
+ async diff(r){const[A,B]=r.checked,d=compare(A.body,B.body),k=await key(),nm=x=>(x.body.match(/^# (.+)$/m)||[])[1]||x.cid;
+  // hashes decide sameness without re-reading anything; one identical unit is still re-read from both sources, so the claim touches the data
+  let proofRead="";if(d.same.length){const s0=d.same[0];r.tick(`re-reading ${s0.key} from both sources`);
+   const[ha,hb]=await Promise.all([reread(d.a.source,s0.a),reread(d.b.source,s0.b)]);proofRead=`\n- re-read now from both sources: ${s0.key} hashes to ${ha===s0.a.hash&&hb===s0.b.hash?"the same value at both, as the pointers say":"something else; a source CHANGED"}`}
+  const cap=(xs,f,n=60)=>xs.slice(0,n).map(f).join("\n")+(xs.length>n?`\n| … ${xs.length-n} more | | |`:"");
+  const body=`---\nemem: compare.v1\na: ${A.url}\nb: ${B.url}\nsame: ${d.same.length}\nchanged: ${d.changed.length}\nonly_a: ${d.onlyA.length}\nonly_b: ${d.onlyB.length}\nkey: each row's name without its type, shape or wrapper prefix\n---\n\n# ${nm(A)} vs ${nm(B)}\n\n> Two pointers compared row by row. Identical means the same BLAKE3 hash of the same unit's bytes at both sources. Only rows both pointers hashed can be compared; each pointer's header pins the rest.\n\n- A: ${d.a.kind}, ${d.a.chunks} · ${d.a.source}\n- B: ${d.b.kind}, ${d.b.chunks} · ${d.b.source}\n- ${d.same.length} identical, ${d.changed.length} differ, ${d.onlyA.length} only in A, ${d.onlyB.length} only in B${proofRead}\n\n## Identical\n\n| unit | blake3 | stats |\n|---|---|---|\n${cap(d.same,x=>`| ${x.key} | ${x.a.hash} | ${x.a.stats||""} |`)||"| none | | |"}\n\n## Differ\n\n| unit | A | B |\n|---|---|---|\n${cap(d.changed,x=>`| ${x.key} | ${x.a.stats||x.a.hash.slice(0,12)} | ${x.b.stats||x.b.hash.slice(0,12)} |`)||"| none | | |"}\n\n## Only in A\n\n${d.onlyA.slice(0,60).map(x=>"- "+x.label).join("\n")||"- none"}\n\n## Only in B\n\n${d.onlyB.slice(0,60).map(x=>"- "+x.label).join("\n")||"- none"}\n`;
+  const n=await note(body,k);r.tick("storing the comparison");await put(n,k.pub);
+  Object.assign(r,{url:n.url,cid:n.cid,body,text:body,title:`${nm(A)} vs ${nm(B)}`,bad:/CHANGED/.test(proofRead),
+   proof:`${d.same.length} identical · ${d.changed.length} differ · ${d.onlyA.length} only in A · ${d.onlyB.length} only in B${d.same.length?` · one identical unit re-read from both sources`:""}`,
+   shape:"It is a row-by-row comparison of two pointers; each row says whether a unit's bytes are identical at both sources.",size:`${mb(n.bytes.length)} on emem`});
+  Object.assign(r,readVia(r));return r},
  async prove(r){
   const n=r.checked.length,strip=c=>c.body.replace(/^---\n[\s\S]*?\n---\n\n/,"");
   const bad=r.checked.filter(c=>c.ok===false).map(c=>c.url.split("/").pop()),unnamed=r.checked.filter(c=>c.ok==null).length,ok=n-bad.length-unnamed;
@@ -98,10 +144,34 @@ const ops={
    :unnamed===n?`not named by its hash, so there is nothing to match (its hash is ${r.cid})`:`${ok} of ${n} files match their names`+(unnamed?` · ${unnamed} not named by hash`:"")+(n>1&&!unnamed?` · one name commits to all ${n-1} sections`:"");
   const parts=n>1?r.checked.slice(1):r.checked;
   r.text=parts.map(strip).join("\n");r.first=parts[0].url;
+  // a pointer: re-read a spread of chunks from the source; the data may have changed even though the pointer cannot
+  const top=r.checked[0];
+  if(/^emem: pointer\.v1$/m.test(top.body)){
+   const c=await recheck(top.body,r.tick);r.pointer=true;r.title=(top.body.match(/^# (.+)$/m)||[])[1]||r.title;
+   r.bad=r.bad||!c.table||c.ok<c.n;
+   // other keys that re-read the same source and signed what they saw
+   r.tick("looking for witnesses");const w=await witnesses(top.url,top.cid).catch(()=>[]),wok=w.filter(x=>x.ok).length;r.witnesses=w;
+   r.proof=`${r.proof} · table ${c.table?"matches":"does NOT match"} its root · source: ${c.ok===c.n?`${c.n} of ${c.n} sampled chunks still match`:`${c.n-c.ok} of ${c.n} sampled chunks have CHANGED`}${w.length?` · witnessed by ${w.length} other key${w.length>1?"s":""}${wok<w.length?` (${w.length-wok} saw a change)`:""}`:" · no witnesses yet"}`;
+   const bm=top.body.match(/^bytes: (?:about )?(\d+)/m);r.size=bm?`${/^bytes: about/m.test(top.body)?"about ":""}${mb(+bm[1])} at the source`:"size unknown at the source";
+   r.shape=`It is a pointer to data at ${new URL(c.src).host}; the data stays there. Read any chunk from the source by URL and byte range and check its hash in the table.`;
+   Object.assign(r,{url:top.url,cid:top.cid},pointerVia({...r,body:top.body}));return r;
+  }
+  if(/^emem: compare\.v1$/m.test(top.body)){r.text=top.body;r.shape="It is a row-by-row comparison of two pointers; each row says whether a unit's bytes are identical at both sources.";r.proof+=" · the comparison names both pointers by hash";Object.assign(r,readVia({...r,first:null}));return r}
   r.shape=n>1?`It is an index of ${n-1} sections (${tokens(r.text)} in all); each entry says what its section covers.`:`It is one file (${tokens(r.text)}).`;
   Object.assign(r,readVia(r));
   return r;
  }
+};
+
+// how an agent reads one chunk of a pointer: from the source, by range, checked against the table
+const pointerVia=r=>{
+ const src=(r.body.match(/^source: (\S+)/m)||[])[1],rows=parseRows(r.body).filter(x=>!x.absent).map(x=>[,x.label,x.url||"·",x.offset,x.length,x.hash]);
+ const c=rows[Math.min(1,rows.length-1)],py=`python3 -c "import sys,blake3,base64;print(base64.b32encode(blake3.blake3(sys.stdin.buffer.read()).digest()).decode().rstrip('=').lower())"`;
+ const get=c?(c[2]==="·"?`curl -s -r ${c[3]}-${+c[3]+ +c[4]-1} "${src}"`:`curl -s "${c[2]}"`):`curl -s "${src}"`;
+ return{curl:`# the pointer: address, structure, and a hash for every chunk it read\ncurl -s ${r.url}\n\n# read one chunk (${c?c[1]:"?"}) straight from the source, and check it (pip install blake3):\n${get} | ${py}\n# expect ${c?c[5]:"?"}`,
+  mcp:`emem_memory_view {"file_cid":"${r.cid}"}\n# then read chunks from the source by the ranges in its table`,
+  a2a:`curl -s https://emem.dev/a2a/tasks -H 'content-type: application/json' \\\n  -d '${JSON.stringify({skill:"emem_memory_view",args:{file_cid:r.cid}})}'`,
+  verify:"# the pointer's name is the hash of its bytes; every chunk hash in it is BLAKE3-256 of the source's bytes at that range"};
 };
 
 // ---------- quote check: the stored text is the ground truth ----------
@@ -169,10 +239,12 @@ const boot=async()=>{
  const drop=h("div",{class:"drop"},box,h("div",{class:"bar"},h("button",{class:"pick",onclick:()=>file.click()},"choose files"),go),file);
  const steps=h("ol",{class:"steps","aria-live":"polite"}),tries=h("div",{class:"tries"});
  const link=h("a",{class:"url"}),meta=h("p",{class:"meta"}),grab=h("button",{class:"grab",hidden:""},"copy link");
+ // what a pointer can do next: cover more of its source, or be witnessed by this browser's key
+ const verbs=h("div",{class:"verbs",hidden:""});
  const gives=P.all("give"),tabs=h("div",{class:"tabs",role:"tablist"}),pane=h("div",{class:"pane"});
  const code=h("pre",{class:"code",tabindex:"0"}),copy=h("button",{class:"copy"},"copy");
  const ans=h("textarea",{rows:"5",placeholder:P.one("check"),"aria-label":"answer to check"}),verdict=h("ol",{class:"verdict"}),guarded=h("p",{class:"guard"}),seal=h("button",{class:"seal",hidden:""},"seal this check"),sealed=h("p",{class:"sealed"});
- const pics=h("div",{class:"thumbs"}),out=h("section",{class:"out",hidden:""},h("div",{class:"row"},link,grab),meta,pics,tabs,pane),recent=h("ol",{class:"recent"}),who=h("span");
+ const pics=h("div",{class:"thumbs"}),out=h("section",{class:"out",hidden:""},h("div",{class:"row"},link,grab),meta,verbs,pics,tabs,pane),recent=h("ol",{class:"recent"}),who=h("span");
  const chips=h("div",{class:"chips",role:"toolbar"}),cards=h("div",{class:"cards"}),more=h("button",{class:"more",hidden:""});
  document.body.replaceChildren(
   h("header",{class:"top"},h("a",{class:"brand",href:"./"},h("img",{src:P.one("mark"),alt:"",width:"26",height:"26"}),h("span",{},"emem")),
@@ -264,7 +336,9 @@ ${last.answer.trim()}
  const start=async(input,expect,my=++seq)=>{
   const r={spec};let list=P.flows.make;
   if(Array.isArray(input))r.files=input;
-  else{r.input=input.trim();if(NOTE.test(r.input))list=P.flows.open;else if(ASK.test(r.input))list=P.flows.ask;else if(tokenType(r.input,P.tokens)||CID.test(r.input)||STH.test(r.input))list=P.flows.resolve}
+  else{r.input=input.trim();let m;
+   if(m=r.input.match(MORE)){list=P.flows.extend;r.input=m[1]}else if(m=r.input.match(WITNESS)){list=P.flows.witness;r.input=m[1]}else if(COMPARE.test(r.input))list=P.flows.compare;
+   else if(POINTABLE.test(r.input))list=P.flows.point;else if(NOTE.test(r.input))list=P.flows.open;else if(ASK.test(r.input))list=P.flows.ask;else if(tokenType(r.input,P.tokens)||CID.test(r.input)||STH.test(r.input))list=P.flows.resolve}
   if(!r.files?.length&&!r.input){steps.replaceChildren(h("li",{class:"bad"},P.one("blank")));box.focus();busy(false);return}
   let i=0;r.tick=sub=>{if(my===seq)show(list,i,sub)};
   go.disabled=true;busy(true);
@@ -274,10 +348,15 @@ ${last.answer.trim()}
    show(list,i);run=r;tab=gives[0].arg;
    link.textContent=r.url;link.href=r.url;link.target="_blank";link.rel="noopener";grab.hidden=false;
    meta.className="meta"+(r.bad?" bad":"");
-   const secs=r.token?0:r.notes?.length??(r.checked.length>1?r.checked.length-1:1),size=r.token?r.shape.split(/\.\s/)[0].replace(/^It is /,"").replace(/\.$/,""):secs>1?`${secs} sections, ${tokens(r.text)}`:tokens(r.text);
+   const secs=r.token||r.pointer?0:r.notes?.length??(r.checked.length>1?r.checked.length-1:1),size=r.pointer?r.size:r.token?r.shape.split(/\.\s/)[0].replace(/^It is /,"").replace(/\.$/,""):secs>1?`${secs} sections, ${tokens(r.text)}`:tokens(r.text);
    meta.textContent=[r.proof,secs>1?`${size}; the index is ${tokens(r.body)}`:size,r.skipped?.length?`${r.skipped.length} not included`:"",expect&&r.cid===expect?"same file names as the gallery copy":""].filter(Boolean).join("  ·  ");
    if(!r.bad){history.replaceState(null,"","?s="+encodeURIComponent(r.token||r.url));
     store("emem.recent",[{url:r.token||r.url,title:r.title||r.url,shape:size},...(store("emem.recent")||[]).filter(x=>x.url!==(r.token||r.url))].slice(0,8));drawRecent()}
+   verbs.hidden=!r.pointer;if(r.pointer)verbs.replaceChildren(
+    h("button",{onclick:()=>{box.value=`more: ${r.url}`;start(box.value)},title:"hash the next 8 chunks, in the fixed order; the earlier rows are kept"},"hash 8 more"),
+    h("button",{onclick:()=>{box.value=`witness: ${r.url}`;start(box.value)},title:"re-read the source with your key and sign what you find, addressed to the author"},"witness"),
+    h("button",{onclick:()=>{box.value=`compare: ${r.url} `;box.focus()},title:"paste a second pointer after this one"},"compare with…"),
+    ...(r.witnesses||[]).slice(0,6).map(w=>h("a",{href:w.url,target:"_blank",rel:"noopener",class:w.ok?"w ok":"w bad"},`${w.ok?"✓":"✗"} ${w.from}`)));
    pics.replaceChildren(...(r.face?.canvases||[]).map(c=>{const d=c.cloneNode();d.getContext("2d").drawImage(c,0,0);return d}));
    draw();
    if(out.getBoundingClientRect().top>innerHeight*.7||out.getBoundingClientRect().top<0)out.scrollIntoView({behavior:"smooth",block:"start"});
@@ -290,7 +369,7 @@ ${last.answer.trim()}
  const shows=P.shows,FIRST=8;let filter="all",expanded=false;
  const kinds=["all",...new Set(shows.map(s=>s.kind))];
  const apply=()=>{[...cards.children].forEach((c,i)=>c.hidden=filter!=="all"?c.dataset.kind!==filter:!expanded&&i>=FIRST);more.hidden=filter!=="all"||expanded||cards.children.length<=FIRST;more.textContent=`show all ${cards.children.length}`};
- const drawChips=()=>chips.replaceChildren(...kinds.map(k=>h("button",{"aria-pressed":String(k===filter),onclick:()=>{filter=k;drawChips();apply()}},k)));
+ const drawChips=()=>chips.replaceChildren(...kinds.map(k=>h("button",{"aria-pressed":String(k===filter),onclick:()=>{filter=k;drawChips();apply()}},k.replace(/_/g," "))));
  more.onclick=()=>{expanded=true;apply()};
  drawChips();
  const openIt=s=>{box.value=s.emem;scrollTo({top:0,behavior:"smooth"});start(s.emem)};

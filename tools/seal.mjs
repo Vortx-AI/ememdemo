@@ -33,6 +33,11 @@ fs.writeFileSync(ROOT+"llms.txt",`# ememdemo: ${P.one("say")}
 
 - **Turn text into a link.** Store it as a note named by its hash: path \`/memories/by_attester/<first 8 of your ed25519 key, base32>/<base32(blake3(bytes)[0:16])>.md\`. Sign \`blake3("emem.memory_write.v2|create|" + path + "|" + blake3(bytes) + "|absent")\` and \`POST ${EMEM}/a2a/tasks {"skill":"emem_memory_create","args":{"path","file_text","kind":"resource","attester":{"pubkey_b32","sig_b32"}}}\`. Split long text into sections of ~6k tokens, store each, then store an index that links them; the index's name then commits to every section.
 - **Read and check a link.** \`GET\` it; base32(blake3(bytes)[0:16]) must equal the file name. Or read it by name alone: \`POST ${EMEM}/a2a/tasks {"skill":"emem_memory_view","args":{"file_cid":"<name>"}}\`.
+- **Name large data where it lives.** Read the source's structure by byte range (COG tiles, OME-Zarr chunks, HLS segments, safetensors and GGUF tensors, BigTIFF tiles, DICOM pixel blocks, or 4 MiB ranges), hash each chunk you read with BLAKE3-256, and store only a pointer note (\`emem: pointer.v1\`): source URL, size, one table row per chunk (url, offset, length, hash), and a Merkle root over the rows (a hash chain for video segments). To use it, read a row's byte range from the source and compare hashes. The data never goes to emem.
+- **Extend a pointer.** Hash more chunks and store a new pointer with \`extends: <old name>\`. The next chunks are fixed: defaults first, then by blake3 of each row's label (without its type, shape or wrapper prefix), so any two readers extend to the same rows. Keep the old rows; re-read two of them to be sure the source has not changed.
+- **Witness a pointer.** Re-read a spread of its chunks from the source, then store a note addressed to its author at \`/memories/by_attester/<you8>/arcade/witness-<YYYYMMDD-HHMMSS>-to-<author8>.md\`, titled \`# <you8> -> <author8>: witness <pointer name> ok|changed k/n\`, with \`pointer: <url>\` in its body. Find witnesses with \`GET ${EMEM}/v1/inbox?to=<author8>\`; check each one's bytes and signature before counting it.
+- **Compare two pointers.** Match rows by label (without type, shape or wrapper prefix). The same hash means the same bytes at both sources; nothing needs to be downloaded to decide it. Stats columns (mean, sd, min, max of a tensor, tile or pixel block) say how much a changed unit differs.
+- **Tie a raster to a place.** The GeoTIFF tie point and pixel size give its projected centre; invert the projection (UTM or Web Mercator) to latitude and longitude, then \`GET ${EMEM}/v1/locate?lat=&lng=\` for its cell and \`POST ${EMEM}/v1/recall\` for signed facts there.
 - **Check an answer's citations.** \`POST ${EMEM}/a2a/tasks {"skill":"emem_guard_verdict","args":{"texts":["<answer>"]}}\` returns a signed allow or deny with a reason code.
 - **Ask about a place.** \`POST ${EMEM}/v1/ask {"q":"flood risk in Chennai"}\`; add \`Accept: text/event-stream\` for stages.
 
@@ -72,7 +77,7 @@ const put=async(path,body)=>{
 const store=async body=>{const bytes=U(body),cid=b32(blake3(bytes).slice(0,16)),path=`/memories/by_attester/${pub.slice(0,8)}/${cid}.md`;await put(path,body);return{url:EMEM+path,sha:await sha256(bytes)}};
 
 // load order: dependencies before the modules that import them
-const FILES=["emem.eio","src/emem.css","src/vendor/emem-verify-core.js","src/lang.mjs","src/emem.mjs","src/read.mjs","src/eio.mjs","llms.txt",".well-known/agent-card.json"];
+const FILES=["emem.eio","src/emem.css","src/vendor/emem-verify-core.js","src/lang.mjs","src/emem.mjs","src/read.mjs","src/point.mjs","src/eio.mjs","llms.txt",".well-known/agent-card.json"];
 const lines=[];
 for(const f of FILES){const s=await store(read(f));lines.push(`file ${f} ${s.sha} ${s.url}`);console.log("sealed",f)}
 
