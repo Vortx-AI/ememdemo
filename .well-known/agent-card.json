@@ -1,0 +1,113 @@
+{
+ "name": "ememdemo",
+ "description": "Turn any file into a link your AI agent can read. A static page over emem.dev; these skills run at emem.dev's A2A endpoint.",
+ "url": "https://emem.dev/a2a/tasks",
+ "version": "u6botzmbnhdjgg5zlme7qd7lzm",
+ "provider": {
+  "organization": "Vortx AI",
+  "url": "https://vortx.ai"
+ },
+ "documentationUrl": "https://github.com/Vortx-AI/ememdemo",
+ "defaultInputModes": [
+  "application/json"
+ ],
+ "defaultOutputModes": [
+  "application/json"
+ ],
+ "capabilities": {
+  "streaming": false
+ },
+ "skills": [
+  {
+   "id": "emem_memory_create",
+   "name": "store a link",
+   "description": "Store text as a signed note named by the hash of its bytes.",
+   "tags": [
+    "write",
+    "link"
+   ]
+  },
+  {
+   "id": "emem_memory_view",
+   "name": "read a link by name",
+   "description": "Read a note by its file name (the hash of its bytes), with its author's signature.",
+   "tags": [
+    "read",
+    "verify"
+   ]
+  },
+  {
+   "id": "emem_guard_verdict",
+   "name": "check an answer",
+   "description": "Resolve every emem: citation in a text and return a signed allow or deny with a reason code.",
+   "tags": [
+    "verify"
+   ]
+  },
+  {
+   "id": "emem_ask",
+   "name": "ask about a place",
+   "description": "A signed answer about a real place, with the facts it used.",
+   "tags": [
+    "earth",
+    "answer"
+   ]
+  },
+  {
+   "id": "emem_memory_token_resolve",
+   "name": "resolve emem:fact",
+   "description": "one signed measurement at a place",
+   "tags": [
+    "token"
+   ]
+  },
+  {
+   "id": "emem_memory_bundle_resolve",
+   "name": "resolve emem:bundle",
+   "description": "several measurements under one handle",
+   "tags": [
+    "token"
+   ]
+  },
+  {
+   "id": "emem_recall",
+   "name": "resolve emem:cell",
+   "description": "a place on Earth, about 10 m across",
+   "tags": [
+    "token"
+   ]
+  },
+  {
+   "id": "emem_entity_resolve",
+   "name": "resolve emem:entity",
+   "description": "one shared identity for a real thing",
+   "tags": [
+    "token"
+   ]
+  },
+  {
+   "id": "emem_raster_resolve",
+   "name": "resolve emem:raster",
+   "description": "a field of pixels over an area",
+   "tags": [
+    "token"
+   ]
+  },
+  {
+   "id": "emem_cube_resolve",
+   "name": "resolve emem:cube",
+   "description": "the same field across several dates",
+   "tags": [
+    "token"
+   ]
+  },
+  {
+   "id": "emem_raster_bundle_resolve",
+   "name": "resolve emem:rasterset",
+   "description": "several fields bound into one",
+   "tags": [
+    "token"
+   ]
+  }
+ ]
+}

@@ -8,8 +8,50 @@
   <title>emem</title>
   <link rel="icon" type="image/png" sizes="32x32" href="./src/img/mark-32.png">
   <link rel="apple-touch-icon" href="./src/img/mark-128.png">
-  <link rel="stylesheet" href="./src/emem.css">
-  <script type="module" src="./src/eio.mjs"></script>
+  <link rel="alternate" type="text/plain" title="for agents" href="./llms.txt">
+  <!--
+    The loader. This page runs no code it has not checked.
+    SEAL pins one manifest on emem.dev by its sha256. The manifest names every file the page runs by its sha256.
+    Each file is read from this site; if its bytes do not match, the true bytes are fetched from emem.dev instead.
+    ?boot=emem runs the whole page from emem.dev alone. ?boot=local skips the seal (development only; the page says so).
+    It uses only the browser's own SHA-256, so it depends on no library it would first have to trust.
+  -->
+  <script type="module">
+    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/7y3igejbrgzwtgflg4ftvz2paa.md",sha256:"affffbde52d39a85a4892292dec9f6ed50c4707dfc965fd41bffc76967f36ecd"};
+    const mode=new URLSearchParams(location.search).get("boot");
+    const hex=async b=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",b))].map(x=>x.toString(16).padStart(2,"0")).join("");
+    const get=async u=>{const x=await fetch(u,{cache:"no-cache"});if(!x.ok)throw new Error(`${u} answered ${x.status}`);return x.arrayBuffer()};
+    const blob=(b,type)=>URL.createObjectURL(new Blob([b],{type}));
+    const refuse=why=>{document.body.replaceChildren(Object.assign(document.createElement("pre"),{style:"margin:32px;font:14px/1.6 ui-monospace,monospace;color:#a3372b;white-space:pre-wrap",textContent:"This page refused to run.\n\n"+why+"\n\nNothing it could not check was executed."}))};
+    const unsealed=()=>{const l=document.createElement("link");l.rel="stylesheet";l.href="./src/emem.css";document.head.append(l);globalThis.__seal={unsealed:true};return import("./src/eio.mjs")};
+    try{
+      if(mode==="local"||!SEAL.url)await unsealed();
+      else{
+        const mb=await get(SEAL.url);
+        if(await hex(mb)!==SEAL.sha256)throw new Error("The manifest at "+SEAL.url+" does not match the sha256 this page pins.");
+        const text=new TextDecoder().decode(mb),seal=globalThis.__seal={url:SEAL.url,files:{},report:[],sealed_by:(text.match(/^sealed_by (\S+)/m)||[])[1]};
+        const files=text.split("\n").filter(l=>l.startsWith("file ")).map(l=>{const[,path,sha,url]=l.split(/\s+/);return{path,sha,url}});
+        const libs=Object.fromEntries(text.split("\n").filter(l=>l.startsWith("lib ")).map(l=>{const[,url,sha]=l.split(/\s+/);return[url,sha]}));
+        await Promise.all(files.map(async f=>{
+          let b=mode==="emem"?null:await get("./"+f.path).catch(()=>null),from="site";
+          if(!b||await hex(b)!==f.sha){b=await get(f.url);from=mode==="emem"?"emem":"emem, because this site's copy did not match";if(await hex(b)!==f.sha)throw new Error(f.path+" does not match its seal, even as fetched from emem.dev.")}
+          seal.files[f.path]={text:new TextDecoder().decode(b),from};seal.report.push({path:f.path,from});
+        }));
+        // modules run from their checked bytes; a relative import is pointed at the checked copy of the file it names
+        const urls={};
+        for(const f of files.filter(f=>/\.m?js$/.test(f.path))){
+          const dir=f.path.replace(/[^/]*$/,"");
+          const t=seal.files[f.path].text.replace(/(["'])\.\/([^"']+)\1/g,(m,q,rel)=>urls[dir+rel]?q+urls[dir+rel]+q:m);
+          urls[f.path]=blob(t,"text/javascript");
+        }
+        for(const f of files.filter(f=>f.path.endsWith(".css"))){const l=document.createElement("link");l.rel="stylesheet";l.href=blob(seal.files[f.path].text,"text/css");document.head.append(l)}
+        // third-party readers load later, and only if their bytes match the seal
+        const libCache={};
+        seal.lib=u=>libs[u]?libCache[u]??=get(u).then(async b=>{if(await hex(b)!==libs[u])throw new Error(u+" does not match its seal; it was not run.");return blob(b,"text/javascript")}):u;
+        await import(urls["src/eio.mjs"]);
+      }
+    }catch(e){refuse(e.message||String(e))}
+  </script>
 </head>
 <body></body>
 </html>

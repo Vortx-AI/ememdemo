@@ -72,7 +72,7 @@ Before writing code, read {link}
 
 give chat <<
 Read {link} before you answer. {shape}
-When you rely on it, quote it word for word in "double quotes". If it does not say something, say so.
+When you rely on it, quote it word for word in "double quotes". When you use a number that comes with an emem: token, write the token next to it. If it does not say something, say so.
 >>
 
 give curl <<
@@ -97,7 +97,7 @@ curl -s https://emem.dev/.well-known/agent-card.json
 
 # the gallery: real inputs and what they became. Each card re-checks its result as the page loads.
 #   from  the input (a URL, a repo, or a file in ./samples); "run it yourself" feeds it through the pipeline again
-#   emem  the result: a link, a token, a file name, the log head, "ask: …", or "live"
+#   emem  the result: a link, a token, a file name, the log head, "ask: …", "live", or "self" (the seal this page runs from)
 #   pin   also offered as a one-click "try" under the box
 
 show documents : RFC 9110, HTTP Semantics <<
@@ -204,6 +204,11 @@ emem  emem:entity:5pitnkcnle3cq6yldbffj52zja
 show proof : Everything emem.dev ever signed, in one head <<
 tag   log
 emem  https://emem.dev/v1/log/sth
+>>
+
+show proof : This website, sealed <<
+tag   seal
+emem  self
 >>
 
 show proof : A file whose name lies <<

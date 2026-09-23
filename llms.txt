@@ -1,0 +1,47 @@
+# ememdemo: Turn any file into a link your AI agent can read.
+
+> A website with no server. Everything it does is a call to emem.dev that an agent can make itself, listed below. This file is compiled from emem.eio by tools/seal.mjs and sealed with the site: its sha256 is in the manifest that index.html pins.
+
+## Do what this page does, directly
+
+- **Turn text into a link.** Store it as a note named by its hash: path `/memories/by_attester/<first 8 of your ed25519 key, base32>/<base32(blake3(bytes)[0:16])>.md`. Sign `blake3("emem.memory_write.v2|create|" + path + "|" + blake3(bytes) + "|absent")` and `POST https://emem.dev/a2a/tasks {"skill":"emem_memory_create","args":{"path","file_text","kind":"resource","attester":{"pubkey_b32","sig_b32"}}}`. Split long text into sections of ~6k tokens, store each, then store an index that links them; the index's name then commits to every section.
+- **Read and check a link.** `GET` it; base32(blake3(bytes)[0:16]) must equal the file name. Or read it by name alone: `POST https://emem.dev/a2a/tasks {"skill":"emem_memory_view","args":{"file_cid":"<name>"}}`.
+- **Check an answer's citations.** `POST https://emem.dev/a2a/tasks {"skill":"emem_guard_verdict","args":{"texts":["<answer>"]}}` returns a signed allow or deny with a reason code.
+- **Ask about a place.** `POST https://emem.dev/v1/ask {"q":"flood risk in Chennai"}`; add `Accept: text/event-stream` for stages.
+
+## The token family
+
+| token | what it is | read it over HTTP | MCP tool / A2A skill |
+|---|---|---|---|
+| emem:fact | one signed measurement at a place | POST https://emem.dev/v1/memory_token/resolve {"token":"{token}"} | emem_memory_token_resolve |
+| emem:bundle | several measurements under one handle | GET https://emem.dev/v1/memory_bundle/{token} | emem_memory_bundle_resolve |
+| emem:cell | a place on Earth, about 10 m across | POST https://emem.dev/v1/recall {"cell":"{id}","bands":["copdem30m.elevation_mean","indices.ndvi","era5.t2m","cams.pm25"]} | emem_recall |
+| emem:entity | one shared identity for a real thing | GET https://emem.dev/v1/entity/{token} | emem_entity_resolve |
+| emem:raster | a field of pixels over an area | POST https://emem.dev/v1/raster/resolve {"token":"{token}","spot_check":true} | emem_raster_resolve |
+| emem:cube | the same field across several dates | POST https://emem.dev/v1/cube/resolve {"token":"{token}"} | emem_cube_resolve |
+| emem:rasterset | several fields bound into one | POST https://emem.dev/v1/raster_bundle/resolve {"token":"{token}"} | emem_raster_bundle_resolve |
+| emem:state | one recorded step of an answer's reasoning | GET https://emem.dev/v1/state/{token} | none |
+
+Every receipt must verify against the key 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka.
+
+## Worked examples (each re-checked by the page as it loads)
+
+- RFC 9110, HTTP Semantics: https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.md (from https://www.rfc-editor.org/rfc/rfc9110.pdf)
+- expressjs/express at v5.2.1: https://emem.dev/memories/by_attester/ddzmyzhn/5otn33skohjocfbhychddlovme.md (from https://github.com/expressjs/express/tree/v5.2.1)
+- A build error, as a screenshot: https://emem.dev/memories/by_attester/ddzmyzhn/3n4cwt4dighrfgrxdwv6hv3fe4.md (from ./samples/build-error.png)
+- Bengaluru, ground elevation: emem:fact:defi.zb493.xuqA.zcb5f:tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq
+- Flood risk in Chennai, asked live: ask: flood risk in Chennai
+- The standard two agents ratified: l6ppjyiygzt3q4btpwfvvlzdy4
+- Attention Is All You Need: https://emem.dev/memories/by_attester/ddzmyzhn/5k4rsdbh3oe3zudjanr42mh6wy.md (from https://arxiv.org/pdf/1706.03762)
+- A scanned invoice: https://emem.dev/memories/by_attester/ddzmyzhn/g6u3kpc4varj6epnzcbxkqmpyi.md (from ./samples/invoice-scan.pdf)
+- Cubbon Park from orbit, two dates: emem:cube:23vfacx23nr3dwki6si4yrolmmp3wr6dtrhjxbw4rihiaafrpyga:s2.B08:20500..20585:ganwwj25obuob3pp7pjtkd4awtihnluotdowe2cqtrj77af5qlna
+- One folder: express/lib: https://emem.dev/memories/by_attester/ddzmyzhn/lfo5ntdsfnhsbtgdjql66ksbja.md (from https://github.com/expressjs/express/tree/v5.2.1/lib)
+- Python's json docs: https://emem.dev/memories/by_attester/ddzmyzhn/ebixkphpoixlevcid7rrbkftku.md (from https://docs.python.org/3/library/json.html)
+- emem's own llms.txt: https://emem.dev/memories/by_attester/ddzmyzhn/3leopeycdguy4bfqq6lceopkne.md (from https://emem.dev/llms.txt)
+- Q3 product review, with speaker notes: https://emem.dev/memories/by_attester/ddzmyzhn/ltqerf5jdi7xm3d4mbu6kfinxi.md (from ./samples/q3-review.pptx)
+- Pricing 2026: https://emem.dev/memories/by_attester/ddzmyzhn/fdbti2scqfx7ax2n6abfpq64ke.md (from ./samples/pricing-2026.xlsx)
+- Bengaluru, four readings, one handle: emem:bundle:y2k6h2laeo4libfsiebucdw4mu
+- The Amazon rainforest, one identity: emem:entity:5pitnkcnle3cq6yldbffj52zja
+- Everything emem.dev ever signed, in one head: https://emem.dev/v1/log/sth
+- This website, sealed: self
+- A file whose name lies: https://emem.dev/memories/by_attester/ddzmyzhn/avmvdexjuwqwjjzyncczvmfyzq.md
