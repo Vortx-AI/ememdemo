@@ -1,18 +1,24 @@
 # emem.eio — the whole site. src/eio.mjs compiles it, checks every rule, then runs it.
 #
-#   verb args            one statement per line
+#   verb args              one statement per line
 #   verb args <<  ...  >>  a block
-#   {x}                  filled from the run
-#   step name : A -> B   a typed step; the runtime must implement it
-#   flow name : a b c    steps in order; each output type must be the next input type
-#   rule ...             checked at load; a broken rule stops the page, like a compiler
+#   {x}                    filled from the run
+#   kind name : ext ext    what can be read, grouped
+#   step name : A -> B     a typed step; the runtime must implement it
+#   flow name : a b c      steps in order; each output type must be the next input type
+#   rule ...               checked at load; a broken rule stops the page, like a compiler
 
 say     Turn any file into a link your AI agent can read.
 in      Drop files, paste text, or paste a URL or GitHub repo
 note    Public: anyone with the link can read it.
 empty   your link appears here
+blank   Nothing to read yet. Drop a file, or paste text, a URL or a GitHub repo.
 
-accept  pdf docx md mdx eio txt rst csv tsv json jsonl yaml yml toml xml html htm log ini sql  js mjs ts tsx jsx py rb go rs java kt swift c h cc cpp cs php sh css
+kind docs   : pdf docx pptx xlsx epub html htm md mdx rst txt
+kind data   : csv tsv json jsonl yaml yml toml xml ini sql log
+kind code   : js mjs cjs ts tsx jsx py rb go rs java kt swift c h cc cpp hpp cs php sh bash css scss vue svelte lua r jl dart ex exs hs scala eio
+kind images : png jpg jpeg webp gif bmp
+
 limit   4000000
 section 24000
 max     160
@@ -29,19 +35,24 @@ step fetch  : url      -> notes
 step prove  : notes    -> link
 flow open   : fetch prove
 
+give index <<
+{index}
+>>
+
 give AGENTS.md <<
-## Context
+## Context: {title}
 Before writing code, read {link}
-{shape}. Fetch only what the task needs. If it does not say something, do not guess.
+{shape} Fetch only the sections the task needs. If it does not say something, do not guess.
 >>
 
 give chat <<
-Read {link} before you answer.
+Read {link} before you answer. {shape}
 When you rely on it, quote it word for word in "double quotes". If it does not say something, say so.
 >>
 
 give curl <<
 curl -s {link}
+curl -s {first}
 
 # each file is named by the hash of its bytes; recompute it (pip install blake3):
 curl -s {link} | python3 -c "import sys,blake3,base64;print(base64.b32encode(blake3.blake3(sys.stdin.buffer.read()).digest(16)).decode().rstrip('=').lower())"
@@ -50,12 +61,27 @@ curl -s {link} | python3 -c "import sys,blake3,base64;print(base64.b32encode(bla
 
 give MCP <<
 claude mcp add --transport http emem https://emem.dev/mcp/full
-# then, in any MCP agent:
+# then, in any MCP agent: read {link}
 emem_memory_view {"file_cid":"{cid}"}
+>>
+
+# shown in the index tab before anything is dropped: a real excerpt, so the output is visible first
+sample <<
+# RFC 9110: HTTP Semantics
+
+> 194-page PDF. ~113k tokens in 23 sections. Read this index, then fetch only the sections your task needs.
+
+## Sections
+
+- [9. Methods · pp. 71–79](…): ~6k tokens · 9.1. Overview; 9.2.1. Safe Methods; 9.2.2. Idempotent Methods; 9.3.1. GET; 9.3.3. POST
+- [15. Status Codes · pp. 125–133](…): ~6k tokens · 15.1. Overview of Status Codes; 15.3.1. 200 OK; 15.3.2. 201 Created; 15.4. Redirection 3xx
+- [15.4.1. 300 Multiple Choices · pp. 133–142](…): ~6k tokens · 15.5.1. 400 Bad Request; 15.5.4. 403 Forbidden; 15.5.21. 422 Unprocessable Content
+  … one line per section. Your agent reads this first, then opens only what it needs.
 >>
 
 check   Paste your AI's answer. Every "quote" in it is checked against the source.
 
 rule words say 6..12
-rule plain say in note empty : cid blake3 ed25519 hash signed token emem: sha256 attester bundle
+rule plain say in note empty blank : cid blake3 ed25519 hash signed token emem: sha256 attester bundle
 rule typed make open
+rule carry give : {link} {index}

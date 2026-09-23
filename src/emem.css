@@ -33,7 +33,7 @@ h1{font-size:clamp(34px,6.2vw,64px);line-height:1.02;font-weight:560;letter-spac
 .tabs button{border:0;background:none;padding:var(--u) calc(2*var(--u));font:13px var(--mono);color:var(--mute);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
 .tabs button[aria-selected=true]{color:var(--fg);border-bottom-color:var(--fg)}
 .pane{position:relative;padding-top:calc(2*var(--u))}
-.code{margin:0;padding:calc(2*var(--u));background:var(--field);border:1px solid var(--line);font:13px/1.6 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;min-height:calc(12*var(--u));padding-right:calc(9*var(--u))}
+.code{margin:0;padding:calc(2*var(--u));background:var(--field);border:1px solid var(--line);font:13px/1.6 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;min-height:calc(12*var(--u));max-height:min(62vh,560px);overflow:auto;padding-right:calc(9*var(--u))}
 .code.ghost{color:var(--mute)}
 .copy{position:absolute;top:calc(3*var(--u));right:var(--u);border:1px solid var(--line);background:var(--bg);padding:2px var(--u);font:12px var(--mono)}
 .copy:disabled{display:none}
@@ -52,5 +52,12 @@ footer{display:flex;justify-content:space-between;gap:calc(2*var(--u));padding:c
 footer a{color:inherit;text-decoration:none;white-space:nowrap}
 footer a:hover{color:var(--fg)}
 [hidden]{display:none!important}
-@media(max-width:520px){main{padding-top:48px}footer{flex-direction:column}.steps{flex-wrap:wrap}}
+@media(max-width:520px){main{padding-top:48px}footer{flex-direction:column}.steps{flex-wrap:wrap}.tabs button{padding:var(--u) 9px;font-size:12px}.row{flex-direction:column;gap:var(--u)}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+.recent{list-style:none;padding:0;margin:calc(5*var(--u)) 0 0;display:grid;gap:calc(.75*var(--u));font-size:14px}
+.recent .sum{font:12px var(--mono);color:var(--mute)}
+.recent button{border:0;background:none;padding:0;color:var(--fg);text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px;text-align:left;overflow-wrap:anywhere}
+.recent button:hover{text-decoration-color:var(--fg)}
+.recent span{color:var(--mute);margin-left:var(--u);font:12px var(--mono)}
+.row{display:flex;gap:calc(2*var(--u));align-items:flex-start;justify-content:space-between}
+.grab{flex:none;border:1px solid var(--fg);background:var(--fg);color:var(--bg);padding:6px calc(1.5*var(--u));font:12px var(--mono);margin-top:2px}
