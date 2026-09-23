@@ -59,11 +59,12 @@ const floats=(b,dtype)=>{const dv=new DataView(b.buffer,b.byteOffset,b.byteLengt
 const tensorStats=dtype=>/^(F32|F16|BF16)$/.test(dtype)?b=>{const v=floats(b,dtype);return v?moments(v):""}:null;
 const inflate=async b=>new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream("deflate"))).arrayBuffer());
 // a compressed raster tile: inflate it, undo horizontal differencing, then measure its pixels (nodata left out)
-const tileStats=l=>(l.comp===8||l.comp===32946||l.comp===1)&&l.bits<=32&&globalThis.DecompressionStream?async b=>{
+const tileDecode=l=>(l.comp===8||l.comp===32946||l.comp===1)&&l.bits<=32&&globalThis.DecompressionStream?async b=>{
  const raw=l.comp===1?b:await inflate(b),dv=new DataView(raw.buffer,raw.byteOffset,raw.byteLength),n=raw.length/(l.bits/8)|0,le=l.le,v=new Float64Array(n);
  for(let i=0;i<n;i++)v[i]=l.fmt===3?(l.bits===64?dv.getFloat64(i*8,le):dv.getFloat32(i*4,le)):l.bits===8?raw[i]:l.bits===16?(l.fmt===2?dv.getInt16(i*2,le):dv.getUint16(i*2,le)):(l.fmt===2?dv.getInt32(i*4,le):dv.getUint32(i*4,le));
  if(l.pred===2){const w=l.tw*(l.spp||1),m=2**l.bits;for(let r=0;r*w<n;r++)for(let i=r*w+(l.spp||1);i<Math.min((r+1)*w,n);i++){v[i]=v[i]+v[i-(l.spp||1)];if(l.fmt!==3)v[i]=l.fmt===2?((v[i]+m/2)%m+m)%m-m/2:(v[i]%m+m)%m}}
- return moments(v,l.nodata)}:null;
+ return v}:null;
+const tileStats=l=>{const d=tileDecode(l);return d?async b=>moments(await d(b),l.nodata):null};
 
 // ---------- where a raster is: its projected centre and corners back to latitude and longitude (WGS84) ----------
 export const utm2ll=(E,N,zone,south)=>{
@@ -108,9 +109,12 @@ const tiff=async(url,tick)=>{
  const firstTile=Math.min(...levels.flatMap(l=>l.off.filter(o=>o>0)));
  const all=[{label:"header and tile tables",offset:0,length:Math.min(firstTile,65536),dflt:true}];
  levels.forEach((l,li)=>{const across=Math.ceil(l.w/l.tw),dflt=new Set(l.off.length<=64?l.off.keys():spread(l.off.length,li===0?6:16)),stats=tileStats(l);
-  l.off.forEach((o,k)=>{if(l.len[k])all.push({label:`level ${li} tile ${k%across},${Math.floor(k/across)}`,offset:o,length:l.len[k],dflt:dflt.has(k),stats})})});
+  // the smallest level is read whole and decoded, so the pointer can show the picture it names
+  const last=li===levels.length-1&&l.off.length<=64,decode=last?tileDecode(l):null;
+  l.off.forEach((o,k)=>{if(l.len[k])all.push({label:`level ${li} tile ${k%across},${Math.floor(k/across)}`,offset:o,length:l.len[k],dflt:dflt.has(k),stats,...(decode?{decode,grab:{x:(k%across)*l.tw,y:Math.floor(k/across)*l.th,tw:l.tw,th:l.th}}:{})})})});
+ const Ls=levels.at(-1);
  const COMP={1:"raw",5:"LZW",7:"JPEG",8:"deflate",32946:"deflate",50000:"zstd",34887:"LERC"};
- return{kind:big?"cloud-optimised BigTIFF":"cloud-optimised GeoTIFF",all,units:total+1,place,
+ return{kind:big?"cloud-optimised BigTIFF":"cloud-optimised GeoTIFF",all,units:total+1,place,mosaic:{w:Ls.w,h:Ls.h,nodata},
   about:[`${L0.w}×${L0.h} px, ${L0.bits}-bit ${L0.fmt===3?"float":L0.fmt===2?"signed":"unsigned"}, ${COMP[L0.comp]||"compression "+L0.comp}${L0.pred===2?" with horizontal differencing":""} tiles of ${L0.tw}×${L0.th}`,
    `${levels.length} levels (${levels.map(l=>l.w).join(", ")} px wide), ${total} tiles in all`,epsg?`EPSG:${epsg}`:"",scale?`${scale[0]} ${epsg>=32601&&epsg<=32760||epsg===3857?"m":"map units"} per pixel`:"",nodata!=null?`nodata ${nodata}`:"",
    place?`centre ${place.lat}, ${place.lng}; bounds ${place.bbox.join(", ")} (west, south, east, north)`:""].filter(Boolean)};
@@ -171,7 +175,10 @@ const dicom=async(url,tick)=>{
  const stats=raw?c=>{const d=new DataView(c.buffer,c.byteOffset,c.byteLength),n=c.length>>1,v=new Float64Array(n);for(let i=0;i<n;i++)v[i]=(signed?d.getInt16(i*2,true):d.getUint16(i*2,true))*slope+icpt;return moments(v)+(hu?" HU":"")}:null;
  const all=[{label:"header (technical and identifying tags stay at the source)",offset:0,length:pixel.offset,dflt:true}];
  for(let p=0;p<pixel.length;p+=1<<20)all.push({label:`pixel data ${all.length}`,offset:pixel.offset+p,length:Math.min(1<<20,pixel.length-p),dflt:true,stats});
- return{kind:"DICOM image",all,units:all.length,bytes:b,
+ // the slice itself, in its stored unit, for the preview; its bytes are the ones just hashed
+ const R=+found.rows||0,Cc=+found.columns||0;let preview=null;
+ if(raw&&R&&Cc&&pixel.length>=R*Cc*2){const d=new DataView(b.buffer,b.byteOffset+pixel.offset,R*Cc*2),v=new Float64Array(R*Cc);for(let i=0;i<v.length;i++)v[i]=(signed?d.getInt16(i*2,true):d.getUint16(i*2,true))*slope+icpt;preview={kind:"grid",w:Cc,h:R,v,label:hu?"HU":""}}
+ return{kind:"DICOM image",all,units:all.length,bytes:b,preview,
   about:[[found.modality,found.manufacturer].filter(Boolean).join(" · ")||"DICOM",found.rows&&found.columns?`${found.columns}×${found.rows} px, ${found["bits allocated"]||"?"}-bit ${signed?"signed":"unsigned"}`:"",found["pixel spacing"]?`pixel spacing ${found["pixel spacing"].split("\\").map(v=>+(+v).toFixed(3)).join(" × ")} mm`:"",found["slice thickness"]?`slice ${+(+found["slice thickness"]).toFixed(3)} mm`:"",raw?`pixel statistics per chunk${hu?", in Hounsfield units (rescale "+slope+"·v "+(icpt<0?"− "+-icpt:"+ "+icpt)+")":""}`:""].filter(Boolean)};
 };
 
@@ -235,8 +242,34 @@ const file=async(url,tick,n)=>{
  return{kind:"file",all:[...Array(count).keys()].map(k=>({label:`bytes ${k*C}…`,offset:k*C,length:Math.min(C,n-k*C),dflt:dflt.has(k)})),units:count,about:[`${count} ranges of 4 MiB`]};
 };
 
-const pick=u=>/\.safetensors(\?|$)/i.test(u)?safetensors:/\.gguf(\?|$)/i.test(u)?gguf:/\.m3u8(\?|$)/i.test(u)?hls:/\.zarr(\/|$)/i.test(u)?zarr:/\.dcm(\?|$)/i.test(u)?dicom:/\.tiff?(\?|$)/i.test(u)?tiff:null;
-const FILEISH=/^(point:\s*)?https?:\/\/\S+?(\.m3u8|\.zarr\/?|\.dcm|\.safetensors|\.gguf|\.tiff?|\.nc|\.h5|\.hdf5|\.las|\.laz|\.parquet|\.mp4|\.mov|\.bin|\.zip)(\?\S*)?$|^point:\s*https?:\/\/\S+$/i;
+// ---------- Gaussian splats (.splat, 3DGS .ply): every block of splats is a chunk; the scene is drawn from the ones read ----------
+// .splat: 32 bytes per splat (position 3×f32, scale 3×f32, colour RGBA u8, rotation 4×u8). .ply: a header naming float properties.
+const splats=async(url,tick,bytes)=>{
+ let stride=32,base=0,n=0,pos=[0,4,8],col=null,opa=null,fmt="splat";
+ if(/\.ply(\?|$)/i.test(url)){
+  const head=new TextDecoder().decode(await range(url,0,65536)),end=head.indexOf("end_header\n");if(end<0)throw new Error("No PLY header found.");
+  if(!/format binary_little_endian/.test(head))throw new Error("Only binary little-endian PLY is read in place.");
+  n=+(head.match(/element vertex (\d+)/)||[])[1];const props=[...head.slice(head.indexOf("element vertex")).matchAll(/property (\w+) (\w+)/g)].map(m=>({t:m[1],name:m[2]}));
+  const SZ={float:4,float32:4,double:8,uchar:1,uint8:1,int:4,uint:4,short:2,ushort:2},off={};stride=0;for(const p of props){off[p.name]=stride;stride+=SZ[p.t]||4}
+  base=end+11;pos=[off.x,off.y,off.z];fmt=off.f_dc_0!=null?"3DGS ply":"ply";
+  if(off.f_dc_0!=null)col=(dv,o)=>[0,1,2].map(i=>Math.max(0,Math.min(255,Math.round((.5+.28209479*dv.getFloat32(o+off["f_dc_"+i],true))*255))));
+  else if(off.red!=null)col=(dv,o)=>[dv.getUint8(o+off.red),dv.getUint8(o+off.green),dv.getUint8(o+off.blue)];
+  if(off.opacity!=null)opa=(dv,o)=>1/(1+Math.exp(-dv.getFloat32(o+off.opacity,true)));
+ }else{if(!bytes||bytes%32)throw new Error("A .splat file is a whole number of 32-byte splats; this one is not.");n=bytes/32;col=(dv,o)=>[dv.getUint8(o+24),dv.getUint8(o+25),dv.getUint8(o+26)];opa=(dv,o)=>dv.getUint8(o+27)/255}
+ const per=65536,blocks=Math.ceil(n/per),xs=[],ys=[],zs=[],rgb=[];
+ const stats=b=>{const dv=new DataView(b.buffer,b.byteOffset,b.byteLength),k=Math.floor(b.length/stride),lo=[1e9,1e9,1e9],hi=[-1e9,-1e9,-1e9];let a=0;
+  for(let i=0;i<k;i++){const o=i*stride;for(let d=0;d<3;d++){const p=dv.getFloat32(o+pos[d],true);if(p<lo[d])lo[d]=p;if(p>hi[d])hi[d]=p}if(opa)a+=opa(dv,o)}
+  return`${k} splats · x ${g4(lo[0])}…${g4(hi[0])} · y ${g4(lo[1])}…${g4(hi[1])} · z ${g4(lo[2])}…${g4(hi[2])}${opa?` · mean opacity ${g4(a/k)}`:""}`};
+ const all=[{label:`header`,offset:0,length:base||0,dflt:!!base},...Array.from({length:blocks},(_,i)=>({label:`splats ${i*per}…${Math.min(n,(i+1)*per)-1}`,offset:base+i*per*stride,length:Math.min(per,n-i*per)*stride,dflt:blocks<=16||spread(blocks,16).includes(i),stats}))].filter(c=>c.length);
+ return{kind:`Gaussian splats (${fmt})`,all,units:all.length,
+  sample:(c,b)=>{if(!/^splats/.test(c.label))return;const dv=new DataView(b.buffer,b.byteOffset,b.byteLength),k=Math.floor(b.length/stride),step=Math.max(1,Math.floor(k/12000));
+   for(let i=0;i<k;i+=step){const o=i*stride;if(opa&&opa(dv,o)<.05)continue;xs.push(dv.getFloat32(o+pos[0],true));ys.push(dv.getFloat32(o+pos[1],true));zs.push(dv.getFloat32(o+pos[2],true));rgb.push(col?col(dv,o):[200,200,200])}},
+  points:()=>({xs,ys,zs,rgb}),
+  about:[`${n.toLocaleString("en")} splats, ${stride} bytes each, ${fmt}`,`${blocks} blocks of ${per.toLocaleString("en")}; each hashed block carries its bounding box and mean opacity`]};
+};
+
+const pick=u=>/\.splat(\?|$)/i.test(u)||/\.ply(\?|$)/i.test(u)?splats:/\.safetensors(\?|$)/i.test(u)?safetensors:/\.gguf(\?|$)/i.test(u)?gguf:/\.m3u8(\?|$)/i.test(u)?hls:/\.zarr(\/|$)/i.test(u)?zarr:/\.dcm(\?|$)/i.test(u)?dicom:/\.tiff?(\?|$)/i.test(u)?tiff:null;
+const FILEISH=/^(point:\s*)?https?:\/\/\S+?(\.m3u8|\.zarr\/?|\.dcm|\.safetensors|\.gguf|\.splat|\.ply|\.tiff?|\.nc|\.h5|\.hdf5|\.las|\.laz|\.parquet|\.mp4|\.mov|\.bin|\.zip)(\?\S*)?$|^point:\s*https?:\/\/\S+$/i;
 // a folder: a Hugging Face repository (or a folder in it), or an S3 prefix ending in /
 export const DIR=/^https:\/\/huggingface\.co\/(datasets\/|spaces\/)?[\w.-]+\/[\w.-]+(\/tree\/[^/\s]+(\/\S*)?)?\/?$|^https:\/\/[a-z0-9.-]+\.s3(\.[a-z0-9-]+)?\.amazonaws\.com\/\S*\/$/i;
 export const POINTABLE={test:s=>FILEISH.test(s)||DIR.test(s)};
@@ -244,6 +277,31 @@ export const POINTABLE={test:s=>FILEISH.test(s)||DIR.test(s)};
 // the rows of a pointer's table, with the optional stats column
 export const parseRows=body=>[...body.matchAll(/^\| ([^|]+) \| (\S+) \| (\d+) \| (\d+) \| ([^|]+) \|(?: ([^|]*) \|)?$/gm)].filter(m=>m[1]!=="what"&&!/^-+$/.test(m[1])).map(m=>{const h=m[5].trim();return{label:m[1].trim(),url:m[2]==="·"?"":m[2],offset:+m[3],length:+m[4],hash:/^[a-z2-7]{52}$/.test(h)?h:ZERO,absent:!/^[a-z2-7]{52}$/.test(h),stats:(m[6]||"").trim()}});
 const field=(body,k)=>(body.match(new RegExp(`^${k}: (.+)$`,"m"))||[])[1];
+
+// the picture a pointer names, from decoded chunks: a mosaic of the smallest raster level, a scan, or splats seen from above
+const assemble=(s,chunks)=>{
+ if(s.preview)return s.preview;
+ if(s.mosaic){const m=s.mosaic,v=new Float64Array(m.w*m.h).fill(NaN);let got=0;
+  for(const c of chunks)if(c.pix&&c.grab){got++;const{x,y,tw,th}=c.grab;for(let j=0;j<th&&y+j<m.h;j++)for(let i=0;i<tw&&x+i<m.w;i++){const q=c.pix[j*tw+i];v[(y+j)*m.w+x+i]=q===m.nodata?NaN:q}}
+  return got?{kind:"grid",w:m.w,h:m.h,v}:null}
+ if(s.points){const p=s.points();return p.xs.length?{kind:"points",...p}:null}
+ return null;
+};
+
+// a pointer reopened: the same picture, drawn only from chunks that still hash to the pointer's rows
+export const previewOf=async(body,tick=()=>{})=>{
+ const src=field(body,"source"),rd=src&&pick(src);if(!rd||![tiff,dicom,splats].includes(rd))return null;
+ const rows=new Map(parseRows(body).map(r=>[r.label,r])),{bytes}=await size(src).catch(()=>({}));
+ const s=await rd(src,()=>{},bytes);
+ if(s.preview){// a scan is read whole: every row must still match before its pixels are shown
+  for(const c of s.all){const r=rows.get(c.label);if(r&&H(s.bytes.slice(c.offset,c.offset+c.length))!==r.hash)return null}return s.preview}
+ let want=s.all.filter(c=>rows.has(c.label)&&((c.decode&&s.mosaic)||(s.sample&&/^splats/.test(c.label))));
+ if(s.sample)want=want.filter((_,i,a)=>spread(a.length,4).includes(i));
+ let n=0;
+ await pool(want,6,async c=>{const b=await range(src,c.offset,c.length);if(H(b)!==rows.get(c.label).hash)return;
+  if(c.decode&&s.mosaic)c.pix=await c.decode(b).catch(()=>null);if(s.sample)s.sample(c,b);tick(`${++n}/${want.length}`)});
+ return assemble(s,want);
+};
 
 // read the structure, hash the chosen chunks from the source, and write the pointer's text
 //  opts.have        an earlier pointer's text: its rows are kept (two are re-read to be sure), and it is named as extended
@@ -270,7 +328,7 @@ export const probe=async(raw,tick,opts={})=>{
  await pool(chunks,6,async c=>{
   if(c.hash){done++;if(!c.kept)read+=c.length;return}
   const b=s.bytes&&!c.url?s.bytes.slice(c.offset,c.offset+c.length):c.url?await whole(c.url).catch(e=>e.status===404?null:Promise.reject(e)):await range(url,c.offset,c.length);
-  if(b===null){c.absent=true;c.hash=ZERO;c.length=0}else{c.hash=H(b);if(c.url)c.length=b.length;read+=b.length;if(c.stats)c.statsText=await Promise.resolve(c.stats(b)).catch(()=>"")}
+  if(b===null){c.absent=true;c.hash=ZERO;c.length=0}else{c.hash=H(b);if(c.url)c.length=b.length;read+=b.length;if(c.stats)c.statsText=await Promise.resolve(c.stats(b)).catch(()=>"");if(c.decode&&s.mosaic)c.pix=await c.decode(b).catch(()=>null);if(s.sample)s.sample(c,b)}
   tick(`${++done}/${chunks.length} chunks · ${mb(read)} read`);
  });
  for(const c of chunks)if(c.url===url)c.url="";
@@ -282,7 +340,8 @@ export const probe=async(raw,tick,opts={})=>{
  const rows=chunks.map(c=>`| ${c.label} | ${c.url&&c.url!==url?c.url:"·"} | ${c.offset} | ${c.length} | ${c.absent?"absent (fill value)":c.hash} |${withStats?` ${(c.statsText||"").replace(/\|/g,"/")} |`:""}`);
  const prevCid=opts.have?(opts.haveUrl||"").split("/").pop().replace(/\.md$/,""):"";
  const body=`---\nemem: pointer.v1\nsource: ${url}\nbytes: ${total??(est?`about ${est} (estimated from the chunks read)`:"unknown")}\netag: ${etag||"not exposed"}\nkind: ${s.kind}\nchunks: ${chunks.length} of ${s.units} hashed\n${s.chained?"chain":"root"}: ${r}\nhash: blake3-256 of each chunk's bytes\norder: defaults, then by blake3(label without type or shape)\n${prevCid?`extends: ${prevCid}\n`:""}${s.place?`place: ${s.place.lat},${s.place.lng}\nbbox: ${s.place.bbox.join(",")}\n`:""}---\n\n# ${name}\n\n> ${s.kind} at ${host}${total?`, ${mb(total)}`:est?`, about ${mb(est)}`:""}. The data stays there; this note is its address and its proofs. Read any chunk from the source by URL and byte range, then check its BLAKE3 hash below. ${s.chained?"Each link of the chain hashes the previous link with the next segment.":"The root is a Merkle tree over (url, offset, length, hash) of every row, in order."}\n\n${s.about.map(a=>"- "+a).join("\n")}\n- ${chunks.length} of ${s.units} chunks hashed${prevCid?`; extends ${prevCid}, whose ${carried.length} rows are kept and 2 of them re-read`:""}; more can be hashed later, in a fixed order, without re-reading these\n${place.length?`\n## Place\n\n${place.map(a=>"- "+a).join("\n")}\n`:""}\n## Chunks\n\n| what | url (· is the source) | offset | length | blake3 |${withStats?" stats |":""}\n|---|---|---|---|---|${withStats?"---|":""}\n${rows.join("\n")}\n`;
- return{body,url,name,kind:s.kind,bytes:total,est,read,chunks,units:s.units,rootHash:r,chained:!!s.chained,about:s.about,place:s.place};
+ const preview=assemble(s,chunks);
+ return{body,url,name,kind:s.kind,bytes:total,est,read,chunks,units:s.units,rootHash:r,chained:!!s.chained,about:s.about,place:s.place,preview};
 };
 
 // re-read a spread of chunks from the source and compare: is the data still what the pointer says?
@@ -349,4 +408,22 @@ export const relist=async(body,tick)=>{
  for(const[p,f]of was){const g=now.get(p);if(!g)gone.push(p);else if(g.size===f.size&&g.hash===f.hash)same++;else changed.push(p)}
  for(const p of now.keys())if(!was.has(p))added.push(p);
  return{src,table,same,changed,added,gone,n:was.size};
+};
+
+// ---------- a preview drawn from bytes that were hashed: a grid (raster, scan) or points seen from above (splats) ----------
+export const drawPreview=pv=>{
+ if(!pv||typeof document==="undefined")return null;
+ const cv=document.createElement("canvas");cv.className="preview";
+ if(pv.kind==="grid"){const{w,h,v}=pv,sc=Math.min(1,320/Math.max(w,h)),W=Math.max(1,Math.round(w*sc)),Hh=Math.max(1,Math.round(h*sc));cv.width=W;cv.height=Hh;
+  const vals=[];for(let i=0;i<v.length;i+=Math.max(1,Math.floor(v.length/20000)))if(Number.isFinite(v[i]))vals.push(v[i]);vals.sort((a,b)=>a-b);
+  const lo=vals[Math.floor(vals.length*.02)]??0,hi=vals[Math.floor(vals.length*.98)]??1,g=cv.getContext("2d"),img=g.createImageData(W,Hh);
+  for(let y=0;y<Hh;y++)for(let x=0;x<W;x++){const q=v[Math.floor(y/sc)*w+Math.floor(x/sc)],o=(y*W+x)*4;if(!Number.isFinite(q)){img.data[o+3]=0;continue}const t=Math.max(0,Math.min(1,(q-lo)/(hi-lo||1)))*255;img.data.set([t,t,t,255],o)}
+  g.putImageData(img,0,0);return cv}
+ if(pv.kind==="points"&&pv.xs.length){const S=320;cv.width=S;cv.height=S;const g=cv.getContext("2d"),q=(a,p)=>{const b=[...a].sort((x,y)=>x-y);return b[Math.floor(b.length*p)]};
+  // seen from above: splat scenes are y-up or y-down, so the ground plane is x and z
+  const A=pv.xs,B=pv.zs,a0=q(A,.03),a1=q(A,.97),b0=q(B,.03),b1=q(B,.97),s=Math.min(S/(a1-a0||1),S/(b1-b0||1)),ox=(S-(a1-a0)*s)/2,oy=(S-(b1-b0)*s)/2;
+  g.fillStyle="#111";g.fillRect(0,0,S,S);
+  for(let i=0;i<A.length;i++){const x=ox+(A[i]-a0)*s,y=S-oy-(B[i]-b0)*s;if(x<0||y<0||x>S||y>S)continue;const[r,gg,b]=pv.rgb[i];g.fillStyle=`rgba(${r},${gg},${b},.55)`;g.fillRect(x,y,1.3,1.3)}
+  return cv}
+ return null;
 };

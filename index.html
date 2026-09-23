@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' blob: 'sha256-lYtSqYy6FGiGzljGvq26ZW6q2YrVdpZCr+4wuuuWwuI=' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' blob: 'unsafe-inline'; img-src * data: blob:; media-src * blob:; font-src 'self' data:; connect-src *; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="description" content="Turn any file into a link your AI agent can read.">
   <meta name="color-scheme" content="light dark">
@@ -31,7 +32,7 @@
     @media(prefers-reduced-motion:reduce){#boot img{animation:none}}
   </style>
   <script type="module">
-    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/psx2vfwehcilcq5oxybrih3ym4.md",sha256:"f73f6be776737b5b8bcae377230c19e0d03d23b2b63c12c0f07923d6bf10f4f1"};
+    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/jqhrveodngqxeeksshyn6jacmy.md",sha256:"f120954ecb6e3da2954abe2f7d5427f76845108e7c9081b9eac5d18c2702a9b8"};
     const mode=new URLSearchParams(location.search).get("boot");
     const hex=async b=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",b))].map(x=>x.toString(16).padStart(2,"0")).join("");
     const get=async u=>{const x=await fetch(u,{cache:"no-cache"});if(!x.ok)throw new Error(`${u} answered ${x.status}`);return x.arrayBuffer()};

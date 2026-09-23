@@ -136,3 +136,4 @@ footer .link:hover{color:var(--fg)}
 
 .thumbs img.cam{height:96px;width:100px;object-fit:cover;background:var(--line);border:1px solid var(--line)}
 .card .state:not(.ok):not(.bad){animation:pulse 1.1s ease-in-out infinite}
+.thumbs canvas.preview{max-width:320px;width:100%;height:auto;image-rendering:auto;border:1px solid var(--line);background:repeating-conic-gradient(var(--line) 0 25%,transparent 0 50%) 0 0/12px 12px}

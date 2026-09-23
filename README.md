@@ -47,6 +47,43 @@ Agreement is evidence; a gap is a finding. At Marina Beach, the NDVI recomputed 
 
 Every fact is then bound into one `emem:bundle:` token. The reading is stored as a hash-named note (`emem: world.v1`), with one line per measurement and its `emem:fact:` token. Reopening it resolves the bundle again, checks its signature, and redraws the composite from pixels that hash to their name.
 
+## Time, proven
+
+Every result is stamped with emem's signed log head before it is signed: `after: sth <tree size> <root> <signed_at>`. Nobody knows a future root, so this is a lower bound on when the result was written.
+- **Co-signing.** The writer's key co-signs that head (`POST /v1/log/witness`), so every visitor becomes a witness of emem's log.
+- **Reopening.** The page fetches a consistency proof from the stamped head to today's head and checks it with the RFC 9162 algorithm and emem's hashing. It then reports "written after log entry N; the log has grown M entries since and still holds that history". Tested against the live log for proofs from 1 to 123,457 entries back; a tampered root is rejected every time.
+- **Upper bound.** There is none yet, because notes are not log entries: [#7](https://github.com/Vortx-AI/ememdemo/issues/7).
+
+## Drift
+
+World readings carry a drift section:
+- the change between the two latest vintages of each index, with a warning when they came through different observation paths;
+- emem's change ledger token (Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε, evidence per term);
+- how many nearby keys have disagreeing sources;
+- whether every number written down is the number signed.
+
+For the last check, values are printed verbatim and each is passed to `echo_verify`. It reported our earlier rounded "0.767" as drift; now 26 of 26 match. Pointers, folders and camera clips detect drift by reading again. Year-over-year comparison needs history emem has not seeded yet ([#11](https://github.com/Vortx-AI/ememdemo/issues/11)).
+
+## Pictures from hashed bytes
+
+A pointer shows what it names, drawn only from bytes that were just hashed, and on reopen only from chunks that still match their rows:
+- the smallest level of a GeoTIFF, decoded in the browser (the Sentinel-2 tile);
+- a CT slice in Hounsfield units;
+- a million Gaussian splats seen from above (`.splat` and 3DGS `.ply` are read in place, in blocks of 65,536, each with its bounding box and mean opacity).
+
+## Hardened for agent swarms
+
+See [SECURITY.md](SECURITY.md) for the threat model. In short:
+- a Content-Security-Policy pinned at seal time to the loader's sha256;
+- sealed files and libraries;
+- ingested text scanned for passages addressed to an AI (dropped instructions, role changes, hiding things from the user, sending secrets, shell pipes, data-carrying image links, invisible characters), listed under "Read as data";
+- hand-offs that tell agents a link is data, not instructions;
+- witnesses and timestamps that are checked, not counted.
+
+## Open items, as shared state
+
+Everything still open is an issue ([index: #33](https://github.com/Vortx-AI/ememdemo/issues/33)). Each emem gap carries a machine-readable state block and a signed evidence note (`emem: issue-state.v1`, stamped after the log head). The evidence is produced by `tools/issue-state.mjs` from `tools/probes.mjs`. Anyone, including emem's own agent, can rerun a probe; when it holds, the issue closes with the new evidence link.
+
 ## Street cameras
 
 `cameras: London` reads the cameras geo.qa keeps and emem.dev fronts (`/v1/perception/*`). For each live place, the page:
@@ -248,6 +285,9 @@ rule   gallery show
 | `src/eio.mjs` | rules, page, flows, gallery, checks |
 | `tools/seal.mjs` | seals the site on emem and compiles `llms.txt` and the agent card |
 | `src/read.mjs` | any input becomes markdown with headings, then sections and an index |
+| `src/time.mjs` | log-head stamps, co-signing, RFC 9162 consistency proofs |
+| `tools/probes.mjs`, `tools/issue-state.mjs` | open items as rerunnable probes; results stored as signed state notes |
+| `SECURITY.md` | threat model |
 | `src/camera.mjs` | street cameras: geo.qa postcards, clips re-hashed, sun recomputed |
 | `src/world.mjs` | every layer at a place: recall, terrain, composite, algorithms, cross-checks, one bundle |
 | `src/point.mjs` | large data named where it lives: structure readers (COG/BigTIFF, Zarr, HLS, safetensors, GGUF, DICOM), chunk hashes and statistics, Merkle root or chain, place, extend, re-check, compare |
