@@ -80,7 +80,8 @@ footer a:hover{color:var(--fg)}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(262px,1fr));gap:calc(2*var(--u))}
 .card{border:1px solid var(--line);background:var(--field);padding:calc(2*var(--u));display:flex;flex-direction:column;gap:var(--u);min-height:236px;cursor:pointer;transition:border-color .12s,transform .12s;text-align:left;color:inherit;font:inherit}
 .card:hover,.card:focus-visible{border-color:var(--fg);transform:translateY(-1px);outline:0}
-.card .head{display:flex;justify-content:space-between;align-items:center;font:11px var(--mono);color:var(--mute)}
+.card .head{display:flex;justify-content:space-between;align-items:center;gap:var(--u);font:11px var(--mono);color:var(--mute);white-space:nowrap}
+.card .head .state{overflow:hidden;text-overflow:ellipsis}
 .card .tag{border:1px solid var(--line);padding:1px 6px;color:var(--fg)}
 .card .state.ok{color:var(--ok)}
 .card .state.bad{color:var(--no)}

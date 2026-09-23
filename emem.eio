@@ -16,7 +16,7 @@ link    docs     https://emem.dev/docs
 link    GitHub   https://github.com/Vortx-AI/emem
 
 say     Turn any file into a link your AI agent can read.
-in      Drop files, paste text, or paste a URL or GitHub repo
+in      Drop files, paste text, or paste a URL, a GitHub repo, or a link to large data
 note    Public: anyone with the link can read it.
 blank   Nothing to read yet. Drop a file, or paste text, a URL or a GitHub repo.
 
@@ -59,6 +59,11 @@ flow resolve : resolve
 
 step ask    : question -> link
 flow ask    : ask
+
+# large data is named where it lives: only its address and chunk hashes go to emem
+step probe  : remote   -> hashes
+step pin    : hashes   -> link
+flow point  : probe pin
 
 give preview <<
 {index}
@@ -107,6 +112,20 @@ emem  https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.
 pin   RFC 9110
 >>
 
+show in_place : GPT-2's weights, tensor by tensor <<
+tag   safetensors
+from  https://huggingface.co/openai-community/gpt2/resolve/main/model.safetensors
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/se3a4ufdok573uqlmh7c6yok24.md
+pin   GPT-2 weights
+>>
+
+show in_place : A Sentinel-2 band, 238 MB, named where it lives <<
+tag   COG
+from  https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/43/P/GQ/2026/5/S2B_43PGQ_20260512_0_L2A/B08.tif
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/ph43czid7jgehwer4qqmq54ej4.md
+pin   238 MB raster
+>>
+
 show code : expressjs/express at v5.2.1 <<
 tag   repo
 from  https://github.com/expressjs/express/tree/v5.2.1
@@ -124,7 +143,6 @@ pin   error screenshot
 show places : Bengaluru, ground elevation <<
 tag   emem:fact
 emem  emem:fact:defi.zb493.xuqA.zcb5f:tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq
-pin   a signed fact
 >>
 
 show places : Flood risk in Chennai, asked live <<
@@ -132,6 +150,24 @@ tag   ask
 emem  ask: flood risk in Chennai
 note  The answer comes back signed, with every fact it used and one handle for all of them.
 pin   flood risk in Chennai
+>>
+
+show in_place : A microscope image, chunk by chunk <<
+tag   OME-Zarr
+from  https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/nisxyl6cc5sdflk7xfogftnt7y.md
+>>
+
+show in_place : A video feed, segment by segment, chained <<
+tag   HLS
+from  https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/xecxqrfvavpsb7bf66uctnd2ri.md
+>>
+
+show in_place : A CT slice, technical tags only <<
+tag   DICOM
+from  https://raw.githubusercontent.com/pydicom/pydicom/main/src/pydicom/data/test_files/CT_small.dcm
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/fp3jg74qahq4dqeanktc5wjv54.md
 >>
 
 show agents : The standard two agents ratified <<
@@ -220,6 +256,6 @@ check   Paste your AI's answer. Every "quote" in it is checked against the sourc
 
 rule words say 6..12
 rule plain say in note blank : cid blake3 ed25519 hash signed token emem: sha256 attester bundle
-rule typed make open resolve ask
+rule typed make open resolve ask point
 rule carry give : {link} {index} {curl} {mcp} {a2a}
 rule gallery show

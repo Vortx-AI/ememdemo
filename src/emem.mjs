@@ -248,6 +248,11 @@ export const summarize=async(s,S)=>{
  if(NOTE.test(s.emem)){
   const n=await getNote(s.emem),secs=[...n.body.matchAll(/^- \[([^\]]+)\]\(/gm)].map(m=>m[1]);
   const lead=(n.body.match(/^> (.+)$/m)||[])[1]||"",text=n.body.replace(/^---\n[\s\S]*?\n---\n\n/,"");
+  // a pointer: the data stays at its source; the card says how much is there against how little is here
+  if(/^emem: pointer\.v1$/m.test(n.body)){
+   const sz=v=>v>=1e9?(v/1e9).toFixed(2)+" GB":v>=1e6?(v/1e6).toFixed(1)+" MB":(v/1e3).toFixed(1)+" KB",b=n.body.match(/^bytes: (about )?(\d+)/m),c=(n.body.match(/^chunks: (.+)$/m)||[])[1];
+   return{ok:n.ok!==false,state:n.ok?"✓ matches its name":"✗ name does not match",nodes:[["big",b?`${b[1]?"~":""}${sz(+b[2])}`:"at the source"],["stat",`stays at the source · ${sz(n.body.length)} on emem · ${c}`],["peek",n.body.split("\n").filter(l=>/^- /.test(l)).map(l=>l.slice(2)).slice(0,3).join("\n")]]};
+  }
   return{ok:n.ok!==false,state:n.ok?"✓ matches its name":n.ok===false?"✗ name does not match":"· not named by its hash",nodes:secs.length
    ?[["stat",`${secs.length} sections · ${(lead.match(/~[\d.]+k? tokens/)||[""])[0]} · index ${tokens(n.body)}`],["peek",secs.slice(0,4).join("\n")]]
    :[["stat",tokens(text)],["peek",text.split("\n").filter(l=>l.trim()).slice(0,4).join("\n")]]};

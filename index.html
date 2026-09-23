@@ -17,7 +17,7 @@
     It uses only the browser's own SHA-256, so it depends on no library it would first have to trust.
   -->
   <script type="module">
-    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/7y3igejbrgzwtgflg4ftvz2paa.md",sha256:"affffbde52d39a85a4892292dec9f6ed50c4707dfc965fd41bffc76967f36ecd"};
+    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/vvo4ejumaswwowzggbxhhf6w5e.md",sha256:"65dba14a29ed12dbb6a4ffb1c7f06ff15516c6b67f1e6753a7ff89773f412b45"};
     const mode=new URLSearchParams(location.search).get("boot");
     const hex=async b=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",b))].map(x=>x.toString(16).padStart(2,"0")).join("");
     const get=async u=>{const x=await fetch(u,{cache:"no-cache"});if(!x.ok)throw new Error(`${u} answered ${x.status}`);return x.arrayBuffer()};

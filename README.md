@@ -17,6 +17,35 @@ The box takes anything:
 
 Every result comes with tabs an agent can use directly: **preview · AGENTS.md · chat · curl · MCP · A2A · check**. The `check` tab marks each "quote" in an AI's answer as found in the source or not.
 
+## Large data, named where it lives
+
+emem's principle is that the address stays separate from the data. Paste a link to large data and the page reads its **structure** by byte range, from the source. It hashes the chunks it reads and stores only a **pointer**: a few kilobytes on emem, while the bytes stay in the bucket, repository, microscope store or video server.
+
+| source | a chunk is | example in the gallery | at the source → on emem |
+|---|---|---|---|
+| model weights (safetensors) | one tensor, found by the file's own header | GPT-2 on Hugging Face | 548 MB → 13.5 KB |
+| cloud-optimised GeoTIFF | one tile at one zoom level | a Sentinel-2 band on AWS | 238 MB → 8.1 KB |
+| OME-Zarr (microscopy) | one array chunk at one resolution level | IDR image 6001240 | ~28.5 MB → 11.3 KB |
+| HLS video (CCTV, live feeds) | one segment, **hash-chained** so a live feed only extends | the Mux test stream | ~22.8 MB → 12.0 KB |
+| DICOM (medical) | the header, then 1 MiB pixel blocks | a CT slice from pydicom's test data | 39 KB → 1.0 KB |
+| anything with byte ranges | a 4 MiB range (streamed once if the server hides its size) | `point: <url>` forces this | |
+
+**The pointer (`emem: pointer.v1`)** holds:
+- the source URL, its size, and its ETag when the server exposes it;
+- the structure it found: tiling, levels, axes, tensor count and parameter count, technical DICOM tags;
+- one table row per chunk: url, offset, length, and BLAKE3-256 hash;
+- one **Merkle root** over the rows, where each leaf binds `(url, offset, length, hash)`, or, for video, a **chain** where each link hashes the previous link with the next segment.
+
+The pointer itself is a hash-named, signed note, so its name commits to all of it.
+
+**Using it.** An agent reads only the rows it needs, straight from the source, by byte range, and compares hashes. The curl tab shows one row as a `curl -r` plus a one-line BLAKE3 check.
+
+**Re-checking it.** Opening a pointer re-hashes the table against its root, then re-reads an even spread of chunks from the source. That is how a pointer detects data that changed after it was named. Tested: a clean source gives "6 of 6 sampled chunks still match"; one altered response gives "1 of 6 sampled chunks have CHANGED".
+
+**Coverage, stated.** Large sources are sampled deterministically. Every small tensor, every overview tile and the smallest Zarr level are hashed completely; the largest level is sampled evenly. The pointer says `chunks: 107 of 161 hashed`, and the same input gives the same pointer in any browser. DICOM pointers copy technical tags only (modality, size, spacing); patient fields stay at the source, and only their hash is recorded.
+
+**Science, checked.** The GPT-2 pointer reports 137,022,720 parameters, not the familiar 124M. The file also stores 12 causal-mask buffers (`attn.bias`, 12 × 1024 × 1024 ≈ 12.6M values), so the pointer reports what the file holds.
+
 ## A website that proves itself
 
 Most websites ask you to trust whoever serves them. This one checks itself before it runs.
@@ -55,7 +84,7 @@ Both are sealed with the site, so an agent can check them the same way.
 
 ## The gallery
 
-There are 20 cards in 7 kinds (19 when unsealed): documents, code, scans, places, agents, web, proof.
+There are 25 cards in 8 kinds (24 when unsealed): documents, in place, code, scans, places, agents, web, proof.
 
 - **All cards:** on load, each card re-hashes or re-verifies its result and shows the outcome (✓ or ✗). `open` loads it into the box.
 - **"Run it yourself":** on file and URL cards, this feeds the original input through the pipeline again. For fixed inputs the page confirms **"same file names as the gallery copy"**: the same bytes give the same names in any browser.
@@ -132,6 +161,7 @@ rule   gallery show
 | `src/eio.mjs` | rules, page, flows, gallery, checks |
 | `tools/seal.mjs` | seals the site on emem and compiles `llms.txt` and the agent card |
 | `src/read.mjs` | any input becomes markdown with headings, then sections and an index |
+| `src/point.mjs` | large data named where it lives: structure readers, chunk hashes, Merkle root or chain, re-check |
 | `src/emem.mjs` | the wire: names, keys, signed writes, reads, the token family, proofs, ask, the channel feed |
 | `src/vendor/` | emem's verifier, pinned (Apache-2.0) |
 | `src/img/` | the emem mark, from Vortx-AI/emem |

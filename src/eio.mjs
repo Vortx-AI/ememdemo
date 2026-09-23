@@ -2,6 +2,7 @@
 import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia,guard,exportKey,importKey} from "./emem.mjs";
 import {toDoc,REPO,repoItems,blocksOf,pack,describe} from "./read.mjs";
 import {compile} from "./lang.mjs";
+import {POINTABLE,probe,recheck,mb} from "./point.mjs";
 
 // every rule is a promise the page makes; if the source breaks one, the page does not render
 const rules={
@@ -86,6 +87,16 @@ const ops={
   r.title=top.body.match(/^# (.+)$/m)?.[1]||top.body.match(/^source: (.+)$/m)?.[1]||"";
   return r;
  },
+ // large data, named where it lives: read its structure and hash its chunks at the source, then store only the pointer
+ async probe(r){r.p=await probe(r.input,r.tick);return r},
+ async pin(r){
+  const k=await key(),n=await note(r.p.body,k);r.tick("storing the pointer");await put(n,k.pub);
+  const host=new URL(r.p.url).host;
+  Object.assign(r,{url:n.url,cid:n.cid,body:n.body,text:n.body,title:r.p.name,pointer:true,
+   proof:`${r.p.chunks.length} chunks hashed at ${host} · ${mb(r.p.read)} read · ${mb(n.bytes.length)} stored on emem`,
+   size:r.p.bytes?`${mb(r.p.bytes)} at the source`:r.p.est?`about ${mb(r.p.est)} at the source (estimated)`:"size unknown at the source",
+   shape:`It is a pointer to ${r.p.kind} at ${host}${r.p.bytes?` (${mb(r.p.bytes)})`:""}; the data stays there. Read any chunk from the source by URL and byte range and check its hash in the table.`});
+  Object.assign(r,pointerVia(r));return r},
  // any emem name: a token from the family, or a bare file name; resolved, and its receipt checked
  async resolve(r){Object.assign(r,await resolveToken(r.input,r.spec,r.tick));return r},
  // a question about a place, answered by emem.dev with signed facts
@@ -98,10 +109,31 @@ const ops={
    :unnamed===n?`not named by its hash, so there is nothing to match (its hash is ${r.cid})`:`${ok} of ${n} files match their names`+(unnamed?` · ${unnamed} not named by hash`:"")+(n>1&&!unnamed?` · one name commits to all ${n-1} sections`:"");
   const parts=n>1?r.checked.slice(1):r.checked;
   r.text=parts.map(strip).join("\n");r.first=parts[0].url;
+  // a pointer: re-read a spread of chunks from the source; the data may have changed even though the pointer cannot
+  const top=r.checked[0];
+  if(/^emem: pointer\.v1$/m.test(top.body)){
+   const c=await recheck(top.body,r.tick);r.pointer=true;r.title=(top.body.match(/^# (.+)$/m)||[])[1]||r.title;
+   r.bad=r.bad||!c.table||c.ok<c.n;
+   r.proof=`${r.proof} · table ${c.table?"matches":"does NOT match"} its root · source: ${c.ok===c.n?`${c.n} of ${c.n} sampled chunks still match`:`${c.n-c.ok} of ${c.n} sampled chunks have CHANGED`}`;
+   const bm=top.body.match(/^bytes: (?:about )?(\d+)/m);r.size=bm?`${/^bytes: about/m.test(top.body)?"about ":""}${mb(+bm[1])} at the source`:"size unknown at the source";
+   r.shape=`It is a pointer to data at ${new URL(c.src).host}; the data stays there. Read any chunk from the source by URL and byte range and check its hash in the table.`;
+   Object.assign(r,{url:top.url,cid:top.cid},pointerVia({...r,body:top.body}));return r;
+  }
   r.shape=n>1?`It is an index of ${n-1} sections (${tokens(r.text)} in all); each entry says what its section covers.`:`It is one file (${tokens(r.text)}).`;
   Object.assign(r,readVia(r));
   return r;
  }
+};
+
+// how an agent reads one chunk of a pointer: from the source, by range, checked against the table
+const pointerVia=r=>{
+ const src=(r.body.match(/^source: (\S+)/m)||[])[1],rows=[...r.body.matchAll(/^\| ([^|]+) \| (\S+) \| (\d+) \| (\d+) \| ([a-z2-7]{52}) \|$/gm)];
+ const c=rows[Math.min(1,rows.length-1)],py=`python3 -c "import sys,blake3,base64;print(base64.b32encode(blake3.blake3(sys.stdin.buffer.read()).digest()).decode().rstrip('=').lower())"`;
+ const get=c?(c[2]==="·"?`curl -s -r ${c[3]}-${+c[3]+ +c[4]-1} "${src}"`:`curl -s "${c[2]}"`):`curl -s "${src}"`;
+ return{curl:`# the pointer: address, structure, and a hash for every chunk it read\ncurl -s ${r.url}\n\n# read one chunk (${c?c[1]:"?"}) straight from the source, and check it (pip install blake3):\n${get} | ${py}\n# expect ${c?c[5]:"?"}`,
+  mcp:`emem_memory_view {"file_cid":"${r.cid}"}\n# then read chunks from the source by the ranges in its table`,
+  a2a:`curl -s https://emem.dev/a2a/tasks -H 'content-type: application/json' \\\n  -d '${JSON.stringify({skill:"emem_memory_view",args:{file_cid:r.cid}})}'`,
+  verify:"# the pointer's name is the hash of its bytes; every chunk hash in it is BLAKE3-256 of the source's bytes at that range"};
 };
 
 // ---------- quote check: the stored text is the ground truth ----------
@@ -264,7 +296,7 @@ ${last.answer.trim()}
  const start=async(input,expect,my=++seq)=>{
   const r={spec};let list=P.flows.make;
   if(Array.isArray(input))r.files=input;
-  else{r.input=input.trim();if(NOTE.test(r.input))list=P.flows.open;else if(ASK.test(r.input))list=P.flows.ask;else if(tokenType(r.input,P.tokens)||CID.test(r.input)||STH.test(r.input))list=P.flows.resolve}
+  else{r.input=input.trim();if(POINTABLE.test(r.input))list=P.flows.point;else if(NOTE.test(r.input))list=P.flows.open;else if(ASK.test(r.input))list=P.flows.ask;else if(tokenType(r.input,P.tokens)||CID.test(r.input)||STH.test(r.input))list=P.flows.resolve}
   if(!r.files?.length&&!r.input){steps.replaceChildren(h("li",{class:"bad"},P.one("blank")));box.focus();busy(false);return}
   let i=0;r.tick=sub=>{if(my===seq)show(list,i,sub)};
   go.disabled=true;busy(true);
@@ -274,7 +306,7 @@ ${last.answer.trim()}
    show(list,i);run=r;tab=gives[0].arg;
    link.textContent=r.url;link.href=r.url;link.target="_blank";link.rel="noopener";grab.hidden=false;
    meta.className="meta"+(r.bad?" bad":"");
-   const secs=r.token?0:r.notes?.length??(r.checked.length>1?r.checked.length-1:1),size=r.token?r.shape.split(/\.\s/)[0].replace(/^It is /,"").replace(/\.$/,""):secs>1?`${secs} sections, ${tokens(r.text)}`:tokens(r.text);
+   const secs=r.token||r.pointer?0:r.notes?.length??(r.checked.length>1?r.checked.length-1:1),size=r.pointer?r.size:r.token?r.shape.split(/\.\s/)[0].replace(/^It is /,"").replace(/\.$/,""):secs>1?`${secs} sections, ${tokens(r.text)}`:tokens(r.text);
    meta.textContent=[r.proof,secs>1?`${size}; the index is ${tokens(r.body)}`:size,r.skipped?.length?`${r.skipped.length} not included`:"",expect&&r.cid===expect?"same file names as the gallery copy":""].filter(Boolean).join("  ·  ");
    if(!r.bad){history.replaceState(null,"","?s="+encodeURIComponent(r.token||r.url));
     store("emem.recent",[{url:r.token||r.url,title:r.title||r.url,shape:size},...(store("emem.recent")||[]).filter(x=>x.url!==(r.token||r.url))].slice(0,8));drawRecent()}
@@ -290,7 +322,7 @@ ${last.answer.trim()}
  const shows=P.shows,FIRST=8;let filter="all",expanded=false;
  const kinds=["all",...new Set(shows.map(s=>s.kind))];
  const apply=()=>{[...cards.children].forEach((c,i)=>c.hidden=filter!=="all"?c.dataset.kind!==filter:!expanded&&i>=FIRST);more.hidden=filter!=="all"||expanded||cards.children.length<=FIRST;more.textContent=`show all ${cards.children.length}`};
- const drawChips=()=>chips.replaceChildren(...kinds.map(k=>h("button",{"aria-pressed":String(k===filter),onclick:()=>{filter=k;drawChips();apply()}},k)));
+ const drawChips=()=>chips.replaceChildren(...kinds.map(k=>h("button",{"aria-pressed":String(k===filter),onclick:()=>{filter=k;drawChips();apply()}},k.replace(/_/g," "))));
  more.onclick=()=>{expanded=true;apply()};
  drawChips();
  const openIt=s=>{box.value=s.emem;scrollTo({top:0,behavior:"smooth"});start(s.emem)};

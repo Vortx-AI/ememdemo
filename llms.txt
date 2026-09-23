@@ -6,6 +6,7 @@
 
 - **Turn text into a link.** Store it as a note named by its hash: path `/memories/by_attester/<first 8 of your ed25519 key, base32>/<base32(blake3(bytes)[0:16])>.md`. Sign `blake3("emem.memory_write.v2|create|" + path + "|" + blake3(bytes) + "|absent")` and `POST https://emem.dev/a2a/tasks {"skill":"emem_memory_create","args":{"path","file_text","kind":"resource","attester":{"pubkey_b32","sig_b32"}}}`. Split long text into sections of ~6k tokens, store each, then store an index that links them; the index's name then commits to every section.
 - **Read and check a link.** `GET` it; base32(blake3(bytes)[0:16]) must equal the file name. Or read it by name alone: `POST https://emem.dev/a2a/tasks {"skill":"emem_memory_view","args":{"file_cid":"<name>"}}`.
+- **Name large data where it lives.** Read the source's structure by byte range (COG tiles, OME-Zarr chunks, HLS segments, safetensors tensors, DICOM pixel blocks, or 4 MiB ranges), hash each chunk you read with BLAKE3-256, and store only a pointer note (`emem: pointer.v1`): source URL, size, one table row per chunk (url, offset, length, hash), and a Merkle root over the rows (a hash chain for video segments). To use it, read a row's byte range from the source and compare hashes. The data never goes to emem.
 - **Check an answer's citations.** `POST https://emem.dev/a2a/tasks {"skill":"emem_guard_verdict","args":{"texts":["<answer>"]}}` returns a signed allow or deny with a reason code.
 - **Ask about a place.** `POST https://emem.dev/v1/ask {"q":"flood risk in Chennai"}`; add `Accept: text/event-stream` for stages.
 
@@ -27,10 +28,15 @@ Every receipt must verify against the key 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6
 ## Worked examples (each re-checked by the page as it loads)
 
 - RFC 9110, HTTP Semantics: https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.md (from https://www.rfc-editor.org/rfc/rfc9110.pdf)
+- GPT-2's weights, tensor by tensor: https://emem.dev/memories/by_attester/ddzmyzhn/se3a4ufdok573uqlmh7c6yok24.md (from https://huggingface.co/openai-community/gpt2/resolve/main/model.safetensors)
+- A Sentinel-2 band, 238 MB, named where it lives: https://emem.dev/memories/by_attester/ddzmyzhn/ph43czid7jgehwer4qqmq54ej4.md (from https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/43/P/GQ/2026/5/S2B_43PGQ_20260512_0_L2A/B08.tif)
 - expressjs/express at v5.2.1: https://emem.dev/memories/by_attester/ddzmyzhn/5otn33skohjocfbhychddlovme.md (from https://github.com/expressjs/express/tree/v5.2.1)
 - A build error, as a screenshot: https://emem.dev/memories/by_attester/ddzmyzhn/3n4cwt4dighrfgrxdwv6hv3fe4.md (from ./samples/build-error.png)
 - Bengaluru, ground elevation: emem:fact:defi.zb493.xuqA.zcb5f:tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq
 - Flood risk in Chennai, asked live: ask: flood risk in Chennai
+- A microscope image, chunk by chunk: https://emem.dev/memories/by_attester/ddzmyzhn/nisxyl6cc5sdflk7xfogftnt7y.md (from https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr)
+- A video feed, segment by segment, chained: https://emem.dev/memories/by_attester/ddzmyzhn/xecxqrfvavpsb7bf66uctnd2ri.md (from https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8)
+- A CT slice, technical tags only: https://emem.dev/memories/by_attester/ddzmyzhn/fp3jg74qahq4dqeanktc5wjv54.md (from https://raw.githubusercontent.com/pydicom/pydicom/main/src/pydicom/data/test_files/CT_small.dcm)
 - The standard two agents ratified: l6ppjyiygzt3q4btpwfvvlzdy4
 - Attention Is All You Need: https://emem.dev/memories/by_attester/ddzmyzhn/5k4rsdbh3oe3zudjanr42mh6wy.md (from https://arxiv.org/pdf/1706.03762)
 - A scanned invoice: https://emem.dev/memories/by_attester/ddzmyzhn/g6u3kpc4varj6epnzcbxkqmpyi.md (from ./samples/invoice-scan.pdf)
