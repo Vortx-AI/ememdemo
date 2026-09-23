@@ -44,6 +44,14 @@ Every receipt must verify against the key 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6
 
 - Amazon frontier, 2017–2025: https://emem.dev/memories/by_attester/ddzmyzhn/gkc2jap4r47zgs4t2sja4qderu.md (from timelapse: -9.73, -63.03)
 - Cosmic Cliffs, Carina: https://emem.dev/memories/by_attester/ddzmyzhn/wkxa7tcmw2orf7ujjf5yi66dhe.md (from https://esawebb.org/media/archives/images/original/weic2205a.tif)
+- The whole Earth's terrain, 30 GB of tiles: https://emem.dev/memories/by_attester/ddzmyzhn/ppdqanaf7ufpxedvwdrwuqhf5u.md (from https://r2-public.protomaps.com/protomaps-sample-datasets/terrarium_z9.pmtiles)
+- Ozone, 41 years of a climate model: https://emem.dev/memories/by_attester/ddzmyzhn/o2iyw5aexedv7sneir7sgng4fm.md (from https://huggingface.co/datasets/CEMAC/netcdf_test_files/resolve/main/o3_AERmon_GISS-E2-1-G_piClim-O3_r1i1p3f1_gn_195001-199012.nc)
+- Hurricane Katrina, the weather model run: https://emem.dev/memories/by_attester/ddzmyzhn/kp4jgaqtc442ojdzx45oohynvu.md (from https://huggingface.co/datasets/CEMAC/netcdf_test_files/resolve/main/wrfout_d01_2005-08-28_000000.nc)
+- Autzen, 10.6 million lidar points: https://emem.dev/memories/by_attester/ddzmyzhn/jjyznjvil64vzygbs6mxceszbu.md (from https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz)
+- A train, as 3D Gaussian splats: https://emem.dev/memories/by_attester/ddzmyzhn/qfclw5qafxejoqabrtnjlqbvxu.md (from https://huggingface.co/johnowhitaker/gaussian_splatter_models/resolve/main/train/point_cloud/iteration_7000/point_cloud.ply)
+- Cell labels, Zarr v3 with sharding: https://emem.dev/memories/by_attester/ddzmyzhn/kkktv6drhi6l4rsli3x4nyf65i.md (from https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.5/idr0062A/6001240_labels.zarr)
+- MNIST, 600 row groups, footer statistics: https://emem.dev/memories/by_attester/ddzmyzhn/dyjympcgazia2a4qztshrfx4pm.md (from https://huggingface.co/datasets/ylecun/mnist/resolve/main/mnist/train-00000-of-00001.parquet)
+- Every US county, with its spatial index: https://emem.dev/memories/by_attester/ddzmyzhn/aqq3465nvlazh7xzy7jkiqii4q.md (from https://flatgeobuf.org/test/data/UScounties.fgb)
 - Mars, December 2024: https://emem.dev/memories/by_attester/ddzmyzhn/fi67bt4rxkic3ssuag2v2hskly.md (from https://esahubble.org/media/archives/images/original/heic2505b.tif)
 - Lahaina, before and after fire: https://emem.dev/memories/by_attester/ddzmyzhn/ota6xerxrqzya5txb4jxvzpb2q.md (from timelapse: 20.878, -156.683 | 2022-2025 09)
 - Amazon forest loss since 2000: https://emem.dev/memories/by_attester/ddzmyzhn/dzhe5a7rsjtnmc35qqwxybys5u.md (from forest: -9.73, -63.03)
@@ -99,6 +107,7 @@ Every receipt must verify against the key 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6
 - Bengaluru, one handle: emem:bundle:y2k6h2laeo4libfsiebucdw4mu
 - Amazon, one identity: emem:entity:5pitnkcnle3cq6yldbffj52zja
 - Two agents ratify: l6ppjyiygzt3q4btpwfvvlzdy4
+- emem's corpus, live: stream
 - emem log head: https://emem.dev/v1/log/sth
 - This site, sealed: self
 - A lying file name: https://emem.dev/memories/by_attester/ddzmyzhn/avmvdexjuwqwjjzyncczvmfyzq.md

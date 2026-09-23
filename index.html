@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' blob: 'sha256-j87Z3Erz6mZH8eg7xnMYyftJREF7bjZsb4qzguifkmU=' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' blob: 'unsafe-inline'; img-src * data: blob:; media-src * blob:; font-src 'self' data:; connect-src *; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' blob: 'sha256-+3DMWmaKsbeZsv40ieZhAV0Mx59R3ILdKmMBUoADpWw=' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' blob: 'unsafe-inline'; img-src * data: blob:; media-src * blob:; font-src 'self' data:; connect-src * blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="description" content="Turn any file into a link your AI agent can read.">
   <meta name="color-scheme" content="light dark">
@@ -32,7 +32,7 @@
     @media(prefers-reduced-motion:reduce){#boot img{animation:none}}
   </style>
   <script type="module">
-    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/o36n7oy2ah66h4zm4mpsm2skey.md",sha256:"4d9d29b10c4d4e649aaa15cb32e29f2cd0e7a38010935ddb0a73955da07277e4"};
+    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/awkysj7ov6yauccor5miclwn2u.md",sha256:"b9c746d11643147f4bb46c06d32aba2b094abda4bd3b7ac2feb503de9b212261",site:"ddzmyzhn7wy55qemazk3vqawzulzrzrt457xr7qgjvqr7mvanolq"};
     const mode=new URLSearchParams(location.search).get("boot");
     const hex=async b=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",b))].map(x=>x.toString(16).padStart(2,"0")).join("");
     const get=async u=>{const x=await fetch(u,{cache:"no-cache"});if(!x.ok)throw new Error(`${u} answered ${x.status}`);return x.arrayBuffer()};
@@ -47,6 +47,8 @@
         const mb=await get(SEAL.url);
         if(await hex(mb)!==SEAL.sha256)throw new Error("The manifest at "+SEAL.url+" does not match the sha256 this page pins.");
         const text=new TextDecoder().decode(mb),seal=globalThis.__seal={url:SEAL.url,files:{},report:[],sealed_by:(text.match(/^sealed_by (\S+)/m)||[])[1]};
+        // only the site's own key may seal it: the manifest must name that key and live in its namespace
+        if(SEAL.site&&(seal.sealed_by!==SEAL.site||!SEAL.url.startsWith("https://emem.dev/memories/by_attester/"+SEAL.site.slice(0,8)+"/")))throw new Error("The manifest was sealed by "+(seal.sealed_by||"no key")+", not by this site's key "+SEAL.site+".");
         const files=text.split("\n").filter(l=>l.startsWith("file ")).map(l=>{const[,path,sha,url]=l.split(/\s+/);return{path,sha,url}});
         let checked=0;bootMap(files.length,0);bootSay(`checking ${files.length} files against the seal`);
         const libs=Object.fromEntries(text.split("\n").filter(l=>l.startsWith("lib ")).map(l=>{const[,url,sha]=l.split(/\s+/);return[url,sha]}));

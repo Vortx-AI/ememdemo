@@ -1,0 +1,23 @@
+name: drift
+# re-check every gallery pointer once a day and append to its drift chain (tools/drift.mjs)
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: re-check and append
+        env:
+          SITE_KEY_JSON: ${{ secrets.EMEM_SITE_KEY_JSON }}
+        run: |
+          if [ -z "$SITE_KEY_JSON" ]; then echo "no EMEM_SITE_KEY_JSON secret; nothing to sign with"; exit 0; fi
+          printf '%s' "$SITE_KEY_JSON" > "$RUNNER_TEMP/key.json"
+          EMEM_KEY_FILE="$RUNNER_TEMP/key.json" node tools/drift.mjs
+          rm -f "$RUNNER_TEMP/key.json"

@@ -7,6 +7,11 @@ const LIB={
  xlsx:NPM+"xlsx@0.18.5/dist/xlsx.full.min.js",
  jszip:NPM+"jszip@3.10.1/dist/jszip.min.js",
  ocr:NPM+"tesseract.js@5.1.1/dist/tesseract.esm.min.js",
+ // OCR's worker, its WASM core (SIMD or not) and its English data: all pinned by sha256 like the rest
+ ocrWorker:NPM+"tesseract.js@5.1.1/dist/worker.min.js",
+ ocrCoreSimd:NPM+"tesseract.js-core@5.1.1/tesseract-core-simd-lstm.wasm.js",
+ ocrCore:NPM+"tesseract.js-core@5.1.1/tesseract-core-lstm.wasm.js",
+ ocrEng:NPM+"@tesseract.js-data/eng@1.0.0/4.0.0_best_int/eng.traineddata.gz",
 };
 const READER="https://r.jina.ai/";
 
@@ -138,8 +143,12 @@ const pdfDoc=async(buf,name,tick)=>{
 
 // ---------- OCR: images and scans ----------
 let OCR;
-const ocr=()=>OCR??=Promise.resolve(pin(LIB.ocr)).then(u=>import(u)).then(T=>(T.createWorker||T.default.createWorker)("eng",1,{
- workerPath:NPM+"tesseract.js@5.1.1/dist/worker.min.js",corePath:NPM+"tesseract.js-core@5.1.1",langPath:NPM+"@tesseract.js-data/eng@1.0.0/4.0.0_best_int"}));
+// Tesseract takes a core path only if it ends in "js", and a language folder; checked bytes are blob URLs, so a fragment
+// ("#.js", "#") gives it the shape it wants while fetch ignores the fragment. No cache: a cached copy was never checked.
+const SIMD=typeof WebAssembly==="object"&&WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]));
+const ocr=()=>OCR??=(async()=>{const[T,worker,core,eng]=await Promise.all([Promise.resolve(pin(LIB.ocr)).then(u=>import(u)),pin(LIB.ocrWorker),pin(SIMD?LIB.ocrCoreSimd:LIB.ocrCore),pin(LIB.ocrEng)]);
+ const sealed=String(eng).startsWith("blob:");
+ return(T.createWorker||T.default.createWorker)("eng",1,{workerPath:worker,workerBlobURL:!sealed,corePath:sealed?core+"#.js":core,langPath:sealed?eng+"#":eng.replace(/\/eng\.traineddata\.gz$/,""),cacheMethod:sealed?"none":"write"})})();
 const ocrPdf=async(doc,name,tick)=>{
  tick("loading text recognition (7 MB, first time only)");
  const n=Math.min(doc.numPages,40),w=await ocr(),pages=[];

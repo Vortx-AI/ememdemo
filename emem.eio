@@ -26,6 +26,24 @@ task    sense  a place  | a place, or "lat, lng"; also timelapse:, city:, forest
 task    check  a link   | an emem link, token or file name, to re-check every byte |
 blank   Nothing to read yet. Drop a file, or paste text, a URL or a GitHub repo.
 
+# the same lines for visitors in other languages (?lang=es to try); the rules above hold for every one
+lang es <<
+say     Tokeniza archivos enormes para que los agentes los usen.
+sub     Modelos, escenas de satélite, escaneos, vídeo, código, sitios web enteros y lugares enteros. Tu agente recibe un enlace pequeño, lee solo la parte que necesita y puede comprobar cada byte.
+in      Suelta archivos, o pega una URL, un repositorio, una carpeta, datos grandes, world:, timelapse:, city:, forest: un lugar, o cameras: London
+note    Público: cualquiera con el enlace puede leerlo.
+blank   Aún no hay nada que leer. Suelta un archivo, o pega texto, una URL o un repositorio de GitHub.
+check   Pega la respuesta de tu IA. Cada "cita" se comprueba contra la fuente.
+>>
+lang hi <<
+say     एजेंटों के उपयोग के लिए विशाल फ़ाइलों को टोकन में बदलें।
+sub     मॉडल, सैटेलाइट दृश्य, स्कैन, वीडियो, कोड, पूरी वेबसाइटें और पूरी जगहें। आपके एजेंट को एक छोटा लिंक मिलता है, वह केवल ज़रूरी हिस्सा पढ़ता है और हर बाइट जाँच सकता है।
+in      फ़ाइलें छोड़ें, या URL, रिपॉज़िटरी, फ़ोल्डर, बड़ा डेटा, world:, timelapse:, city:, forest: कोई जगह, या cameras: London चिपकाएँ
+note    सार्वजनिक: लिंक वाला कोई भी इसे पढ़ सकता है।
+blank   अभी पढ़ने को कुछ नहीं है। एक फ़ाइल छोड़ें, या टेक्स्ट, URL या GitHub रिपॉज़िटरी चिपकाएँ।
+check   अपने AI का उत्तर चिपकाएँ। उसका हर "उद्धरण" स्रोत से जाँचा जाता है।
+>>
+
 kind docs   : pdf docx pptx xlsx epub html htm md mdx rst txt
 kind data   : csv tsv json jsonl yaml yml toml xml ini sql log
 kind code   : js mjs cjs ts tsx jsx py rb go rs java kt swift c h cc cpp hpp cs php sh bash css scss vue svelte lua r jl dart ex exs hs scala eio
@@ -47,6 +65,10 @@ token state     : one recorded step of an answer's reasoning  | GET  /v1/state/{
 limit   4000000
 section 24000
 max     160
+# what one run may spend before it stops itself (requests, bytes the servers declared, seconds); a stop says which cap it hit
+budget  requests 3000
+budget  bytes 2000000000
+budget  seconds 900
 
 step read   : input    -> items  | reading read
 step text   : items    -> docs  | extracting extracted
@@ -107,6 +129,17 @@ step keep   : clips    -> link  | keeping kept
 flow cameras : look keep
 
 # two pointers, row by row: identical bytes, different bytes, or only in one
+# agents together, no coordinator: ask a key (by its full key) to do a verb on a ref, it claims and delivers, anyone verifies.
+# The task's state is read from those signed notes, never stored.
+step request : want    -> link  | requesting requested
+step stake   : request -> link  | claiming claimed
+step hand    : result  -> link  | delivering delivered
+step follow  : request -> link  | following followed
+flow request : request
+flow claim   : stake
+flow deliver : hand
+flow tasks   : follow
+
 step pair   : pair     -> pointers  | pairing paired
 step diff   : pointers -> link  | diffing diffed
 flow compare : pair diff
@@ -205,6 +238,39 @@ title: <me8> -> <author8>: witness <pointer-cid> ok|changed k/n
 fields: pointer source table read at
 row: | what | offset | length | blake3 read now | matches |
 >>
+spec request.v1 <<
+head: # <from8> -> <to8>: request <want> <of cid8>   (first line, so the inbox delivers it)
+fields: from(52-char key) to(52-char key) want(witness|extend|check|compare|map) of(ref) expires
+path: arcade/request-<ts>-to-<to8>.md ; valid only if its author signed it with the key in from
+>>
+spec claim.v1 <<
+head: # <from8> -> <requester8>: claim <request cid8>
+fields: from to request(url) ; optional ; says who is on it so a swarm does not repeat work ; path: arcade/claim-<request cid8>-<ts>-to-<requester8>.md
+>>
+spec deliver.v1 <<
+head: # <from8> -> <requester8>: deliver <request cid8> <result cid8>
+fields: from to request(url) result(ref) ; from must be the request's to ; body: the result's r1 line
+path: arcade/deliver-<request cid8>-<ts>-to-<requester8>.md in the requested key's folder (read from there, so inbox junk can't hide it)
+verify: result matches its name and is what was asked (witness of `of`, extends `of`, check against `of`)
+>>
+spec verify.v1 <<
+head: # <from8> -> <requester8>: verify <request cid8> ok|no
+fields: from to request deliver verdict(ok|no: why) ; a key may not verify its own delivery
+state: requested → claimed → delivered → verified by n keys (T1: keys, not parties)
+>>
+spec grant.v1 <<
+fields: of(note url) for(recipient X25519 share key, base64url) eph(fresh X25519 key) iv wrapped(AES-GCM of the link's 32-byte key)
+kek: HKDF-SHA256(X25519(eph, for), salt = eph‖for, info "emem.grant.v1") ; link: <note>#g=<writer8>/<grant cid> carries no key
+>>
+spec drift.v1 <<
+head: # <watcher8> -> <author8>: drift <cid8> ok|changed k/n
+fields: of(link) previous(url|none) entry(n) source table read at ; after: sth
+path: arcade/drift-<cid8>-<time>-to-<author8>.md in the watcher's folder ; rows: | what | offset | length | then | now |
+>>
+spec sealed.v1 <<
+fields: cipher(AES-256-GCM) iv(base64url) ; body: base64url ciphertext of a whole note
+key: 32 bytes, base64url, only in the link's fragment #k=… ; the name is the hash of the stored ciphertext, so integrity is public and content is not
+>>
 spec thumb.v1 <<
 fields: of frames drawn
 body: data:image/webp;base64 sprite, frames side by side ; show only if of == card link and name matches bytes
@@ -233,6 +299,66 @@ from  https://esawebb.org/media/archives/images/original/weic2205a.tif
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/wkxa7tcmw2orf7ujjf5yi66dhe.md
 thumb https://emem.dev/memories/by_attester/ddzmyzhn/cewrfxewtujjvuibt35yhk6hwi.md
 pin   Webb nebula
+>>
+
+show earth : The whole Earth's terrain, 30 GB of tiles <<
+tag   PMTiles · 30.5 GB
+by    third party
+from  https://r2-public.protomaps.com/protomaps-sample-datasets/terrarium_z9.pmtiles
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/ppdqanaf7ufpxedvwdrwuqhf5u.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/nurixabv76sxwnyxfmmfl62sra.md
+pin   Earth's terrain
+>>
+
+show earth : Ozone, 41 years of a climate model <<
+tag   NetCDF · 1.05 GB
+by    third party
+from  https://huggingface.co/datasets/CEMAC/netcdf_test_files/resolve/main/o3_AERmon_GISS-E2-1-G_piClim-O3_r1i1p3f1_gn_195001-199012.nc
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/o2iyw5aexedv7sneir7sgng4fm.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/5tzuj4g3ed4cwudrzgk3ym5pri.md
+>>
+
+show disaster : Hurricane Katrina, the weather model run <<
+tag   NetCDF-4 · 848 MB
+by    third party
+from  https://huggingface.co/datasets/CEMAC/netcdf_test_files/resolve/main/wrfout_d01_2005-08-28_000000.nc
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/kp4jgaqtc442ojdzx45oohynvu.md
+>>
+
+show 3d : Autzen, 10.6 million lidar points <<
+tag   COPC · 81 MB
+by    third party
+from  https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/jjyznjvil64vzygbs6mxceszbu.md
+>>
+
+show 3d : A train, as 3D Gaussian splats <<
+tag   3DGS PLY · 139 MB
+by    third party
+from  https://huggingface.co/johnowhitaker/gaussian_splatter_models/resolve/main/train/point_cloud/iteration_7000/point_cloud.ply
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/qfclw5qafxejoqabrtnjlqbvxu.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/rfbykggvj6vl7rbhjv77r3leuq.md
+>>
+
+show medical : Cell labels, Zarr v3 with sharding <<
+tag   OME-Zarr 0.5
+by    third party
+from  https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.5/idr0062A/6001240_labels.zarr
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/kkktv6drhi6l4rsli3x4nyf65i.md
+>>
+
+show models : MNIST, 600 row groups, footer statistics <<
+tag   Parquet · 16 MB
+by    third party
+from  https://huggingface.co/datasets/ylecun/mnist/resolve/main/mnist/train-00000-of-00001.parquet
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/dyjympcgazia2a4qztshrfx4pm.md
+>>
+
+show government : Every US county, with its spatial index <<
+tag   FlatGeobuf · 8 MB
+by    third party
+from  https://flatgeobuf.org/test/data/UScounties.fgb
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/aqq3465nvlazh7xzy7jkiqii4q.md
 >>
 
 show space : Mars, December 2024 <<
@@ -644,6 +770,12 @@ by    machine
 emem  l6ppjyiygzt3q4btpwfvvlzdy4
 >>
 
+show emem : emem's corpus, live <<
+tag   stream
+by    machine
+emem  stream
+>>
+
 show agents : Public channel, live <<
 tag   channel
 by    machine
@@ -676,7 +808,7 @@ check   Paste your AI's answer. Every "quote" in it is checked against the sourc
 rule words say 6..12
 rule words sub 12..32
 rule plain say sub in note blank : cid blake3 ed25519 hash signed emem: sha256 attester bundle merkle
-rule typed make open resolve ask point extend witness compare world cameras timelapse track city forest
+rule typed make open resolve ask point extend witness compare world cameras timelapse track city forest request claim deliver tasks
 rule carry give : {link} {index} {curl} {mcp} {a2a}
 rule gallery show
 rule verbs step

@@ -8,7 +8,7 @@ const f=(b,k)=>(b.match(new RegExp(`^${k}: (.+)$`,"m"))||[])[1]||"";
 const sq=v=>String(v).trim().replace(/,\s+/g,",").replace(/\s+/g,"_");
 const mb=n=>!n?"":n>=1e9?(n/1e9).toFixed(2)+"GB":n>=1e6?(n/1e6).toFixed(1)+"MB":(n/1e3).toFixed(1)+"KB";
 const short=u=>sq(String(u).replace(/^https?:\/\//,"").replace(/^(.{24}).*(.{22})$/,"$1…$2"));
-const KIND=[[/BigTIFF/i,"bigtiff"],[/GeoTIFF/i,"cog"],[/safetensors/i,"safetensors"],[/GGUF/i,"gguf"],[/Zarr/i,"zarr"],[/HLS/i,"hls"],[/DICOM/i,"dicom"],[/video/i,"mp4"],[/observation/i,"observation"],[/photograph/i,"jpeg"],[/splats/i,"splats"],[/file/i,"file"]];
+const KIND=[[/BigTIFF/i,"bigtiff"],[/GeoTIFF/i,"cog"],[/safetensors/i,"safetensors"],[/GGUF/i,"gguf"],[/Zarr/i,"zarr"],[/HLS/i,"hls"],[/DICOM/i,"dicom"],[/video/i,"mp4"],[/observation/i,"observation"],[/photograph/i,"jpeg"],[/splats/i,"splats"],[/PMTiles/i,"pmtiles"],[/NetCDF-3/i,"netcdf"],[/HDF5/i,"hdf5"],[/COPC/i,"copc"],[/Zarr v3/i,"zarr3"],[/Parquet/i,"parquet"],[/FlatGeobuf/i,"fgb"],[/file/i,"file"]];
 export const refOf=url=>{const m=String(url).match(/by_attester\/([a-z2-7]{8})\/(.+)\.md$/);return m?`${m[1]}/${m[2]}`:String(url)};
 // brief: for a catalog, only what chooses an item; hash-valued keys (root, bundle, rasterset, head, sth, spec) live in the note, one fetch away
 const HASHY=/^(root|rasterset|bundle|head|sth|spec)=/;
@@ -29,6 +29,12 @@ const full=(body,url)=>{
  if(k==="compare.v1")return L("diffed","pointers",`same=${f(body,"same")}`,`changed=${f(body,"changed")}`,`only=${f(body,"only_a")}+${f(body,"only_b")}`);
  if(k==="witness.v1")return L("witnessed","pointer",`of=${refOf(f(body,"pointer"))}`,`read=${(f(body,"read").match(/^(\d+ of \d+)/)||[])[1]?.replace(" of ","/")}`);
  if(k==="check.v1")return L("checked","answer",`against=${refOf(f(body,"source"))}`,`guard=${sq(f(body,"guard"))}`);
+ if(k==="drift.v1")return L("rechecked","pointer",`of=${refOf(f(body,"of"))}`,`entry=${f(body,"entry")}`,`read=${(f(body,"read").match(/^(\d+ of \d+)/)||[])[1]?.replace(" of ","/")}`);
+ if(k==="sealed.v1")return L("sealed","note",`cipher=${f(body,"cipher")}`);
+ if(k==="request.v1")return L("requested",f(body,"want"),`of=${refOf(f(body,"of"))}`,`to=${f(body,"to").slice(0,8)}`,`from=${f(body,"from").slice(0,8)}`);
+ if(k==="claim.v1")return L("claimed","request",`req=${refOf(f(body,"request"))}`);
+ if(k==="deliver.v1")return L("delivered","result",`req=${refOf(f(body,"request"))}`,`result=${refOf(f(body,"result"))}`);
+ if(k==="verify.v1")return L("checked","delivery",`req=${refOf(f(body,"request"))}`,`verdict=${sq(f(body,"verdict").split(":")[0])}`);
  if(k==="thumb.v1")return L("drew","thumb",`of=${refOf(f(body,"of"))}`,`frames=${f(body,"frames")}`);
  if(k==="issue-state.v1")return L("probed","issue",`id=${f(body,"issue")}`,`holds=${f(body,"holds")}`);
  const secs=(body.match(/^- \[[^\]]+\]\(https:\/\/emem\.dev\/memories\//gm)||[]).length;

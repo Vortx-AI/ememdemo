@@ -13,7 +13,7 @@ The box takes anything:
 | an emem link | the link re-checked: every file is re-hashed against its name |
 | any emem token: `emem:fact`, `bundle`, `cell`, `entity`, `raster`, `cube`, `rasterset`, `state` | the record it names, resolved and its signature checked in the browser |
 | a bare file name (26 characters) | the file, read by name over **A2A**, with its author's signature checked |
-| a link to large data: model weights (safetensors, GGUF), GeoTIFF/COG/BigTIFF, OME-Zarr, HLS video, DICOM, or any file with byte ranges | a **pointer**: the data stays at its source; emem holds its address, chunk hashes and statistics |
+| a link to large data: model weights (safetensors, GGUF), GeoTIFF/COG/BigTIFF, OME-Zarr, HLS video, DICOM, MP4, PMTiles, Parquet, FlatGeobuf, NetCDF-3 (variables and records, with a map of the main field), NetCDF-4/HDF5, COPC lidar (octree nodes), Zarr v3 with sharding (inner chunks from each shard's crc32c-checked index), 3DGS `.ply`, or any file with byte ranges | a **pointer**: the data stays at its source; emem holds its address, chunk hashes and statistics |
 | a Hugging Face repository or an S3 folder ending in `/` | a **listing** of every file with its publisher's content hash; nothing downloaded |
 | several links, one per line | one index over all of them |
 | `cameras: London` | 12 street cameras: each clip hashed again, the sun recomputed, the counts labelled as a detector's reading |
@@ -162,6 +162,9 @@ Every step declares its verbs in `emem.eio` (`step probe : remote -> hashes | pr
 - a stopped or failed run lists every write that was already accepted (those can't be undone), and keeps the previous result on screen, dimmed and labelled.
 - the work head counts this run's requests and bytes read.
 - the result separates **stored note** or **signed record** (what was checked of the stored bytes or the signature) from **checked now** (what was re-read from the source), with the time of the check.
+- an index opens by checking its own name plus sections chosen at random here (first, last and two more). **check all** reads every section, and so does opening the check tab, since an answer is checked against the whole source.
+- every result names who wrote it and that key's tier on emem's ladder (`GET /v1/enlist`). A key made here is T1 (keyed, unnamed). Witnesses are shown as a count of keys, not of parties. A key made here writes at most 400 notes an hour.
+- OCR's worker, WASM core and English data are pinned by sha256 in the manifest like every other library, and loaded only from checked bytes, with no cache.
 - copied commands quote every value as data. An ask result's handoff reads the frozen evidence bundle; asking again is a separate, labelled command.
 - three ways in above the box: **point** a file, **sense** a place, **check** a link. Each one sets what the box expects.
 - gallery cards are checked when they scroll into view, at most four at a time. A card's state names what was checked: `✓ note` (its bytes hash to its name; the source is re-read only when opened), `✓ receipt` (emem.dev signed it; that says who, not that it is right), or `unreachable` (not checked, which is different from a failed check).
@@ -288,6 +291,59 @@ Each note kind declares its schema in `emem.eio` as a `spec` block. The schema i
 | indexed · stored | doc · text | index and text notes |
 | resolve · pin · open | any emem token · log head · other links | tokens |
 
+## Private links, keys and drift
+
+- **Private links.** In the publish panel, **encrypt** seals every note with AES-256-GCM (`emem: sealed.v1`). The key travels only in the link's `#k=…` fragment, which browsers never send to a server. The note's name is still the hash of the stored ciphertext, so anyone can check integrity, but only a holder of the whole link can read it. An index and all its sections share one key; the agent line carries it as `key=`.
+- **Keys.** The signing key is a non-extractable `CryptoKey` in IndexedDB: scripts on the page can sign with it but can't read it. A recovery file can be made only during setup (a new key, or one restored from a file), before the key is locked. After a reload the key is device-only. Old keys in `localStorage` are moved in once, and the plain copy is deleted. The site's own key is pinned in the loader (`SEAL.site`), so a seal by any other key is refused, and it is published in `.well-known/emem-agents.json`.
+- **Drift chains.** `tools/drift.mjs` re-reads 6 chunks of every gallery pointer and appends a `drift.v1` note to that pointer's chain:
+  - each entry names the one before it and records then/now hashes;
+  - each is stamped after the log head;
+  - entries are filed under `arcade/drift-<cid8>-<time>` in the watcher's folder;
+  - `.github/workflows/drift.yml` runs it daily with the site key as a secret.
+
+  Reopening a pointer reads the chain, checks every entry's author against the site key and that each names the previous one, and shows "recorded drift checks: n since …, every one held" (or when a change was seen).
+- **Our own outputs, guarded.** World, grid, compare, timelapse, track and camera notes that cite emem tokens go to emem-guard before they are stored. The signed verdict is written into the note (`guard: allow · n citations · verdict signed by emem.dev`). A guard that can't answer is recorded as unavailable, never as allow.
+- **Heads you have seen.** The page remembers the log heads this browser saw and, on each visit, proves (RFC 9162) that today's log still holds every one. That is a per-reader check against a log that rewrites its past or shows readers different histories.
+- **Back.** Each result is a place in history. Back reopens the previous reference, a read that never writes or re-runs a query.
+- **Stop keeps work.** Stopping a pointer mid-way offers to keep the chunks already hashed as a partial pointer, in one explicit write. `more:` continues it in the fixed order.
+- **Languages.** `lang es << … >>` in `emem.eio` holds a visitor-facing set of lines. The same rules check it (word counts, no jargon). Spanish and Hindi ship; `?lang=` picks one.
+
+## Private buckets, grants, second readers and budgets
+
+- **Private buckets.** A presigned URL (S3 `X-Amz-*`, GCS `X-Goog-*`, Azure `sig`/`se`/…) is used for this run and never stored. The pointer keeps the bare object URL and says `credential: presigned URL withheld`. Re-read it later with `<pointer link> with <fresh presigned URL>`, which is accepted only for the same object (same origin and path).
+- **Per-agent grants.** Every browser has an X25519 **share key** (footer). In the publish panel, list share keys under "encrypt". Each one gets a `grant.v1` note: the link's key wrapped by ECDH with a fresh key, HKDF-SHA256 and AES-GCM. The grant link (`…#g=<writer8>/<cid>`) carries no key at all, and only that share key's holder can open it.
+- **A second reader.** Reopening a pointer asks emem.dev to re-read one row at the source itself (`POST /v1/range_hash`). The page checks emem's signed receipt (PreimageV1 `emem.range_hash.v1`) and compares the hash with the row. The same row is proved to the note's root through `emem:tree` (`GET /v1/tree/{cid}`): the leaf is computed here from the row, then walked up the served path.
+- **Grids, bound.** Reopening a grid checks that every row with a value names a cell in that band's signed bundle, and echo-verifies a spread of printed values against the facts the bundle cites. Phoenix: 420 rows are members, and 18 of 18 sampled values match.
+- **Budgets.** `budget requests|bytes|seconds` in `emem.eio` caps each run. A run that reaches a cap stops itself like a Stop and says which cap it hit.
+- **Live.** A live HLS pointer can **follow live**: it re-reads the playlist every minute, at most 30 times, one extension each. Segments are named by media sequence, and rows whose segments have left the playlist are kept, so the chain grows. A camera survey can **refresh every 5 min**, at most 12 times. Stop ends either.
+- **Folders.** A listing records whether it was complete. A truncated re-listing reports files it didn't reach as "not reached", never as gone.
+
+## Agents together: request, claim, deliver, verify
+
+Agents can hand work to each other with no coordinator, following emem's agent-to-agent standard v2:
+- full keys are pinned at first contact;
+- authorship is verified offline;
+- hand-offs are made as tokens;
+- claims are re-derived, never taken from prose.
+
+| type | writes | who may |
+|---|---|---|
+| `ask <52-char key> to witness: <ref>` | `request.v1`, addressed `A -> B` so emem's inbox delivers it | anyone; an 8-character prefix is refused (display-only, grindable) |
+| `claim: <request>` | `claim.v1` | optional; stops a swarm repeating work |
+| `deliver: <request> <result>` | `deliver.v1` with the result's r1 line | only the key the request named |
+| `tasks: <request>` | nothing; it reads | anyone |
+| **verify** (a button on each delivery) | `verify.v1` with the verdict | any key but the deliverer |
+
+The task's state (requested → claimed → delivered → verified by n keys) is never stored. It is derived each time:
+1. read claims and deliveries from the requested key's own folder (`arcade/deliver-<request cid8>-…`), which only that key can write, so junk sent to the requester can't hide them; read verifications from the requester's inbox, in full, as a count of keys;
+2. check each note's bytes and its author's signature against the key it names;
+3. check that a delivery comes from the requested key;
+4. re-derive what the delivery points at. For a witness request, the result must be a witness of that pointer, and one that held.
+
+"Verified by n keys" counts T1 keys (keyed, unnamed), not parties.
+
+Specs for all four kinds are in `emem.eio` and in `llms.txt`.
+
 ## Checks that leave proof
 
 - **emem-guard.** When an answer cites emem tokens, the check tab sends it to emem-guard, which resolves every citation and returns a signed **allow** or **deny** with a reason code. The page checks that verdict against the pinned key. Tested: "Bengaluru's elevation is 915.07 m (emem:fact:…)" gets **allow**; the same sentence with 870 gets **deny PROV_VALUE**.
@@ -373,6 +429,7 @@ rule   gallery show
 | `src/eio.mjs` | rules, page, flows, gallery, checks |
 | `tools/seal.mjs` | seals the site on emem, stores the specs, and compiles `llms.txt`, `llms-full.txt` and the agent card |
 | `src/line.mjs` | r1 lines: one verb-first line per note or token, pure |
+| `src/hand.mjs` | agents together: request, claim, deliver, verify; the task's state derived from signed notes |
 | `src/grid.mjs` | city and forest grids: sample locations, units as the facts state them, correlation with its exclusions |
 | `src/read.mjs` | any input becomes markdown with headings, then sections and an index |
 | `src/reel.mjs` | timelapses: RGB cubes, verified frames, one rasterset |
@@ -380,6 +437,9 @@ rule   gallery show
 | `src/time.mjs` | log-head stamps, co-signing, RFC 9162 consistency proofs |
 | `tools/probes.mjs`, `tools/issue-state.mjs` | open items as rerunnable probes; results stored as signed state notes |
 | `SECURITY.md` | threat model |
+| `tests/`, `.github/workflows/test.yml` | offline unit tests and live browser tests, run in CI |
+| `tools/drift.mjs`, `.github/workflows/drift.yml` | daily drift chains for gallery pointers |
+| `.github/workflows/seal.yml` | reseals from main with the site key as a secret |
 | `src/camera.mjs` | street cameras: geo.qa postcards, clips re-hashed, sun recomputed |
 | `src/world.mjs` | every layer at a place: recall, terrain, composite, algorithms, cross-checks, one bundle |
 | `src/point.mjs` | large data named where it lives: structure readers (COG/BigTIFF, Zarr, HLS, safetensors, GGUF, DICOM), chunk hashes and statistics, Merkle root or chain, place, extend, re-check, compare |
@@ -409,6 +469,18 @@ rule   gallery show
 - **Ask** only answers questions about places, and takes 2–30 s depending on how warm emem.dev is.
 - **Not supported:** `emem:trace` / `emem:attestation` have no public examples, so the page does not claim to resolve them. `emem:state` has no MCP tool; the page says so.
 - **Chat apps:** plain ChatGPT, Claude or Gemini sessions may decline to open links. Coding agents, MCP and A2A clients do open them.
+
+## Tests
+
+`npm test` runs `tests/unit.mjs` (offline: the eio compiler, specs, r1 lines, the handoff grammar) and `tests/browser.mjs`. The browser tests drive headless Chromium against live emem.dev, and each case retries once:
+- seal states: normal, a flipped byte in a site file, a flipped byte in the manifest, boot from emem only;
+- rule breaks;
+- a lying file name;
+- shared-link gating;
+- the publish gate;
+- index sampling with "check all".
+
+`.github/workflows/test.yml` runs both on every pull request.
 
 ## Run
 

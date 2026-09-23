@@ -27,26 +27,69 @@ export const tokens=t=>{const n=count(t);return"~"+(n<1000?n:(n/1000).toFixed(n<
 export const pool=async(items,n,fn)=>{let i=0;await Promise.all(Array.from({length:Math.min(n,items.length)},async()=>{while(i<items.length){const k=i++;await fn(items[k],k)}}))};
 export const store=(k,v)=>{try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||"null");localStorage.setItem(k,JSON.stringify(v))}catch{return null}};
 // the run in hand: Stop aborts every request it still has open, and no write starts after it
-export const RUN={ctl:null,req:0,bytes:0,wrote:[]};
-export const stopped=()=>{if(RUN.ctl?.signal.aborted)throw new Error("Stopped. Nothing more was read or written.")};
-export const net=async(url,init={})=>{const signal=init.signal||RUN.ctl?.signal;stopped();try{const x=await fetch(url,signal?{...init,signal}:init);if(RUN.ctl&&!init.signal){RUN.req++;if(init.method!=="HEAD")RUN.bytes+=+x.headers.get("content-length")||0}return x}catch(e){if(signal?.aborted)stopped();throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
+export const RUN={ctl:null,req:0,bytes:0,wrote:[],at:0,cap:{requests:Infinity,bytes:Infinity,seconds:Infinity},why:""};
+export const stopped=()=>{if(RUN.ctl?.signal.aborted)throw new Error(RUN.why||"Stopped. Nothing more was read or written.")};
+// a run that reaches a cap stops itself like a Stop, and says which cap it was
+const capped=()=>{if(!RUN.ctl||RUN.ctl.signal.aborted)return;const c=RUN.cap,s=(Date.now()-RUN.at)/1000;
+ const hit=RUN.req>=c.requests?`${c.requests} requests`:RUN.bytes>=c.bytes?`${(c.bytes/1e9).toFixed(1)} GB declared`:s>=c.seconds?`${c.seconds} seconds`:"";
+ if(hit){RUN.why=`Stopped: this run reached its budget of ${hit}. Nothing more was read or written.`;RUN.ctl.abort()}};
+export const net=async(url,init={})=>{const signal=init.signal||RUN.ctl?.signal;if(!init.signal)capped();stopped();try{const x=await fetch(url,signal?{...init,signal}:init);if(RUN.ctl&&!init.signal){RUN.req++;if(init.method!=="HEAD")RUN.bytes+=+x.headers.get("content-length")||0}return x}catch(e){if(signal?.aborted)stopped();throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
 
 // ---------- key: made in this browser, never sent anywhere ----------
-let KEY=null;
+// The working key is a non-extractable CryptoKey kept in IndexedDB: a script that runs here can sign with it but can't read it.
+// A recovery file can only be made at setup (a new key, or one restored from a file), before the key is locked;
+// after a reload the key is device-only. Old keys in localStorage are moved in once and the plain copy deleted.
+let KEY=null,RECOVER=null;
+const E={name:"Ed25519"};
+const idb=(mode,fn)=>new Promise((ok,no)=>{let o;try{o=indexedDB.open("emem",1)}catch(e){return no(e)}o.onupgradeneeded=()=>o.result.createObjectStore("keys");o.onerror=()=>no(o.error);
+ o.onsuccess=()=>{const t=o.result.transaction("keys",mode),r=fn(t.objectStore("keys"));t.oncomplete=()=>ok(r?.result);t.onerror=()=>no(t.error)}});
+const lock=async(pkcs8,pubRaw)=>{const priv=await crypto.subtle.importKey("pkcs8",pkcs8,E,false,["sign"]),pub=b32(new Uint8Array(pubRaw));
+ try{await idb("readwrite",st=>st.put({priv,pub},"site"))}catch{store("emem.key",{priv:b64(pkcs8),pub:b64(pubRaw)});return{priv,pub,stored:"local"}} // no IndexedDB (private mode): the old way, said so
+ return{priv,pub,stored:"device"}};
+export const keyState=()=>KEY?{stored:KEY.stored,recoverable:!!RECOVER}:null;
 export const key=async()=>{
  if(KEY)return KEY;
- const E={name:"Ed25519"},saved=store("emem.key");
  try{
-  if(saved)KEY={priv:await crypto.subtle.importKey("pkcs8",unb64(saved.priv),E,false,["sign"]),pub:b32(unb64(saved.pub))};
-  else{
-   const k=await crypto.subtle.generateKey(E,true,["sign","verify"]);
-   const priv=await crypto.subtle.exportKey("pkcs8",k.privateKey),pub=await crypto.subtle.exportKey("raw",k.publicKey);
-   store("emem.key",{priv:b64(priv),pub:b64(pub)});
-   KEY={priv:k.privateKey,pub:b32(new Uint8Array(pub))};
-  }
+  const saved=await idb("readonly",st=>st.get("site")).catch(()=>null);
+  if(saved?.priv){KEY={priv:saved.priv,pub:saved.pub,stored:"device"};return KEY}
+  const old=store("emem.key");
+  if(old){RECOVER={priv:old.priv,pub:old.pub};KEY=await lock(unb64(old.priv),unb64(old.pub));if(KEY.stored==="device")try{localStorage.removeItem("emem.key")}catch{}return KEY}
+  const k=await crypto.subtle.generateKey(E,true,["sign","verify"]);
+  const priv=await crypto.subtle.exportKey("pkcs8",k.privateKey),pub=await crypto.subtle.exportKey("raw",k.publicKey);
+  RECOVER={priv:b64(priv),pub:b64(pub)};KEY=await lock(priv,pub);
  }catch{throw new Error("This browser cannot sign (no Ed25519). Update it and try again.")}
  return KEY;
 };
+
+// ---------- private notes: AES-256-GCM with a key that travels only in the link's #fragment (never sent to a server) ----------
+// The note's name is still the hash of what is stored (the ciphertext), so anyone can check integrity; only a holder of #k= can read it.
+const b64u=u=>b64(u).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""),unb64u=s=>unb64(s.replace(/-/g,"+").replace(/_/g,"/")+"===".slice((s.length+3)%4));
+export const newSecret=()=>b64u(crypto.getRandomValues(new Uint8Array(32)));
+const aes=s=>crypto.subtle.importKey("raw",unb64u(s),"AES-GCM",false,["encrypt","decrypt"]);
+export const SEALED=/^---\nemem: sealed\.v1\n/;
+export const sealText=async(body,secret)=>{const iv=crypto.getRandomValues(new Uint8Array(12)),c=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},await aes(secret),U(body)));
+ return`---\nemem: sealed.v1\ncipher: AES-256-GCM\niv: ${b64u(iv)}\n---\n\n${b64u(c)}\n`};
+export const openText=async(body,secret)=>{const iv=(body.match(/^iv: (\S+)$/m)||[])[1],c=body.replace(/^---\n[\s\S]*?\n---\n\n/,"").trim();
+ try{return new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64u(iv)},await aes(secret),unb64u(c)))}catch{throw new Error("This note is encrypted, and the #k= in the link doesn't open it.")}};
+// per-agent grants: a private link's key wrapped to one recipient's X25519 share key (ECDH with a fresh key, HKDF-SHA256,
+// AES-GCM). The grant is an ordinary public note naming the recipient's share key; only that key's holder can unwrap it.
+let SHARE=null;
+export const shareKey=async()=>{if(SHARE)return SHARE;
+ const saved=await idb("readonly",st=>st.get("share")).catch(()=>null);if(saved?.priv){SHARE=saved;return SHARE}
+ const k=await crypto.subtle.generateKey({name:"X25519"},true,["deriveBits"]),priv=await crypto.subtle.importKey("pkcs8",await crypto.subtle.exportKey("pkcs8",k.privateKey),{name:"X25519"},false,["deriveBits"]);
+ SHARE={priv,pub:b64u(new Uint8Array(await crypto.subtle.exportKey("raw",k.publicKey)))};await idb("readwrite",st=>st.put(SHARE,"share")).catch(()=>{});return SHARE};
+const kek=async(shared,salt)=>crypto.subtle.deriveKey({name:"HKDF",hash:"SHA-256",salt,info:U("emem.grant.v1")},await crypto.subtle.importKey("raw",shared,"HKDF",false,["deriveKey"]),{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
+export const grantBody=async(secret,forPub,of)=>{if(!/^[A-Za-z0-9_-]{43}$/.test(forPub))throw new Error(`"${forPub}" is not a share key (43 characters, base64url).`);
+ const eph=await crypto.subtle.generateKey({name:"X25519"},true,["deriveBits"]),ephPub=new Uint8Array(await crypto.subtle.exportKey("raw",eph.publicKey)),rp=unb64u(forPub);
+ const shared=await crypto.subtle.deriveBits({name:"X25519",public:await crypto.subtle.importKey("raw",rp,{name:"X25519"},false,[])},eph.privateKey,256);
+ const iv=crypto.getRandomValues(new Uint8Array(12)),w=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},await kek(shared,new Uint8Array([...ephPub,...rp])),unb64u(secret)));
+ return`---\nemem: grant.v1\nof: ${of}\nfor: ${forPub}\neph: ${b64u(ephPub)}\niv: ${b64u(iv)}\nwrapped: ${b64u(w)}\n---\n\n# a key to one private link, readable only by share key ${forPub.slice(0,8)}\n`};
+export const openGrant=async body=>{const f=k=>(body.match(new RegExp(`^${k}: (\\S+)$`,"m"))||[])[1],me=await shareKey();
+ if(f("for")!==me.pub)throw new Error("This grant is for another share key, not this browser's.");
+ const ephPub=unb64u(f("eph")),shared=await crypto.subtle.deriveBits({name:"X25519",public:await crypto.subtle.importKey("raw",ephPub,{name:"X25519"},false,[])},me.priv,256);
+ try{return{secret:b64u(new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64u(f("iv"))},await kek(shared,new Uint8Array([...ephPub,...unb64u(me.pub)])),unb64u(f("wrapped"))))),of:f("of")}}
+ catch{throw new Error("This grant doesn't open with this browser's share key.")}};
+export const SECRET_LINK=/^(https:\/\/emem\.dev\/memories\/\S+\.md)#k=([A-Za-z0-9_-]{43})$/;
 
 // ---------- notes: named by the hash of their bytes, signed by the writer ----------
 // a note may instead be addressed to another key (at = "arcade/<what>-<time>-to-<their 8>.md"); the signature covers that path
@@ -61,9 +104,19 @@ const bucket={left:40,at:Date.now()};
 const slot=async()=>{for(;;){const now=Date.now();bucket.left=Math.min(40,bucket.left+(now-bucket.at)/1000*3.5);bucket.at=now;if(bucket.left>=1){bucket.left--;return}await new Promise(z=>setTimeout(z,(1-bucket.left)/3.5*1000+20))}};
 const there=async n=>{const back=await fetch(n.url).catch(()=>null);return!!(back?.ok&&cidOf(new Uint8Array(await back.arrayBuffer()))===n.cid)};
 const landed=n=>{if(RUN.ctl)RUN.wrote.push(n.url)};
+// a key made in this page writes at most CAP notes an hour, counted in this browser: a swarm can still mint keys,
+// which is why every result names its writer's tier (see who())
+export const CAP=400;
+const spend=()=>{const now=Date.now(),w=(store("emem.writes")||[]).filter(t=>now-t<3600e3);
+ if(w.length>=CAP)throw new Error(`This browser's key has written ${CAP} notes in the last hour, the most this page allows. Try again in ${Math.ceil((w[0]+3600e3-now)/60e3)} minutes.`);
+ w.push(now);store("emem.writes",w)};
+// who wrote a note, and what a peer may conclude about that key (emem's enlistment ladder, GET /v1/enlist).
+// Only what is computed here is claimed: a signed write with a full key is T1 (keyed); naming (T2) and affiliation (T4) need evidence this page doesn't hold.
+export const who=(url,site)=>{const k=(String(url).match(/by_attester\/([a-z2-7]{8})\//)||[])[1];if(!k)return null;
+ return{key:k,tier:"T1 keyed",site:k===site,says:k===site?"this site's key, pinned in its seal":"a key that signed its own namespace; not named, not affiliated"}};
 export const put=async(n,pub)=>{
  for(let attempt=0;;attempt++){
-  stopped();await slot();stopped();
+  stopped();if(!attempt)spend();await slot();stopped();
   // a retry after a timeout or 5xx may follow a write that was accepted: look before writing again
   if(attempt&&await there(n)){landed(n);return}
   let x;try{x=await net(WRITE,{method:"POST",headers:{"content-type":"application/json",accept:"application/json"},
@@ -213,6 +266,45 @@ const viewChecked=async cid=>{
   author=(ed.verify(sig,b3(v1),key)||ed.verify(sig,b3(v2),key))&&a.signed_path===n.path}catch{author=false}}
  return{n,same,author};
 };
+// a note at any path, with who wrote it proved offline: bytes re-hashed, and the author's signature over its path checked
+export const signedNote=async url=>{const g=await getNote(url),{n,same,author}=await viewChecked(g.cid);
+ return{url,body:g.body,cid:g.cid,key:n.attester_pubkey_b32,path:n.path,at:n.signed_at,ok:same&&author===true&&EMEM+n.path===url}};
+// a link's drift chain, as a watcher recorded it (tools/drift.mjs): each entry's author must be the watcher's full key,
+// and each must name the one before it. Returns what the chain says, or null when nobody is watching.
+export const driftOf=async(url,watcher)=>{const cid8=(url.match(/([a-z2-7]{26})\.md$/)||[])[1]?.slice(0,8);if(!cid8||!watcher)return null;
+ const listed=(await json(await net(`${EMEM}/memories/by_attester/${watcher.slice(0,8)}/arcade/?limit=5000`))).entries||[];
+ const paths=listed.map(e=>e.path).filter(p=>p.includes(`/arcade/drift-${cid8}-`)).sort().slice(-30);if(!paths.length)return null;
+ const es=await Promise.all(paths.map(p=>signedNote(EMEM+p).catch(()=>null)));
+ const f=(b,k)=>(b.match(new RegExp(`^${k}: (.+)$`,"m"))||[])[1]||"";let linked=true,bad=0;
+ es.forEach((e,i)=>{if(!e||!e.ok||e.key!==watcher||f(e.body,"of")!==url)bad++;else if(i&&f(e.body,"previous")!==es[i-1]?.url)linked=false});
+ const good=es.filter(e=>e?.ok&&e.key===watcher),changed=good.filter(e=>/ changed \d+\/\d+$/m.test((e.body.match(/^# (.+)$/m)||[])[1]||""));
+ return{n:good.length,bad,linked,since:f(good[0]?.body||"","at").slice(0,10),last:f(good.at(-1)?.body||"","at").slice(0,16).replace("T"," "),changed:changed.length,lastChange:f(changed.at(-1)?.body||"","at").slice(0,10)}};
+// emem's corpus stream (GET /v1/stream): a signed corpus.state tick every 15 s. Each tick is verified here against the
+// pinned key: ed25519 over blake3(PreimageV1 "emem.stream.tick.v1" {1 version, 2 key_epoch u32-BE, 3 served_at, 4 registry_cid, 5 distinct_cells u64-BE}).
+export const corpusStream=(S,onTick)=>{if(typeof EventSource==="undefined")return null;const es=new EventSource(`${EMEM}/v1/stream?interval=15`);
+ const pre=(domain,segs)=>{const o=[...U("emem.preimage.v1\0")],d=U(domain),u32=n=>o.push(n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255);u32(d.length);o.push(...d);for(const[t,b]of segs){o.push(t);u32(b.length);o.push(...b)}return new Uint8Array(o)};
+ const be=(n,w)=>{const b=new Uint8Array(w);let v=BigInt(n);for(let i=w-1;i>=0;i--){b[i]=Number(v&255n);v>>=8n}return b};
+ es.addEventListener("state",async m=>{try{const ev=JSON.parse(m.data);await verifier();const I=globalThis.ememVerifyInternals;
+  const p=pre("emem.stream.tick.v1",[[1,U(String(ev.version))],[2,be(ev.responder.key_epoch,4)],[3,U(ev.served_at)],[4,U(ev.manifests.registry_cid)],[5,be(ev.corpus.distinct_cells,8)]]);
+  const ok=ev.responder.pubkey_b32===S.signer&&I.ed.verify(I.b32decode(ev.signature.signature_b32),I.blake3(p),I.b32decode(S.signer));
+  onTick({ok,cells:ev.corpus.distinct_cells,bands:ev.corpus.distinct_bands,facts:ev.corpus.facts_scanned,at:ev.served_at})}catch{onTick({ok:false})}});
+ return es};
+// a second reader: emem.dev fetches exactly these bytes itself and signs their hash (POST /v1/range_hash). The receipt is
+// checked here: ed25519 over PreimageV1 "emem.range_hash.v1" {1 url, 2 u64-BE offset, 3 u64-BE length, 4 blake3 raw,
+// 5 etag|"absent", 6 fetched_at, 7 responder key raw, 8 fetched_url}.
+const pv1=(domain,segs)=>{const o=[...U("emem.preimage.v1\0")],d=U(domain),u32=n=>o.push(n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255);u32(d.length);o.push(...d);for(const[t,b]of segs){o.push(t);u32(b.length);o.push(...b)}return new Uint8Array(o)};
+const be=(n,w)=>{const b=new Uint8Array(w);let v=BigInt(n);for(let i=w-1;i>=0;i--){b[i]=Number(v&255n);v>>=8n}return b};
+export const rangeHash=async(url,offset,length,S)=>{const j=await json(await post(`${EMEM}/v1/range_hash`,{url,offset,length}));await verifier();const I=globalThis.ememVerifyInternals,r=j.receipt||{};
+ let signed=false;try{signed=r.responder_pubkey_b32===S.signer&&I.ed.verify(I.b32decode(r.signature_b32),I.blake3(pv1("emem.range_hash.v1",[[1,U(j.url)],[2,be(j.offset,8)],[3,be(j.length,8)],[4,I.b32decode(j.blake3_b32)],[5,U(j.etag||"absent")],[6,U(j.fetched_at)],[7,I.b32decode(r.responder_pubkey_b32)],[8,U(j.fetched_url)]])),I.b32decode(S.signer))}catch{}
+ return{hash:j.blake3_b32,signed,etag:j.etag,at:j.fetched_at}};
+// one row of a note's Merkle table, proved to the note's root with log2(n) hashes (GET /v1/tree/{cid}): the leaf is computed
+// here from the row itself (blake3(url ‖ u64-BE offset ‖ u64-BE length ‖ hash)), then walked up the served path
+export const treeRow=async(cid,row,root)=>{const j=await json(await net(`${EMEM}/v1/tree/${cid}?row=${encodeURIComponent(row.label)}`));await verifier();const I=globalThis.ememVerifyInternals;
+ const cat=(...a)=>{const r=new Uint8Array(a.reduce((n,x)=>n+x.length,0));let i=0;for(const x of a){r.set(x,i);i+=x.length}return r};
+ let h=I.blake3(cat(U(row.url||""),be(row.offset,8),be(row.length,8),I.b32decode(row.hash)));const mine=b32(h)===j.leaf_b32;
+ for(const p of j.path||[]){const x=I.b32decode(p.hash_b32);h=p.side==="left"?I.blake3(cat(x,h)):I.blake3(cat(h,x))}
+ return{ok:mine&&b32(h)===root&&j.root_b32===root,steps:(j.path||[]).length,rows:j.rows,token:j.token}};
+export const inboxOf=async k8=>(await json(await net(`${EMEM}/v1/inbox?to=${k8}&limit=500`))).messages||[];
 const byName=async(cid,S,tick)=>{
  tick("by name over A2A");
  const{n,same,author}=await viewChecked(cid);
@@ -255,7 +347,8 @@ export const ask=async(q,S,tick)=>{
  tick("one handle for the evidence");
  const b=await post(`${EMEM}/v1/memory_bundle`,{triples:facts.map(f=>({cell,band:f.band})),purpose:`evidence for: ${q}`}).then(json).catch(()=>null);
  const handle=b?.bundle_token||facts[0]?.token||"",score=(env.algorithm_outcomes_summary||[])[0];
- const f={title:q,big:env.place_resolved.label,lines:[["answer",env.answer],...facts.map(x=>[x.band,`${fmt(x.value)} ${x.unit||""}`.trim()+`  ${x.token}`])],ok:signed,
+ const lp=env.live_perception,lpLine=lp?[["live perception",typeof lp==="string"?lp:[lp.summary||lp.label,lp.counts?JSON.stringify(lp.counts):"",lp.captured_at||lp.at].filter(Boolean).join(" · ").slice(0,220)||JSON.stringify(lp).slice(0,220)]]:[];
+ const f={title:q,big:env.place_resolved.label,lines:[["answer",env.answer],...lpLine,...facts.map(x=>[x.band,`${fmt(x.value)} ${x.unit||""}`.trim()+`  ${x.token}`])],ok:signed,
   proof:[signed?`✓ answer signed by emem.dev`:"✗ answer signature fails",`${env.fact_cids.length} facts cited`,b?"evidence bundled":""]};
  const url=b?`${EMEM}/v1/memory_bundle/${handle}`:handle;
  return{token:handle,url,cid:handle.split(":").pop(),title:q,face:f,body:`${env.place_resolved.label}\n\n${env.answer}\n\nEvidence (each is a signed fact):\n${facts.map(x=>`- ${x.band} = ${fmt(x.value)} ${x.unit||""}  ${x.token}`).join("\n")}${b?`\n\nAll of it, one handle: ${handle}`:""}`,
@@ -325,9 +418,9 @@ export const guard=async(text,S)=>{
 };
 
 // the key, carried between browsers: a backup is the key itself, so whoever holds the file can write as you
-export const exportKey=()=>{const k=store("emem.key");return k?JSON.stringify({emem_key:1,pub_b32:b32(unb64(k.pub)),...k},null,1):null};
+// a recovery file exists only while this setup's copy is in memory (this session, before a reload)
+export const exportKey=()=>RECOVER?JSON.stringify({emem_key:1,pub_b32:b32(unb64(RECOVER.pub)),...RECOVER},null,1):null;
 export const importKey=async text=>{
  const j=JSON.parse(text);if(!j.priv||!j.pub)throw new Error("That file is not an emem key backup.");
- await crypto.subtle.importKey("pkcs8",unb64(j.priv),{name:"Ed25519"},false,["sign"]);
- store("emem.key",{priv:j.priv,pub:j.pub});KEY=null;return b32(unb64(j.pub));
+ KEY=await lock(unb64(j.priv),unb64(j.pub));RECOVER={priv:j.priv,pub:j.pub};return KEY.pub;
 };

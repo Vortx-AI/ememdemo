@@ -1,0 +1,21 @@
+name: test
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright-core install chromium
+      - name: unit (offline)
+        run: npm run test:unit
+      # live: these talk to emem.dev, so each case retries once
+      - name: browser (live emem.dev)
+        run: npm run test:browser

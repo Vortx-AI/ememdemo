@@ -1,0 +1,13 @@
+{
+  "name": "ememdemo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/unit.mjs && node tests/browser.mjs",
+    "test:unit": "node tests/unit.mjs",
+    "test:browser": "node tests/browser.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.63.0"
+  }
+}

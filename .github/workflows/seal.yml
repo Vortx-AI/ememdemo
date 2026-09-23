@@ -1,0 +1,33 @@
+name: seal
+# reseal the site from main with the site key held as an Actions secret, then commit what the seal pins.
+# Without the secret this job does nothing: a page sealed by any other key is refused by the loader (SEAL.site).
+on:
+  push:
+    branches: [main]
+    paths: ["emem.eio", "src/**", "tools/seal.mjs"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  seal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: seal
+        env:
+          SITE_KEY_JSON: ${{ secrets.EMEM_SITE_KEY_JSON }}
+        run: |
+          if [ -z "$SITE_KEY_JSON" ]; then echo "no EMEM_SITE_KEY_JSON secret; not sealing"; exit 0; fi
+          printf '%s' "$SITE_KEY_JSON" > "$RUNNER_TEMP/key.json"
+          EMEM_KEY_FILE="$RUNNER_TEMP/key.json" node tools/seal.mjs
+          rm -f "$RUNNER_TEMP/key.json"
+      - name: commit what the seal pinned
+        run: |
+          git config user.name "ememdemo seal"
+          git config user.email "seal@users.noreply.github.com"
+          git add index.html llms.txt llms-full.txt .well-known
+          git diff --cached --quiet || git commit -m "seal: pin the manifest for $(git rev-parse --short HEAD)" && git push
