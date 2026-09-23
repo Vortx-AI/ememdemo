@@ -369,3 +369,23 @@ export const describe=(sections,multi,total=40000)=>{
   return{title:r.title,covers:n<r.covers.length?`${t}; +${r.covers.length-n} more`:t,terms:r.terms};
  });
 };
+
+// ---------- read as data: passages that address an AI, which an agent must never obey ----------
+// A document can carry instructions aimed at whatever model reads it later (prompt injection), sometimes hidden in
+// invisible characters. They are kept, because they are part of the document, and flagged, so the index says so.
+const INJECT=[
+ [/\b(ignore|disregard|forget|override)\b[^.\n]{0,40}\b(previous|prior|above|earlier|all|any|your)\b[^.\n]{0,30}\b(instructions?|prompts?|rules|guidelines|messages?)\b/i,"tells the reader to drop its instructions"],
+ [/\b(you are now|from now on,? you|new instructions:|act as (?:an? )?(?:system|admin|developer|jailbroken))\b/i,"tries to change who the reader is"],
+ [/\b(system prompt|developer message|<\|?(?:im_start|system|assistant)\|?>|\[\/?INST\]|BEGIN (?:SYSTEM|INSTRUCTIONS))\b/i,"imitates a model's control text"],
+ [/\b(do not|don't|never)\s+(tell|inform|mention|reveal|show)\b[^.\n]{0,30}\b(user|human|operator)\b/i,"asks the reader to hide something from its user"],
+ [/\b(send|post|upload|exfiltrate|leak|forward)\b[^.\n]{0,40}\b(api[ _-]?keys?|passwords?|credentials|secrets?|tokens?|private keys?|cookies)\b/i,"asks the reader to send secrets somewhere"],
+ [/\b(curl|wget)\b[^\n|]{0,120}\|\s*(sh|bash|zsh|python)\b/i,"pipes a download straight into a shell"],
+ [/!\[[^\]]*\]\(https?:\/\/[^)\s]+\?[^)\s]*(\{|%7B|data=|q=|secret|token)/i,"an image link that could carry data out"]];
+const HIDDEN=/[\u{E0000}-\u{E007F}​-‏⁠-⁤‪-‮]/gu;
+export const injections=(sections,max=40)=>{
+ const found=[];
+ sections.forEach((s,si)=>{const t=s.text||"",hid=(t.match(HIDDEN)||[]).length;
+  if(hid)found.push({section:si+1,why:`${hid} invisible characters (a way to hide text from people but not from models)`,text:t.replace(HIDDEN,"").slice(0,0)});
+  for(const line of t.split("\n"))for(const[re,why]of INJECT)if(re.test(line)){found.push({section:si+1,why,text:line.trim().slice(0,160)});break}});
+ return found.slice(0,max);
+};

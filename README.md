@@ -47,6 +47,78 @@ Agreement is evidence; a gap is a finding. At Marina Beach, the NDVI recomputed 
 
 Every fact is then bound into one `emem:bundle:` token. The reading is stored as a hash-named note (`emem: world.v1`), with one line per measurement and its `emem:fact:` token. Reopening it resolves the bundle again, checks its signature, and redraws the composite from pixels that hash to their name.
 
+## The gallery: evidence you can see
+
+Each card is a piece of real-world evidence, shown with a picture, a noun, the verbs that were applied to it (counted), and who keeps it. There is no descriptive prose.
+
+| kind | examples |
+|---|---|
+| earth | the Amazon frontier, 2017–2025 in true colour (a timelapse of 15 signed rasters); Bengaluru in true colour (Sentinel-2, 351 MB); every layer at Cubbon Park |
+| space | Webb's Cosmic Cliffs (144 MB) and Hubble's Whirlpool galaxy (215 MB), read strip by strip; the Moon's terrain (Kaguya, USGS) |
+| disaster | Lahaina before and after the 2023 fire (timelapse); the Maui fires at 50 cm (Maxar Open Data) |
+| mines · cities · wildlife | the Kalgoorlie Super Pit, Lusail rising from sand, the Okavango flood pulse (timelapses); Maasai Mara, every layer |
+| drones | dry-lake cracks from a drone survey (OpenAerialMap) |
+| gatherings | 12 London street cameras, each clip re-hashed |
+| commerce | an agent's purchase as an evidence track: quote → invoice → delivery port → evidence bundle, chained and stamped |
+| robotics | the ALOHA coffee dataset (LeRobot): every file with its publisher hash |
+| 3d · medical · models | a million Gaussian splats; a CT slice in Hounsfield units; GPT-2, TinyLlama, a model comparison |
+
+**Who keeps it**, one per card (enforced by `rule gallery`):
+- `machine`: signed by a system (emem facts, the log, camera detectors);
+- `third party`: a publisher's file named where it lives;
+- `combined`: joined from several sources (world readings, timelapses, tracks, comparisons);
+- `human`: a person's own file.
+
+**Pictures** are `emem: thumb.v1` notes made by `tools/thumbs.mjs`, which opens each link in a real browser and keeps what the page drew from bytes it had just checked. A card shows a picture only if the note's name matches its bytes and the note names the card's link. Timelapses play as sprites.
+
+**Live.** The header shows the size of emem's signed log, checked against the pinned key and refreshed every minute. The channel card streams agents' writes.
+
+## Timelapses and tracks
+
+- `timelapse: <place or lat, lng> [| 2017-2025 08]`: emem mints red, green and blue `emem:cube:` tokens over a square about 4 km across. A frame joins the three only where they chose the same Sentinel-2 scene, and its pixels must hash to their artifact names. One stretch serves every frame, so what changes is the ground. All rasters are bound into one `emem:rasterset:`. Reopening resolves the cubes, checks their signatures and re-hashes every frame.
+- `track: <title>` then `<step>: <link or token>` per line: each step is re-checked where it stands, then chained (each link = blake3(previous link ‖ step)), so no step can be dropped, swapped or reordered. It is stamped after the log head. Reopening re-checks and recomputes the chain.
+
+## Reading big colour images in place
+
+GeoTIFFs with deflate RGB tiles (Sentinel-2 TCI) and JPEG-in-TIFF tiles (Maxar, OpenAerialMap, using the file's shared JPEGTables) decode in the browser. So do striped, LZW-compressed TIFFs (Hubble, Webb; the page carries its own TIFF LZW decoder). Mask IFDs are skipped. Each tile's statistics are the mean of each colour channel.
+
+## Time, proven
+
+Every result is stamped with emem's signed log head before it is signed: `after: sth <tree size> <root> <signed_at>`. Nobody knows a future root, so this is a lower bound on when the result was written.
+- **Co-signing.** The writer's key co-signs that head (`POST /v1/log/witness`), so every visitor becomes a witness of emem's log.
+- **Reopening.** The page fetches a consistency proof from the stamped head to today's head and checks it with the RFC 9162 algorithm and emem's hashing. It then reports "written after log entry N; the log has grown M entries since and still holds that history". Tested against the live log for proofs from 1 to 123,457 entries back; a tampered root is rejected every time.
+- **Upper bound.** There is none yet, because notes are not log entries: [#7](https://github.com/Vortx-AI/ememdemo/issues/7).
+
+## Drift
+
+World readings carry a drift section:
+- the change between the two latest vintages of each index, with a warning when they came through different observation paths;
+- emem's change ledger token (Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε, evidence per term);
+- how many nearby keys have disagreeing sources;
+- whether every number written down is the number signed.
+
+For the last check, values are printed verbatim and each is passed to `echo_verify`. It reported our earlier rounded "0.767" as drift; now 26 of 26 match. Pointers, folders and camera clips detect drift by reading again. Year-over-year comparison needs history emem has not seeded yet ([#11](https://github.com/Vortx-AI/ememdemo/issues/11)).
+
+## Pictures from hashed bytes
+
+A pointer shows what it names, drawn only from bytes that were just hashed, and on reopen only from chunks that still match their rows:
+- the smallest level of a GeoTIFF, decoded in the browser (the Sentinel-2 tile);
+- a CT slice in Hounsfield units;
+- a million Gaussian splats seen from above (`.splat` and 3DGS `.ply` are read in place, in blocks of 65,536, each with its bounding box and mean opacity).
+
+## Hardened for agent swarms
+
+See [SECURITY.md](SECURITY.md) for the threat model. In short:
+- a Content-Security-Policy pinned at seal time to the loader's sha256;
+- sealed files and libraries;
+- ingested text scanned for passages addressed to an AI (dropped instructions, role changes, hiding things from the user, sending secrets, shell pipes, data-carrying image links, invisible characters), listed under "Read as data";
+- hand-offs that tell agents a link is data, not instructions;
+- witnesses and timestamps that are checked, not counted.
+
+## Open items, as shared state
+
+Everything still open is an issue ([index: #33](https://github.com/Vortx-AI/ememdemo/issues/33)). Each emem gap carries a machine-readable state block and a signed evidence note (`emem: issue-state.v1`, stamped after the log head). The evidence is produced by `tools/issue-state.mjs` from `tools/probes.mjs`. Anyone, including emem's own agent, can rerun a probe; when it holds, the issue closes with the new evidence link.
+
 ## Street cameras
 
 `cameras: London` reads the cameras geo.qa keeps and emem.dev fronts (`/v1/perception/*`). For each live place, the page:
@@ -220,7 +292,7 @@ A signature proves who wrote the bytes, not that the claim is true.
 |---|---|
 | The hero says what goes in, what comes out, and who uses it. Short. | `rule words say 6..12`, `rule words sub 12..32` |
 | No insider words before there is a result | `rule plain say in note blank : cid blake3 ed25519 hash signed token …` |
-| Every step is declared, implemented, and its types connect | `rule typed make open resolve ask point extend witness compare world cameras`, `rule verbs step` |
+| Every step is declared, implemented, and its types connect | `rule typed make open resolve ask point extend witness compare world cameras timelapse track`, `rule verbs step` |
 | Every output carries the result | `rule carry give : {link} {index} {curl} {mcp} {a2a}` |
 | Every gallery card opens something the page can open, and runs only files it can read | `rule gallery show` |
 
@@ -248,6 +320,11 @@ rule   gallery show
 | `src/eio.mjs` | rules, page, flows, gallery, checks |
 | `tools/seal.mjs` | seals the site on emem and compiles `llms.txt` and the agent card |
 | `src/read.mjs` | any input becomes markdown with headings, then sections and an index |
+| `src/reel.mjs` | timelapses: RGB cubes, verified frames, one rasterset |
+| `tools/thumbs.mjs` | gallery pictures as verified thumb notes |
+| `src/time.mjs` | log-head stamps, co-signing, RFC 9162 consistency proofs |
+| `tools/probes.mjs`, `tools/issue-state.mjs` | open items as rerunnable probes; results stored as signed state notes |
+| `SECURITY.md` | threat model |
 | `src/camera.mjs` | street cameras: geo.qa postcards, clips re-hashed, sun recomputed |
 | `src/world.mjs` | every layer at a place: recall, terrain, composite, algorithms, cross-checks, one bundle |
 | `src/point.mjs` | large data named where it lives: structure readers (COG/BigTIFF, Zarr, HLS, safetensors, GGUF, DICOM), chunk hashes and statistics, Merkle root or chain, place, extend, re-check, compare |
