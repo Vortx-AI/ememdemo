@@ -27,9 +27,9 @@ export const tokens=t=>{const n=count(t);return"~"+(n<1000?n:(n/1000).toFixed(n<
 export const pool=async(items,n,fn)=>{let i=0;await Promise.all(Array.from({length:Math.min(n,items.length)},async()=>{while(i<items.length){const k=i++;await fn(items[k],k)}}))};
 export const store=(k,v)=>{try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||"null");localStorage.setItem(k,JSON.stringify(v))}catch{return null}};
 // the run in hand: Stop aborts every request it still has open, and no write starts after it
-export const RUN={ctl:null};
+export const RUN={ctl:null,req:0,bytes:0,wrote:[]};
 export const stopped=()=>{if(RUN.ctl?.signal.aborted)throw new Error("Stopped. Nothing more was read or written.")};
-export const net=async(url,init={})=>{const signal=init.signal||RUN.ctl?.signal;stopped();try{return await fetch(url,signal?{...init,signal}:init)}catch(e){if(signal?.aborted)stopped();throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
+export const net=async(url,init={})=>{const signal=init.signal||RUN.ctl?.signal;stopped();try{const x=await fetch(url,signal?{...init,signal}:init);if(RUN.ctl&&!init.signal){RUN.req++;if(init.method!=="HEAD")RUN.bytes+=+x.headers.get("content-length")||0}return x}catch(e){if(signal?.aborted)stopped();throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
 
 // ---------- key: made in this browser, never sent anywhere ----------
 let KEY=null;
@@ -59,19 +59,24 @@ export const note=async(body,k,at)=>{
 // emem.dev lets one key burst about 60 writes, then about 4 a second; stay under both
 const bucket={left:40,at:Date.now()};
 const slot=async()=>{for(;;){const now=Date.now();bucket.left=Math.min(40,bucket.left+(now-bucket.at)/1000*3.5);bucket.at=now;if(bucket.left>=1){bucket.left--;return}await new Promise(z=>setTimeout(z,(1-bucket.left)/3.5*1000+20))}};
+const there=async n=>{const back=await fetch(n.url).catch(()=>null);return!!(back?.ok&&cidOf(new Uint8Array(await back.arrayBuffer()))===n.cid)};
+const landed=n=>{if(RUN.ctl)RUN.wrote.push(n.url)};
 export const put=async(n,pub)=>{
  for(let attempt=0;;attempt++){
   stopped();await slot();stopped();
-  const x=await net(WRITE,{method:"POST",headers:{"content-type":"application/json",accept:"application/json"},
-   body:JSON.stringify({skill:"emem_memory_create",args:{path:n.path,file_text:n.body,kind:"resource",attester:{pubkey_b32:pub,sig_b32:n.sig}}})});
+  // a retry after a timeout or 5xx may follow a write that was accepted: look before writing again
+  if(attempt&&await there(n)){landed(n);return}
+  let x;try{x=await net(WRITE,{method:"POST",headers:{"content-type":"application/json",accept:"application/json"},
+   body:JSON.stringify({skill:"emem_memory_create",args:{path:n.path,file_text:n.body,kind:"resource",attester:{pubkey_b32:pub,sig_b32:n.sig}}})})}
+  catch(e){if(/^Stopped/.test(e.message)){if(await there(n))landed(n);throw e}if(attempt<4){await new Promise(z=>setTimeout(z,1500*(attempt+1)));continue}throw e}
   // a 200 can still carry a failed task: read it before calling the write done
   const ok=x.ok?await x.clone().json().then(j=>!(j?.error||/^(failed|error|rejected)$/i.test(j?.status||j?.state||j?.result?.status||"")||j?.result?.isError)).catch(()=>true):false;
-  if(ok)return;
+  if(ok){landed(n);return}
   if((x.status===429||x.status>=500)&&attempt<8){await new Promise(z=>setTimeout(z,1500*(attempt+1)));continue}
   const j=await x.json().catch(()=>({}));
   // same bytes, same name: if it is already there and hashes right, it is the same file
   const back=await fetch(n.url).catch(()=>null);
-  if(back?.ok&&cidOf(new Uint8Array(await back.arrayBuffer()))===n.cid)return;
+  if(back?.ok&&cidOf(new Uint8Array(await back.arrayBuffer()))===n.cid){landed(n);return}
   throw new Error("emem.dev refused to store it: "+String(j.message||j.error||x.status).split("\n")[0].replace(/^a2a skill `\w+` failed: \(-?\d+\)\s*/,""));
  }
 };
@@ -84,7 +89,9 @@ export const getNote=async url=>{
 };
 
 // ---------- how another agent reads a result: plain HTTP, MCP, or A2A; and how anyone checks it ----------
-const a2aCall=(skill,args)=>`curl -s ${EMEM}/a2a/tasks -H 'content-type: application/json' \\\n  -d '${JSON.stringify({skill,args})}'`;
+// every value in a copied command is data: single-quoted, with any quote inside it closed and escaped
+export const shq=v=>`'${String(v).replace(/'/g,"'\\''")}'`;
+const a2aCall=(skill,args)=>`curl -s ${EMEM}/a2a/tasks -H 'content-type: application/json' \\\n  -d ${shq(JSON.stringify({skill,args}))}`;
 const rehash=(url,cid)=>`# each file is named by the first 128 bits of the BLAKE3 hash of its bytes: making different bytes with this name takes about 2^128 tries.
 # an index lists every section by its name, so the index's own name commits to all of them (a hash tree).
 # recompute it (pip install blake3):\ncurl -s ${url} | python3 -c "import sys,blake3,base64;print(base64.b32encode(blake3.blake3(sys.stdin.buffer.read()).digest(16)).decode().rstrip('=').lower())"\n# expect ${cid}`;
@@ -254,7 +261,8 @@ export const ask=async(q,S,tick)=>{
  return{token:handle,url,cid:handle.split(":").pop(),title:q,face:f,body:`${env.place_resolved.label}\n\n${env.answer}\n\nEvidence (each is a signed fact):\n${facts.map(x=>`- ${x.band} = ${fmt(x.value)} ${x.unit||""}  ${x.token}`).join("\n")}${b?`\n\nAll of it, one handle: ${handle}`:""}`,
   text:`${env.answer}\n${JSON.stringify(facts)}`,proof:f.proof.filter(Boolean).join(" · "),bad:!signed,
   shape:`It is an answer about ${env.place_resolved.label}, backed by ${env.fact_cids.length} signed facts`+(b?"; the bundle holds its evidence.":"."),
-  via:{curl:`curl -s ${EMEM}/v1/ask -H 'content-type: application/json' -d '${JSON.stringify({q})}'`+(b?`\ncurl -s ${url}`:""),mcp:`emem_ask ${JSON.stringify({q})}`,a2a:a2aCallJs("emem_ask",{q}),
+  via:{curl:(b?`# read this result: the evidence as it was bound, frozen by its handle\ncurl -s ${shq(url)}\n`:"")+`# get new evidence: asks again, and may answer differently\ncurl -s ${EMEM}/v1/ask -H 'content-type: application/json' -d ${shq(JSON.stringify({q}))}`,
+   mcp:b?`emem_memory_token_resolve ${JSON.stringify({token:handle})}\n# new evidence (asks again): emem_ask ${JSON.stringify({q})}`:`emem_ask ${JSON.stringify({q})}`,a2a:b?a2aCallJs("emem_memory_token_resolve",{token:handle}):a2aCallJs("emem_ask",{q}),
    verify:`# the answer's receipt is signed by emem.dev (key ${short(S.signer)}); this page checked it with emem's own verifier`}};
 };
 

@@ -90,7 +90,7 @@ step frame  : cell     -> frames  | framing framed
 step unreel : frames   -> link  | reeling reeled
 flow timelapse : locate frame unreel
 
-# a grid: a place as many signed squares, drawn as maps (city: green, heat, buildings; forest: canopy, loss, the EU cut-off)
+# a grid: a place as many signed squares, drawn as maps (city: green, heat, buildings; forest: canopy in 2000, year of loss, vegetation now)
 step survey : cell     -> grid  | surveying surveyed
 step map    : grid     -> link  | mapping mapped
 flow city   : locate survey map
@@ -253,21 +253,21 @@ thumb https://emem.dev/memories/by_attester/ddzmyzhn/mygdg7gl4brrcrxoi6qznesmey.
 pin   Lahaina fire
 >>
 
-show government : Amazon plots vs the EU cut-off <<
+show government : Amazon forest loss since 2000 <<
 tag   forest grid
 by    combined
 from  forest: -9.73, -63.03
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/fss35xszeperjmoyxfqyeglr6i.md
-thumb https://emem.dev/memories/by_attester/ddzmyzhn/ojexfxnvxfwtu4w52z4cokuxbq.md
-pin   deforestation check
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/dzhe5a7rsjtnmc35qqwxybys5u.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/36lovkga2wopyooowtwhxufb5e.md
+pin   forest loss map
 >>
 
 show cities : Phoenix: green vs heat <<
 tag   city grid
 by    combined
 from  city: Phoenix, Arizona
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/zp75spoomesgyagbozt2nlhlri.md
-thumb https://emem.dev/memories/by_attester/ddzmyzhn/altaiwopzesfgmzjxdwg7kjjdi.md
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/bn2qhnuudufwkasravlspenxvu.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/psurc2mnpzronkzz5rbw4ggdtm.md
 pin   city heat map
 >>
 
@@ -653,18 +653,21 @@ emem  live
 show proof : emem log head <<
 tag   log
 by    machine
+pin   log head
 emem  https://emem.dev/v1/log/sth
 >>
 
 show proof : This site, sealed <<
 tag   seal
 by    combined
+pin   this site
 emem  self
 >>
 
 show proof : A lying file name <<
 tag   mismatch
 by    human
+pin   a lying name
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/avmvdexjuwqwjjzyncczvmfyzq.md
 >>
 

@@ -34,9 +34,9 @@ pointed cog 4uweu43yaiik2mw5nc4eznztbu src=esahubble.org size=180.1MB hashed=97/
 framed timelapse ota6xerxrqzya5txb4jxvzpb2q at=20.878,-156.682 frames=4 years=2022-2025 by=combined t=Lahaina,before_and_after_fire
 pointed bigtiff bafppksajtcekqt62r3thg3a5u src=maxar-opendata.s3.amazonaws.com size=71.2MB hashed=78/1566 at=20.757,-156.382 by=third-party t=Maui_fires,50_cm
 # government
-mapped forest fss35xszeperjmoyxfqyeglr6i at=-9.729,-63.030 grid=12x12 bands=hansen.tree_cover_2000,hansen.loss_year,indices.ndvi receipts=144/144 by=combined t=Amazon_plots_vs_the_EU_cut-off
+mapped forest dzhe5a7rsjtnmc35qqwxybys5u at=-9.729,-63.030 grid=12x12 bands=hansen.tree_cover_2000,hansen.loss_year,indices.ndvi receipts=144/144 by=combined t=Amazon_forest_loss_since_2000
 # cities
-mapped city zp75spoomesgyagbozt2nlhlri at=33.448,-112.074 grid=12x12 bands=indices.ndvi,modis.lst_day_8day,overture.buildings.count receipts=106/144 by=combined t=Phoenix:_green_vs_heat
+mapped city bn2qhnuudufwkasravlspenxvu at=33.448,-112.074 grid=12x12 bands=indices.ndvi,modis.lst_day_8day,overture.buildings.count receipts=144/144 by=combined t=Phoenix:_green_vs_heat
 framed timelapse gpnxkvkwz22ug4jeqexggiy63q at=25.420,51.489 frames=5 years=2017-2025 by=combined t=Lusail,a_city_rising
 mapped city cfbt6bctfgnfoun347mgobvkku at=12.971,77.593 grid=12x12 bands=indices.ndvi,modis.lst_day_8day,overture.buildings.count receipts=144/144 by=combined t=Bengaluru:_green_vs_heat
 # robotics

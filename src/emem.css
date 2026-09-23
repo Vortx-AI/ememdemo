@@ -155,3 +155,12 @@ footer .link:hover{color:var(--fg)}
 .tasks button b{font-weight:600}
 .tasks button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
 .out .what{margin:.4em 0;opacity:.8}
+.consent{border:1px solid var(--line);background:var(--field);padding:calc(2*var(--u));margin:var(--u) 0}
+.consent .peek{white-space:pre-wrap;font:12px/1.5 var(--mono);opacity:.8;margin:.5em 0;max-height:7em;overflow:hidden}
+.consent .bar{display:flex;justify-content:flex-end;gap:var(--u)}
+.go.publish{width:auto;padding:0 calc(2*var(--u));font-size:15px}
+.work-head .budget{margin-left:var(--u);opacity:.7;font-size:12px}
+.out .scope{list-style:none;padding:0;margin:.4em 0;font-size:13px}
+.out .scope li{margin:.15em 0}.out .scope b{font-weight:600;margin-right:.3em}.out .scope .at{opacity:.6;font-size:12px}
+.out .raw>summary{cursor:pointer;opacity:.75;margin:.6em 0;font-size:13px}
+.out.stale{opacity:.55}.out.stale::before{content:attr(data-stale);display:block;font-size:12px;color:var(--no)}

@@ -158,6 +158,11 @@ Every step declares its verbs in `emem.eio` (`step probe : remote -> hashes | pr
 - a head line: "ememifying 6.0 s", then "ememified 24.5 s", or "stopped" with the reason.
 - a **stop** button (or Esc) that aborts every request the run still has open; no write starts after it.
 - a shared `?s=` link only opens references (a note, a token, a file name, a log head). Anything that would read a source or write is put in the box and waits for you to press →.
+- nothing you drop, paste or choose is published until you press **Create public link**. The panel shows the title, the size, the first lines, your key and the exact name it will have. **keep it here** or Stop leaves nothing on emem.
+- a stopped or failed run lists every write that was already accepted (those can't be undone), and keeps the previous result on screen, dimmed and labelled.
+- the work head counts this run's requests and bytes read.
+- the result separates **stored note** or **signed record** (what was checked of the stored bytes or the signature) from **checked now** (what was re-read from the source), with the time of the check.
+- copied commands quote every value as data. An ask result's handoff reads the frozen evidence bundle; asking again is a separate, labelled command.
 - three ways in above the box: **point** a file, **sense** a place, **check** a link. Each one sets what the box expects.
 - gallery cards are checked when they scroll into view, at most four at a time. A card's state names what was checked: `✓ note` (its bytes hash to its name; the source is re-read only when opened), `✓ receipt` (emem.dev signed it; that says who, not that it is right), or `unreachable` (not checked, which is different from a failed check).
 
@@ -210,7 +215,7 @@ The pointer itself is a hash-named, signed note, so its name commits to all of i
 
 **Re-checking it.** Opening a pointer re-hashes the table against its root, then re-reads an even spread of chunks from the source. That is how a pointer detects data that changed after it was named. Tested: a clean source gives "6 of 6 sampled chunks still match"; one altered response gives "1 of 6 sampled chunks have CHANGED".
 
-**Coverage, stated.** Large sources are sampled deterministically. Every small tensor, every overview tile and the smallest Zarr level are hashed completely; large tensors are sampled by the hash of their name and the largest raster level evenly. The pointer says `chunks: 107 of 161 hashed`, and the same input gives the same pointer in any browser. DICOM pointers copy technical tags only (modality, size, spacing); patient fields stay at the source, and only their hash is recorded.
+**Coverage, stated.** Large sources are sampled deterministically. Every small tensor, every overview tile and the smallest Zarr level are hashed completely; large tensors are sampled by the hash of their name and the largest raster level evenly. The pointer says `chunks: 107 of 161 hashed`, and the same input selects the same chunks and rows in any browser. The note's own name can still differ between runs, because each note is stamped with the log head it was written after (`after: sth …`); the rows and root don't change. DICOM pointers copy technical tags only (modality, size, spacing); patient fields stay at the source, and only their hash is recorded.
 
 **Statistics per chunk.** Each hashed tensor, tile or pixel block also carries its mean, standard deviation, minimum and maximum, computed from the bytes that were hashed:
 - float tensors (F32, F16, BF16) directly;
@@ -294,7 +299,7 @@ Each note kind declares its schema in `emem.eio` as a `spec` block. The schema i
 There are 25 cards in 8 kinds (24 when unsealed): documents, in place, code, scans, places, agents, web, proof.
 
 - **All cards:** on load, each card re-hashes or re-verifies its result and shows the outcome (✓ or ✗). `open` loads it into the box.
-- **"Run it yourself":** on file and URL cards, this feeds the original input through the pipeline again. For fixed inputs the page confirms **"same file names as the gallery copy"**: the same bytes give the same names in any browser.
+- **"Run it yourself":** on file and URL cards, this feeds the original input through the pipeline again. Section notes of a fixed input keep the same names in any browser. The index and single-file notes carry the log head they were written after, so their names change with each run, and "same file names as the gallery copy" shows only when nothing was stamped differently.
 - **Places:** a signed elevation fact, a four-reading bundle, and a cube of Sentinel-2 pixels drawn from the signed grid (whose bytes hash to their name). There is also an entity, and a live question about a place.
 - **Agents:** the standard two agents ratified, read by name over A2A, and **the public channel, live**: every note any agent writes, as it is written, links from this page included.
 - **Proof:** emem.dev's transparency log head, with its signature checked in the browser, and **a file whose name lies**, so you can see a failed check.
