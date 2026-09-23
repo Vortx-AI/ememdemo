@@ -18,7 +18,7 @@ link    GitHub   https://github.com/Vortx-AI/emem
 
 say     Tokenise huge files for agents to use.
 sub     Models, satellite scenes, scans, video, code, whole websites and whole places. Your agent gets one small link, reads only the part it needs, and can check every byte.
-in      Drop files, or paste a URL, a repo, a folder, a link to large data, world: a place, or cameras: London
+in      Drop files, or paste a URL, a repo, a folder, large data, world:, timelapse:, city:, forest: a place, or cameras: London
 note    Public: anyone with the link can read it.
 blank   Nothing to read yet. Drop a file, or paste text, a URL or a GitHub repo.
 
@@ -85,6 +85,12 @@ flow world  : locate layers weave
 step frame  : cell     -> frames  | framing framed
 step unreel : frames   -> link  | reeling reeled
 flow timelapse : locate frame unreel
+
+# a grid: a place as many signed squares, drawn as maps (city: green, heat, buildings; forest: canopy, loss, the EU cut-off)
+step survey : cell     -> grid  | surveying surveyed
+step map    : grid     -> link  | mapping mapped
+flow city   : locate survey map
+flow forest : locate survey map
 
 # a track: evidence in order (a quote, an invoice, a delivery place…), every step re-checked, chained, stamped
 step gather : steps    -> notes  | gathering gathered
@@ -162,6 +168,15 @@ thumb https://emem.dev/memories/by_attester/ddzmyzhn/cewrfxewtujjvuibt35yhk6hwi.
 pin   Webb nebula
 >>
 
+show space : Mars, December 2024 <<
+tag   Hubble
+by    third party
+from  https://esahubble.org/media/archives/images/original/heic2505b.tif
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/fi67bt4rxkic3ssuag2v2hskly.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/2wxof63h5p3hrmzatw7mam2mom.md
+pin   Mars
+>>
+
 show disaster : Lahaina, before and after fire <<
 tag   timelapse
 by    combined
@@ -171,12 +186,48 @@ thumb https://emem.dev/memories/by_attester/ddzmyzhn/mygdg7gl4brrcrxoi6qznesmey.
 pin   Lahaina fire
 >>
 
+show government : Amazon plots vs the EU cut-off <<
+tag   forest grid
+by    combined
+from  forest: -9.73, -63.03
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/fss35xszeperjmoyxfqyeglr6i.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/ojexfxnvxfwtu4w52z4cokuxbq.md
+pin   deforestation check
+>>
+
+show cities : Phoenix: green vs heat <<
+tag   city grid
+by    combined
+from  city: Phoenix, Arizona
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/zp75spoomesgyagbozt2nlhlri.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/altaiwopzesfgmzjxdwg7kjjdi.md
+pin   city heat map
+>>
+
 show space : Whirlpool galaxy, M51 <<
 tag   Hubble · 215 MB
 by    third party
 from  https://esahubble.org/media/archives/images/original/heic0506a.tif
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/7rn7fxbl75o5cijqpnok5oc7rq.md
 thumb https://emem.dev/memories/by_attester/ddzmyzhn/3iqb4mw7a2kesxoz5hmfro3mzm.md
+>>
+
+show robotics : Robot arms, 12 keyframes <<
+tag   MP4 · 502 MB
+by    third party
+from  https://huggingface.co/datasets/lerobot/aloha_static_coffee/resolve/main/videos/observation.images.cam_high/chunk-000/file-000.mp4
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/qcoylkllqzfqnsinn4af5i2mi4.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/n4ggrilp564puezzmriopxssse.md
+pin   robot video
+>>
+
+show wildlife : Lion and impala, Kruger <<
+tag   iNaturalist
+by    third party
+from  https://www.inaturalist.org/observations/39540446
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/2re7jfo2v34uwsqxkmpwxoxesu.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/27hlpjpkxhpqc6hrdbhnrz4iyq.md
+pin   wildlife sighting
 >>
 
 show earth : Bengaluru, true colour <<
@@ -193,7 +244,6 @@ by    combined
 from  timelapse: -30.777, 121.506
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/fdobixnnucctqkn2qtii7kibyq.md
 thumb https://emem.dev/memories/by_attester/ddzmyzhn/pglleylcbtgdaqjnu6tp3tmyym.md
-pin   open-pit mine
 >>
 
 show disaster : Maui fires, 50 cm <<
@@ -226,7 +276,14 @@ by    combined
 from  timelapse: 25.42, 51.49 | 2017-2025 02
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/gpnxkvkwz22ug4jeqexggiy63q.md
 thumb https://emem.dev/memories/by_attester/ddzmyzhn/spx3yyqmt77lpp4nv4movoj434.md
-pin   city growth
+>>
+
+show cities : Bengaluru: green vs heat <<
+tag   city grid
+by    combined
+from  city: Bengaluru
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/cfbt6bctfgnfoun347mgobvkku.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/vn4uunlwa2lr3gywzy6r47bcyy.md
 >>
 
 show earth : Cubbon Park, every layer <<
@@ -235,7 +292,6 @@ by    combined
 from  world: Cubbon Park, Bengaluru
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/ia3cqu7ycf455mjs2vue33cnfi.md
 thumb https://emem.dev/memories/by_attester/ddzmyzhn/qh6pp6xrolsy5dh5oepq47anwe.md
-pin   every layer at a park
 >>
 
 show gatherings : London street cameras <<
@@ -243,6 +299,7 @@ tag   CCTV · geo.qa
 by    machine
 from  cameras: London
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/t7ebh6s6imxrwdmizebnw52nwe.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/o7rm7ykhf2zl2tizeo42efc57e.md
 pin   London cameras
 >>
 
@@ -250,7 +307,6 @@ show commerce : An agent buys, step by step <<
 tag   track
 by    combined
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/i3tt76uiwc5az5pae3crpomq2q.md
-pin   agent purchase track
 >>
 
 show robotics : ALOHA robot, coffee task <<
@@ -258,7 +314,6 @@ tag   LeRobot · HF
 by    third party
 from  https://huggingface.co/datasets/lerobot/aloha_static_coffee
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/lj4xi7iksjc4h3mr3prpz5gkne.md
-pin   robot dataset
 >>
 
 show 3d : Train yard, 1M splats <<
@@ -267,7 +322,6 @@ by    third party
 from  https://huggingface.co/cakewalk/splat-data/resolve/main/train.splat
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/iliojyunnoeoomohc5346n4zrm.md
 thumb https://emem.dev/memories/by_attester/ddzmyzhn/mmd5cercfth7w2hrze3embbsd4.md
-pin   3D splats
 >>
 
 show space : Moon terrain, Kaguya <<
@@ -276,6 +330,23 @@ by    third party
 from  https://astrogeo-ard.s3.us-west-2.amazonaws.com/astrogeo-ard/moon/kaguya/terrain_camera/usgs_dtms/TC2W2B0_01_00608S446E2621__TC1W2B0_01_00608S451E2621/TC2W2B0_01_00608S446E2621__TC1W2B0_01_00608S451E2621_ba-aligned-DEM-hs.tif
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/jxz6pghlsjbohvx6s5iw6yek4m.md
 thumb https://emem.dev/memories/by_attester/ddzmyzhn/ygonxs74yb2rwypbfmenzpi3wi.md
+>>
+
+show space : Sombrero galaxy <<
+tag   Hubble · 180 MB
+by    third party
+from  https://esahubble.org/media/archives/images/original/opo0328a.tif
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/4uweu43yaiik2mw5nc4eznztbu.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/ccruy2iurkmmcfq3pigo6tw4ze.md
+>>
+
+show consumer : A holiday photo, placed <<
+tag   JPEG · EXIF
+by    human
+from  https://raw.githubusercontent.com/ianare/exif-samples/master/jpg/gps/DSCN0010.jpg
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/rcv34ptfbsoynlzs6yjxtchpwe.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/n7c42b47aadn4dujjjk7owz47e.md
+pin   phone photo
 >>
 
 show medical : CT slice, in HU <<
@@ -297,7 +368,6 @@ show models : GPT-2 vs distilgpt2 <<
 tag   compare
 by    combined
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/zld2kdiy5nw5dghcjo3whbwona.md
-pin   compare two models
 >>
 
 show wildlife : Maasai Mara, every layer <<
@@ -385,7 +455,6 @@ show emem : emem.dev, whole site <<
 tag   13 pages
 by    third party
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/elcqkssuxj6qy2ajfjra7eihqu.md
-pin   emem.dev, tokenised
 >>
 
 show emem : emem repository <<
@@ -419,7 +488,6 @@ tag   PDF · 194 pages
 by    third party
 from  https://www.rfc-editor.org/rfc/rfc9110.pdf
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.md
-pin   RFC 9110
 >>
 
 show documents : Attention Is All You Need <<
@@ -538,7 +606,7 @@ check   Paste your AI's answer. Every "quote" in it is checked against the sourc
 rule words say 6..12
 rule words sub 12..32
 rule plain say sub in note blank : cid blake3 ed25519 hash signed emem: sha256 attester bundle merkle
-rule typed make open resolve ask point extend witness compare world cameras timelapse track
+rule typed make open resolve ask point extend witness compare world cameras timelapse track city forest
 rule carry give : {link} {index} {curl} {mcp} {a2a}
 rule gallery show
 rule verbs step

@@ -288,11 +288,69 @@ const splats=async(url,tick,bytes)=>{
   about:[`${n.toLocaleString("en")} splats, ${stride} bytes each, ${fmt}`,`${blocks} blocks of ${per.toLocaleString("en")}; each hashed block carries its bounding box and mean opacity`]};
 };
 
-const pick=u=>/\.splat(\?|$)/i.test(u)||/\.ply(\?|$)/i.test(u)?splats:/\.safetensors(\?|$)/i.test(u)?safetensors:/\.gguf(\?|$)/i.test(u)?gguf:/\.m3u8(\?|$)/i.test(u)?hls:/\.zarr(\/|$)/i.test(u)?zarr:/\.dcm(\?|$)/i.test(u)?dicom:/\.tiff?(\?|$)/i.test(u)?tiff:null;
-const FILEISH=/^(point:\s*)?https?:\/\/\S+?(\.m3u8|\.zarr\/?|\.dcm|\.safetensors|\.gguf|\.splat|\.ply|\.tiff?|\.nc|\.h5|\.hdf5|\.las|\.laz|\.parquet|\.mp4|\.mov|\.bin|\.zip)(\?\S*)?$|^point:\s*https?:\/\/\S+$/i;
+// ---------- video (MP4): the index at either end names every frame; a keyframe group (GOP) is a chunk ----------
+// Keyframes are decoded by the browser's own video decoder (WebCodecs) from the very bytes that were hashed.
+const box=(b,o)=>{const dv=new DataView(b.buffer,b.byteOffset,b.byteLength);let sz=dv.getUint32(o),h=8;const t=String.fromCharCode(b[o+4],b[o+5],b[o+6],b[o+7]);if(sz===1){sz=Number(dv.getBigUint64(o+8));h=16}else if(sz===0)sz=b.length-o;return{t,o,sz,h,end:o+sz}};
+const kids=(b,o,end)=>{const out=[];while(o+8<=end){const x=box(b,o);if(x.sz<8)break;out.push(x);o=x.end}return out};
+const find=(b,o,end,path)=>{let cur=[{o,end,h:0,sz:end-o}];for(const t of path){const nx=[];for(const c of cur)for(const k of kids(b,c.o+c.h,c.end))if(k.t===t)nx.push(k);cur=nx}return cur};
+const hex2=n=>n.toString(16).padStart(2,"0");
+const mp4=async(url,tick,bytes)=>{
+ if(!bytes)throw new Error("plain");
+ const tops=[];let o=0;while(o<bytes&&tops.length<32){const h=await range(url,o,16),x=box(h,0);if(x.sz<8)break;tops.push({t:x.t,o,sz:x.sz});o+=x.sz}
+ const mv=tops.find(t=>t.t==="moov");if(!mv||mv.sz>64e6)throw new Error("plain");
+ tick("reading the index");const m=await range(url,mv.o,mv.sz),D=new DataView(m.buffer);
+ const trak=find(m,0,m.length,["moov","trak"]).find(t=>{const h=find(m,t.o+t.h,t.end,["mdia","hdlr"])[0];return h&&String.fromCharCode(...m.slice(h.o+16,h.o+20))==="vide"});
+ if(!trak)throw new Error("plain");
+ const q=path=>find(m,trak.o+trak.h,trak.end,path)[0],stbl=["mdia","minf","stbl"];
+ const mdhd=q(["mdia","mdhd"]),v1=m[mdhd.o+8]===1,ts=D.getUint32(mdhd.o+(v1?28:20)),dur=v1?Number(D.getBigUint64(mdhd.o+32)):D.getUint32(mdhd.o+24);
+ const stsd=q([...stbl,"stsd"]),entry=box(m,stsd.o+16),codec4=entry.t,W=D.getUint16(entry.o+32),Hh=D.getUint16(entry.o+34);
+ const cfgBox=kids(m,entry.o+86,entry.end).find(k=>k.t==="av1C"||k.t==="avcC"||k.t==="hvcC");
+ let codec=null,description=null;
+ if(cfgBox){description=m.slice(cfgBox.o+8,cfgBox.end);const c=description;
+  if(cfgBox.t==="av1C"){const prof=c[1]>>5,lvl=c[1]&31,tier=c[2]>>7,hi=(c[2]>>6)&1,twelve=(c[2]>>5)&1;codec=`av01.${prof}.${String(lvl).padStart(2,"0")}${tier?"H":"M"}.${hi?(twelve?"12":"10"):"08"}`}
+  else if(cfgBox.t==="avcC")codec=`avc1.${hex2(c[1])}${hex2(c[2])}${hex2(c[3])}`}
+ const u32s=(bx,skip)=>{const n=D.getUint32(bx.o+12),a=new Array(n);for(let i=0;i<n;i++)a[i]=D.getUint32(bx.o+16+i*skip*4);return a};
+ const stsz=q([...stbl,"stsz"]),fixed=D.getUint32(stsz.o+12),ns=D.getUint32(stsz.o+16),sizes=fixed?new Array(ns).fill(fixed):Array.from({length:ns},(_,i)=>D.getUint32(stsz.o+20+i*4));
+ const stco=q([...stbl,"stco"]),co64=q([...stbl,"co64"]),chunkOff=stco?u32s(stco,1):Array.from({length:D.getUint32(co64.o+12)},(_,i)=>Number(D.getBigUint64(co64.o+16+i*8)));
+ const stsc=q([...stbl,"stsc"]),runs=Array.from({length:D.getUint32(stsc.o+12)},(_,i)=>[D.getUint32(stsc.o+16+i*12),D.getUint32(stsc.o+20+i*12)]);
+ const off=new Array(ns);let si=0;for(let c=0;c<chunkOff.length&&si<ns;c++){let per=runs[0][1];for(const[first,n]of runs)if(c+1>=first)per=n;let p=chunkOff[c];for(let k=0;k<per&&si<ns;k++){off[si]=p;p+=sizes[si];si++}}
+ const stss=q([...stbl,"stss"]),keys=stss?u32s(stss,1).map(x=>x-1):[0];
+ const fps=ns/(dur/ts),all=[{label:"file header",offset:0,length:Math.min(tops[0]?.sz||0,4096),dflt:true},{label:"index (moov): every frame's size and place",offset:mv.o,length:mv.sz,dflt:true}];
+ const dfl=new Set(spread(keys.length,12));
+ keys.forEach((k,i)=>{const e=(keys[i+1]??ns)-1,a=off[k],z=off[e]+sizes[e];if(!(z>a))return;
+  all.push({label:`frames ${k}…${e} · ${(k/fps).toFixed(1)} s`,offset:a,length:z-a,dflt:dfl.has(i),stats:()=>`${e-k+1} frames · ${Math.round((z-a)*8/((e-k+1)/fps)/1000)} kbit/s`,
+   ...(codec&&typeof VideoDecoder!=="undefined"&&dfl.has(i)?{decode:async b=>frameOf({codec,description,codedWidth:W,codedHeight:Hh},b.slice(0,sizes[k]),`${(k/fps).toFixed(1)} s`),grab:{video:true,t:k/fps}}:{})})});
+ return{kind:"video (MP4)",all,units:all.length,frames:true,
+  about:[`${codec4}${codec?` (${codec})`:""}, ${W}×${Hh}, ${ns.toLocaleString("en")} frames at ${fps.toFixed(1)} fps, ${(dur/ts/60).toFixed(1)} min`,`${keys.length} keyframe groups; each hashed group carries its frame count and bit rate`,codec?"keyframes decoded here from the hashed bytes":""].filter(Boolean)};
+};
+const frameOf=(config,data,label)=>new Promise((res,rej)=>{let done=false;const d=new VideoDecoder({output:f=>{if(done){f.close();return}done=true;const cv=document.createElement("canvas");cv.className="grid";cv.width=f.displayWidth;cv.height=f.displayHeight;const g=cv.getContext("2d");g.drawImage(f,0,0);f.close();
+   g.font="bold 20px ui-monospace,monospace";g.fillStyle="rgba(0,0,0,.55)";g.fillRect(6,6,92,28);g.fillStyle="#fff";g.fillText(label,12,27);cv.dataset.date=label;try{d.close()}catch{}res(cv)},error:e=>rej(e)});
+ d.configure(config);d.decode(new EncodedVideoChunk({type:"key",timestamp:0,data}));d.flush().catch(rej);setTimeout(()=>{if(!done)rej(new Error("decode timed out"))},8000)});
+
+// ---------- photographs (JPEG): the whole picture hashed; where, when and with what it was taken, from its EXIF ----------
+const exif=b=>{let o=2;while(o+4<b.length&&b[o]===0xFF){const mk=b[o+1],len=(b[o+2]<<8)|b[o+3];if(mk===0xE1&&String.fromCharCode(...b.slice(o+4,o+8))==="Exif"){const t=o+10,dv=new DataView(b.buffer,b.byteOffset+t),le=dv.getUint16(0)===0x4949;
+   const ifd=(p)=>{const n=dv.getUint16(p,le),o2={};for(let i=0;i<n;i++){const e=p+2+i*12,tag=dv.getUint16(e,le),ty=dv.getUint16(e+2,le),cnt=dv.getUint32(e+4,le),sz=({1:1,2:1,3:2,4:4,5:8,7:1,10:8}[ty]||1)*cnt,vo=sz<=4?e+8:dv.getUint32(e+8,le);
+     const rat=k=>dv.getUint32(vo+k*8,le)/(dv.getUint32(vo+k*8+4,le)||1);o2[tag]=ty===2?new TextDecoder().decode(new Uint8Array(dv.buffer,dv.byteOffset+vo,Math.max(0,cnt-1))):ty===5?Array.from({length:cnt},(_,k)=>rat(k)):ty===3?dv.getUint16(vo,le):ty===4?dv.getUint32(vo,le):dv.getUint8(vo)}return o2};
+   const i0=ifd(dv.getUint32(4,le)),ex=i0[34665]?ifd(i0[34665]):{},gp=i0[34853]?ifd(i0[34853]):{};
+   const dms=a=>a?a[0]+a[1]/60+a[2]/3600:null,lat=dms(gp[2]),lng=dms(gp[4]);
+   return{make:i0[271],model:i0[272],when:(ex[36867]||i0[306]||"").replace(/^(\d{4}):(\d\d):(\d\d)/,"$1-$2-$3"),lat:lat!=null?(gp[1]==="S"?-lat:lat):null,lng:lng!=null?(gp[3]==="W"?-lng:lng):null,alt:gp[6]?.[0]}}
+  o+=2+len}return{}};
+const photo=async(url,tick,bytes)=>{
+ if(bytes&&bytes>60e6)throw new Error("plain");
+ const b=await whole(url);if(b[0]!==0xFF||b[1]!==0xD8)throw new Error("plain");
+ const x=exif(b),C=1<<20,all=[];for(let o=0;o<b.length;o+=C)all.push({label:o?`bytes ${o}…`:"first MiB (with EXIF)",offset:o,length:Math.min(C,b.length-o),dflt:true});
+ let preview=null;if(typeof createImageBitmap!=="undefined"){try{const bm=await createImageBitmap(new Blob([b],{type:"image/jpeg"}));preview={kind:"tiles",w:bm.width,h:bm.height,tiles:[{x:0,y:0,img:bm}]}}catch{}}
+ return{kind:"photograph (JPEG)",all,units:all.length,bytes:b,preview,place:x.lat!=null?{lat:+x.lat.toFixed(6),lng:+x.lng.toFixed(6),bbox:[x.lng,x.lat,x.lng,x.lat]}:null,
+  about:[[x.make,x.model].filter(Boolean).join(" ")||"camera not recorded",x.when?`taken ${x.when}`:"time not recorded",x.lat!=null?`at ${x.lat.toFixed(5)}, ${x.lng.toFixed(5)}${x.alt!=null?`, ${Math.round(x.alt)} m`:""} (from its EXIF)`:"no place in its EXIF","the whole picture is hashed; the preview is drawn from those bytes"]};
+};
+
+const pick=u=>/\.mp4(\?|$)|\.m4v(\?|$)|\.mov(\?|$)/i.test(u)?mp4:/\.jpe?g(\?|$)/i.test(u)?photo:/\.splat(\?|$)/i.test(u)||/\.ply(\?|$)/i.test(u)?splats:/\.safetensors(\?|$)/i.test(u)?safetensors:/\.gguf(\?|$)/i.test(u)?gguf:/\.m3u8(\?|$)/i.test(u)?hls:/\.zarr(\/|$)/i.test(u)?zarr:/\.dcm(\?|$)/i.test(u)?dicom:/\.tiff?(\?|$)/i.test(u)?tiff:null;
+const FILEISH=/^(point:\s*)?https?:\/\/\S+?(\.m3u8|\.zarr\/?|\.dcm|\.safetensors|\.gguf|\.splat|\.ply|\.jpe?g|\.m4v|\.tiff?|\.nc|\.h5|\.hdf5|\.las|\.laz|\.parquet|\.mp4|\.mov|\.bin|\.zip)(\?\S*)?$|^point:\s*https?:\/\/\S+$/i;
 // a folder: a Hugging Face repository (or a folder in it), or an S3 prefix ending in /
 export const DIR=/^https:\/\/huggingface\.co\/(datasets\/|spaces\/)?[\w.-]+\/[\w.-]+(\/tree\/[^/\s]+(\/\S*)?)?\/?$|^https:\/\/[a-z0-9.-]+\.s3(\.[a-z0-9-]+)?\.amazonaws\.com\/\S*\/$/i;
-export const POINTABLE={test:s=>FILEISH.test(s)||DIR.test(s)};
+// a wildlife observation (iNaturalist): its photograph is pointed at; species, time and place come with it
+export const INAT=/^https:\/\/(?:www\.)?inaturalist\.org\/observations\/(\d+)\/?$/i;
+export const POINTABLE={test:s=>FILEISH.test(s)||DIR.test(s)||INAT.test(s)};
 
 // the rows of a pointer's table, with the optional stats column
 export const parseRows=body=>[...body.matchAll(/^\| ([^|]+) \| (\S+) \| (\d+) \| (\d+) \| ([^|]+) \|(?: ([^|]*) \|)?$/gm)].filter(m=>m[1]!=="what"&&!/^-+$/.test(m[1])).map(m=>{const h=m[5].trim();return{label:m[1].trim(),url:m[2]==="·"?"":m[2],offset:+m[3],length:+m[4],hash:/^[a-z2-7]{52}$/.test(h)?h:ZERO,absent:!/^[a-z2-7]{52}$/.test(h),stats:(m[6]||"").trim()}});
@@ -317,22 +375,23 @@ const assemble=(s,chunks)=>{
   for(const c of got){const{x,y,tw,th}=c.grab;for(let j=0;j<th&&y+j<m.h;j++)for(let i=0;i<tw&&x+i<m.w;i++){const q=c.pix[j*tw+i];v[(y+j)*m.w+x+i]=q===m.nodata?NaN:q}}
   return{kind:"grid",w:m.w,h:m.h,v}}
  if(s.points){const p=s.points();return p.xs.length?{kind:"points",...p}:null}
+ if(s.frames){const f=chunks.filter(c=>c.pix&&c.grab?.video).sort((a,b)=>a.grab.t-b.grab.t).map(c=>c.pix);return f.length?{kind:"frames",frames:f}:null}
  return null;
 };
 
 // a pointer reopened: the same picture, drawn only from chunks that still hash to the pointer's rows
 export const previewOf=async(body,tick=()=>{})=>{
- const src=field(body,"source"),rd=src&&pick(src);if(!rd||![tiff,dicom,splats].includes(rd))return null;
+ const src=field(body,"source"),rd=src&&pick(src);if(!rd||![tiff,dicom,splats,mp4,photo].includes(rd))return null;
  const rows=new Map(parseRows(body).map(r=>[r.label,r])),{bytes}=await size(src).catch(()=>({}));
  const s=await rd(src,()=>{},bytes);
  if(s.preview){// a scan is read whole: every row must still match before its pixels are shown
   for(const c of s.all){const r=rows.get(c.label);if(r&&H(s.bytes.slice(c.offset,c.offset+c.length))!==r.hash)return null}return s.preview}
- let want=s.all.filter(c=>rows.has(c.label)&&((c.decode&&s.mosaic)||(s.sample&&/^splats/.test(c.label))));
+ let want=s.all.filter(c=>rows.has(c.label)&&((c.decode&&(s.mosaic||s.frames))||(s.sample&&/^splats/.test(c.label))));
  if(s.mosaic?.strips)want=want.filter((_,i,a)=>spread(a.length,96).includes(i));
  if(s.sample)want=want.filter((_,i,a)=>spread(a.length,4).includes(i));
  let n=0;
  await pool(want,6,async c=>{const b=await range(src,c.offset,c.length);if(H(b)!==rows.get(c.label).hash)return;
-  if(c.decode&&s.mosaic)c.pix=await c.decode(b).catch(()=>null);if(s.sample)s.sample(c,b);tick(`${++n}/${want.length}`)});
+  if(c.decode&&(s.mosaic||s.frames))c.pix=await c.decode(b).catch(()=>null);if(s.sample)s.sample(c,b);tick(`${++n}/${want.length}`)});
  return assemble(s,want);
 };
 
@@ -342,10 +401,17 @@ export const previewOf=async(body,tick=()=>{})=>{
 //  opts.placeAbout  async ({lat,lng,bbox}) -> lines, to say where a raster is in emem's own terms
 export const probe=async(raw,tick,opts={})=>{
  if(DIR.test(raw.trim()))return folder(raw.trim(),tick);
+ const ob=raw.trim().match(INAT);
+ if(ob){tick("reading the observation");const o=(await (await net(`https://api.inaturalist.org/v1/observations/${ob[1]}`)).json()).results?.[0];if(!o?.photos?.length)throw new Error("That observation has no photograph.");
+  const ph=o.photos[0],[lat,lng]=(o.location||"").split(",").map(Number),t=o.taxon||{};
+  return probe(ph.url.replace(/\/(square|small|medium|thumb|large)\./,"/original."),tick,{...opts,observation:{url:raw.trim(),species:t.name,common:t.preferred_common_name,rank:t.rank,when:o.time_observed_at||o.observed_on,lat,lng,place:o.place_guess,grade:o.quality_grade,license:ph.license_code||"all rights reserved",observer:o.user?.login}})}
  const url=raw.replace(/^point:\s*/i,"").trim(),host=new URL(url).host;
  tick("reading structure");
  const {bytes,etag}=await size(url).catch(()=>({}));
  let s;try{s=await(pick(url)||(()=>{throw new Error("plain")}))(url,tick,bytes)}catch(e){if(e.message!=="plain"&&!/read as a plain file/.test(e.message))throw e;s=bytes?await file(url,tick,bytes):await stream(url,tick)}
+ const O=opts.observation;
+ if(O){s.about=[`${O.common||O.species} (${O.species}), ${O.rank}; ${O.grade==="research"?"research grade: identification agreed by the community":O.grade}`,`observed ${String(O.when).slice(0,16).replace("T"," ")} at ${O.place||`${O.lat}, ${O.lng}`}, by ${O.observer}; photo ${O.license}`,`observation ${O.url}`,...s.about.filter(a=>!/no place in its EXIF|camera not recorded|time not recorded/.test(a))];
+  if(!s.place&&Number.isFinite(O.lat))s.place={lat:+O.lat.toFixed(6),lng:+O.lng.toFixed(6),bbox:[O.lng,O.lat,O.lng,O.lat]};s.kind="wildlife observation (photograph)"}
  // which chunks: the defaults, whatever the earlier pointer already had, then the next ones in a fixed order anyone can repeat
  const prev=opts.have?parseRows(opts.have):[],had=new Map(prev.map(r=>[r.label,r]));
  if(opts.have){const pb=field(opts.have,"bytes");if(bytes&&/^\d+$/.test(pb||"")&&+pb!==bytes)throw new Error(`The source is now ${bytes} bytes; the pointer says ${pb}. It changed, so it is pointed at afresh, not extended.`)}
@@ -361,7 +427,7 @@ export const probe=async(raw,tick,opts={})=>{
  await pool(chunks,6,async c=>{
   if(c.hash){done++;if(!c.kept)read+=c.length;return}
   const b=s.bytes&&!c.url?s.bytes.slice(c.offset,c.offset+c.length):c.url?await whole(c.url).catch(e=>e.status===404?null:Promise.reject(e)):await range(url,c.offset,c.length);
-  if(b===null){c.absent=true;c.hash=ZERO;c.length=0}else{c.hash=H(b);if(c.url)c.length=b.length;read+=b.length;if(c.stats)c.statsText=await Promise.resolve(c.stats(b)).catch(()=>"");if(c.decode&&s.mosaic)c.pix=await c.decode(b).catch(()=>null);if(s.sample)s.sample(c,b)}
+  if(b===null){c.absent=true;c.hash=ZERO;c.length=0}else{c.hash=H(b);if(c.url)c.length=b.length;read+=b.length;if(c.stats)c.statsText=await Promise.resolve(c.stats(b)).catch(()=>"");if(c.decode&&(s.mosaic||s.frames))c.pix=await c.decode(b).catch(()=>null);if(s.sample)s.sample(c,b)}
   tick(`${++done}/${chunks.length} chunks · ${mb(read)} read`);
  });
  for(const c of chunks)if(c.url===url)c.url="";
@@ -452,6 +518,7 @@ export const drawPreview=pv=>{
   const lo=vals[Math.floor(vals.length*.02)]??0,hi=vals[Math.floor(vals.length*.98)]??1,g=cv.getContext("2d"),img=g.createImageData(W,Hh);
   for(let y=0;y<Hh;y++)for(let x=0;x<W;x++){const q=v[Math.floor(y/sc)*w+Math.floor(x/sc)],o=(y*W+x)*4;if(!Number.isFinite(q)){img.data[o+3]=0;continue}const t=Math.max(0,Math.min(1,(q-lo)/(hi-lo||1)))*255;img.data.set([t,t,t,255],o)}
   g.putImageData(img,0,0);return cv}
+ if(pv.kind==="frames")return pv.frames[0];
  if(pv.kind==="rgba"){const h=Math.round(pv.aspect?pv.w*pv.aspect:pv.h),sc=Math.min(1,320/Math.max(pv.w,h));cv.width=Math.max(1,Math.round(pv.w*sc));cv.height=Math.max(1,Math.round(h*sc));
   const src=document.createElement("canvas");src.width=pv.w;src.height=pv.h;src.getContext("2d").putImageData(new ImageData(pv.data,pv.w,pv.h),0,0);
   const g=cv.getContext("2d");g.imageSmoothingQuality="high";g.drawImage(src,0,0,cv.width,cv.height);return cv}

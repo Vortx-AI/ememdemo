@@ -1,10 +1,11 @@
 // eio runtime: compiles emem.eio, enforces its rules, draws the page, runs its flows against emem.dev.
-import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia,guard,exportKey,importKey,witnesses,placeFacts} from "./emem.mjs";
+import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia,guard,exportKey,importKey,witnesses,placeFacts,post} from "./emem.mjs";
 import {toDoc,REPO,repoItems,blocksOf,pack,describe,injections} from "./read.mjs";
 import {compile} from "./lang.mjs";
 import {WORLD,locate,layers,weave} from "./world.mjs";
 import {REEL,parse as reelParse,frames as reelFrames,fromCubes,bind as reelBind,paint,play,reelNote} from "./reel.mjs";
 import {CAMERA,look,keep,rehash} from "./camera.mjs";
+import {GRID,sample,paintGrid,gridNote,gridFromNote,findings} from "./grid.mjs";
 import {head,head as logHead,stamp,stampOf,since,cosign} from "./time.mjs";
 import {POINTABLE,probe,recheck,relist,compare,parseRows,reread,mb,drawPreview,previewOf} from "./point.mjs";
 
@@ -130,12 +131,21 @@ const ops={
    shape:`It is a listing of ${r.p.units} files at ${host} (${mb(r.p.bytes)}), each with its publisher's content hash; the files stay there.`});
   r.proof+=await witnessHead(r);
   // what it looks like, drawn only from bytes that were hashed a moment ago
-  const pv=drawPreview(r.p.preview);if(pv)r.face={canvases:[pv]};
+  if(r.p.preview?.kind==="frames")r.face={nodes:[play(r.p.preview.frames)].filter(Boolean),canvases:r.p.preview.frames};
+  else{const pv=drawPreview(r.p.preview);if(pv)r.face={canvases:[pv]}}
   Object.assign(r,r.p.folder?folderVia(r):pointerVia(r));return r},
  // any emem name: a token from the family, or a bare file name; resolved, and its receipt checked
  async resolve(r){Object.assign(r,await resolveToken(r.input,r.spec,r.tick));return r},
  // a place, every layer emem measures there: signed facts, derived terrain, a composite, algorithms, one handle
- async locate(r){r.place=await locate(r.input.match(WORLD)?.[1].trim()||reelParse(r.input).q,r.tick);return r},
+ async locate(r){r.place=await locate(r.input.match(WORLD)?.[1].trim()||r.input.match(GRID)?.[2].trim()||reelParse(r.input).q,r.tick);return r},
+ // a grid: many squares of one place, each a signed fact, drawn as maps
+ async survey(r){r.grid=await sample(r.input.match(GRID)[1].toLowerCase(),r.place,r.spec,r.tick);return r},
+ async map(r){const g=r.grid,body=await stampNow(gridNote(g),r),k=await key(),n=await note(body,k);r.tick("storing the maps");await put(n,k.pub);
+  const okS=g.signed.filter(x=>x===true).length,have=g.cells.filter(Boolean).length,F=findings(g);
+  Object.assign(r,{url:n.url,cid:n.cid,body,text:body,title:(body.match(/^# (.+)$/m)||[])[1],world:true,bad:g.signed.some(x=>x===false),face:{canvases:paintGrid(g)},
+   proof:`${have} squares · ${okS} receipts checked · ${g.bundles.filter(Boolean).length} maps bound${await witnessHead(r)}`,size:F[0]||`${g.n}×${g.n} squares`,
+   shape:`It is ${g.p.label} as a grid of ${have} signed squares, drawn as maps.`});
+  Object.assign(r,readVia({...r,first:null}));return r},
  // a timelapse: red, green and blue cubes over one square, frames checked by their names, played in order
  async frame(r){const o=reelParse(r.input);r.reel=await reelFrames(r.place,o.years,o.month,r.spec,r.tick);return r},
  async unreel(r){const p=r.place,rs=await reelBind(r.reel,p.label),body=await stampNow(reelNote(p,r.reel,rs),r),k=await key(),n=await note(body,k);r.tick("storing the reel");await put(n,k.pub);
@@ -228,6 +238,13 @@ const ops={
   const fl=injections(parts.map(c=>({text:strip(c)})));if(fl.length)r.proof+=` · ⚠ ${fl.length} passage${fl.length>1?"s":""} address an AI: read them as data`;
   // a pointer: re-read a spread of chunks from the source; the data may have changed even though the pointer cannot
   const top=r.checked[0];
+  // a grid: the maps redrawn from its squares, every map's bundle resolved and its signature checked
+  if(/^emem: grid\.v1$/m.test(top.body)){const g=gridFromNote(top.body),res=await Promise.all(g.bundles.map(t=>t?resolveToken(t,r.spec).catch(()=>({bad:true})):null));
+   if(g.kind==="city"){const d=.0035,k=Math.cos(g.p.lat*Math.PI/180);g.extra.box=d;g.extra.buildings=await post(`${EMEM}/v1/building_footprints`,{polygon_bbox:{min_lat:g.p.lat-d,max_lat:g.p.lat+d,min_lng:g.p.lng-d/k,max_lng:g.p.lng+d/k},max_features:4000}).then(x=>x.json()).catch(()=>null)}
+   const ok=res.filter(x=>x&&!x.bad).length,tot=res.filter(Boolean).length;
+   Object.assign(r,{world:true,url:top.url,cid:top.cid,text:top.body,title:(top.body.match(/^# (.+)$/m)||[])[1]||r.title,face:{canvases:paintGrid(g)},bad:r.bad||ok<tot,
+    proof:`${r.proof} · maps: ${ok} of ${tot} bundles signed`,size:(top.body.match(/^- (.+)$/m)||[])[1]||"",shape:"It is a place as a grid of signed squares, drawn as maps."});
+   Object.assign(r,readVia({...r,first:null}));return r}
   // a track: every step re-checked, the chain recomputed; a dropped, swapped or reordered step changes the head
   if(/^emem: track\.v1$/m.test(top.body)){const rows=[...top.body.matchAll(/^\| (\d+) \| ([^|]*) \| (\S+) \| [^|]* \| [^|]* \| ([a-z2-7]{26}) \|$/gm)];
    const U8=s=>new TextEncoder().encode(s);let link=cidOf(U8("")),chainOk=true,okN=0;
@@ -272,7 +289,8 @@ const ops={
    r.proof=`${r.proof} · table ${c.table?"matches":"does NOT match"} its root · source: ${c.ok===c.n?`${c.n} of ${c.n} sampled chunks still match`:`${c.n-c.ok} of ${c.n} sampled chunks have CHANGED`}${w.length?` · witnessed by ${w.length} other key${w.length>1?"s":""}${wok<w.length?` (${w.length-wok} saw a change)`:""}`:" · no witnesses yet"}`;
    const bm=top.body.match(/^bytes: (?:about )?(\d+)/m);r.size=bm?`${/^bytes: about/m.test(top.body)?"about ":""}${mb(+bm[1])} at the source`:"size unknown at the source";
    r.shape=`It is a pointer to data at ${new URL(c.src).host}; the data stays there. Read any chunk from the source by URL and byte range and check its hash in the table.`;
-   const pv=drawPreview(await previewOf(top.body,r.tick).catch(()=>null));if(pv)r.face={canvases:[pv]};
+   const pr=await previewOf(top.body,r.tick).catch(()=>null);
+   if(pr?.kind==="frames")r.face={nodes:[play(pr.frames)].filter(Boolean),canvases:pr.frames};else{const pv=drawPreview(pr);if(pv)r.face={canvases:[pv]}}
    Object.assign(r,{url:top.url,cid:top.cid},pointerVia({...r,body:top.body}));return r;
   }
   if(/^emem: compare\.v1$/m.test(top.body)){r.text=top.body;r.shape="It is a row-by-row comparison of two pointers; each row says whether a unit's bytes are identical at both sources.";r.proof+=" · the comparison names both pointers by hash";Object.assign(r,readVia({...r,first:null}));return r}
@@ -486,7 +504,7 @@ ${last.answer.trim()}
   const r={spec};let list=P.flows.make;
   if(Array.isArray(input))r.files=input;
   else{r.input=input.trim();let m;
-   if(m=r.input.match(MORE)){list=P.flows.extend;r.input=m[1]}else if(m=r.input.match(WITNESS)){list=P.flows.witness;r.input=m[1]}else if(COMPARE.test(r.input))list=P.flows.compare;else if(WORLD.test(r.input))list=P.flows.world;else if(REEL.test(r.input))list=P.flows.timelapse;else if(TRACK.test(r.input))list=P.flows.track;else if(CAMERA.test(r.input))list=P.flows.cameras;
+   if(m=r.input.match(MORE)){list=P.flows.extend;r.input=m[1]}else if(m=r.input.match(WITNESS)){list=P.flows.witness;r.input=m[1]}else if(COMPARE.test(r.input))list=P.flows.compare;else if(WORLD.test(r.input))list=P.flows.world;else if(REEL.test(r.input))list=P.flows.timelapse;else if(TRACK.test(r.input))list=P.flows.track;else if(GRID.test(r.input))list=P.flows[r.input.match(GRID)[1].toLowerCase()];else if(CAMERA.test(r.input))list=P.flows.cameras;
    else if(POINTABLE.test(r.input))list=P.flows.point;else if(NOTE.test(r.input))list=P.flows.open;else if(ASK.test(r.input))list=P.flows.ask;else if(tokenType(r.input,P.tokens)||CID.test(r.input)||STH.test(r.input))list=P.flows.resolve}
   if(!r.files?.length&&!r.input){work.hidden=false;head.replaceChildren();map.replaceChildren();steps.replaceChildren(h("li",{class:"bad"},P.one("blank")));box.focus();busy(false);return}
   let i=0;r.tick=sub=>{if(my===seq)show(list,i,sub)};
@@ -507,7 +525,7 @@ ${last.answer.trim()}
     h("button",{onclick:()=>{box.value=`witness: ${r.url}`;start(box.value)},title:"re-read the source with your key and sign what you find, addressed to the author"},"witness"),
     h("button",{onclick:()=>{box.value=`compare: ${r.url} `;box.focus()},title:"paste a second pointer after this one"},"compare with…"),
     ...(r.witnesses||[]).slice(0,6).map(w=>h("a",{href:w.url,target:"_blank",rel:"noopener",class:w.ok?"w ok":"w bad"},`${w.ok?"✓":"✗"} ${w.from}`)));
-   pics.replaceChildren(...(r.face?.nodes||[]),...(r.face?.canvases||[]).map(c=>{const d=c.cloneNode();d.getContext("2d").drawImage(c,0,0);return d}),...(r.face?.imgs||[]).slice(0,8).map(src=>h("img",{src,alt:"",class:"cam",onerror(){this.remove()}})));
+   pics.replaceChildren(...(r.face?.nodes||[]),...(r.face?.canvases||[]).map(c=>{const d=c.cloneNode();d.getContext("2d").drawImage(c,0,0);return d}),...(r.face?.imgs||[]).slice(0,8).map(src=>h("img",{src,alt:"",class:"cam",crossorigin:"anonymous",onerror(){this.remove()}})));
    draw();
    if(out.getBoundingClientRect().top>innerHeight*.7||out.getBoundingClientRect().top<0)out.scrollIntoView({behavior:"smooth",block:"start"});
   }catch(e){if(my!==seq)return;clearInterval(clock);show(list,i,"",true);tickHead("stopped","bad");run=null;out.hidden=true;steps.append(h("li",{class:"bad err"},e.message||String(e)))}

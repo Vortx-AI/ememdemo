@@ -15,7 +15,11 @@ for(const link of process.argv.slice(2)){
  await pg.waitForFunction(()=>document.querySelector("main").getAttribute("aria-busy")!=="true",null,{timeout:300000});
  const url=await pg.evaluate(async link=>{
   // a timelapse keeps every frame; anything else, its first picture
-  const all=[...document.querySelectorAll(".out .thumbs canvas")].filter(c=>!c.classList.contains("reel"));
+  let all=[...document.querySelectorAll(".out .thumbs canvas")].filter(c=>!c.classList.contains("reel"));
+  // camera stills (served with CORS) become frames too
+  if(!all.length){await Promise.all([...document.querySelectorAll(".out .thumbs img.cam")].map(i=>i.decode().catch(()=>null)));
+   const imgs=[...document.querySelectorAll(".out .thumbs img.cam")].filter(i=>i.complete&&i.naturalWidth).slice(0,6);
+   all=imgs.map((im,k)=>{const c=document.createElement("canvas");c.width=im.naturalWidth;c.height=im.naturalHeight;c.getContext("2d").drawImage(im,0,0);c.dataset.date=String(k);return c})}
   const frames=all.length>1&&all.every(c=>c.dataset.date)?all:all.slice(0,1);if(!frames.length)return null;
   const W=320,H=200,s=document.createElement("canvas");s.width=W*frames.length;s.height=H;const g=s.getContext("2d");g.fillStyle="#111";g.fillRect(0,0,s.width,s.height);
   frames.forEach((c,i)=>{const k=Math.max(W/c.width,H/c.height),w=c.width*k,h=c.height*k;g.save();g.beginPath();g.rect(i*W,0,W,H);g.clip();g.drawImage(c,i*W+(W-w)/2,(H-h)/2,w,h);g.restore()});

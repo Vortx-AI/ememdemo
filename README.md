@@ -54,13 +54,17 @@ Each card is a piece of real-world evidence, shown with a picture, a noun, the v
 | kind | examples |
 |---|---|
 | earth | the Amazon frontier, 2017–2025 in true colour (a timelapse of 15 signed rasters); Bengaluru in true colour (Sentinel-2, 351 MB); every layer at Cubbon Park |
-| space | Webb's Cosmic Cliffs (144 MB) and Hubble's Whirlpool galaxy (215 MB), read strip by strip; the Moon's terrain (Kaguya, USGS) |
+| space | Webb's Cosmic Cliffs (144 MB), Hubble's Whirlpool (215 MB) and Sombrero (180 MB) galaxies, read strip by strip; Mars in December 2024 (Hubble); the Moon's terrain (Kaguya, USGS) |
+| government | Amazon plots read against the EU deforestation cut-off (forest grid) |
+| cities | Phoenix and Bengaluru as grids of green, heat and buildings, with the correlation measured |
+| consumer | a holiday photo placed by its own EXIF (Nikon COOLPIX, Tuscany, 2008) |
 | disaster | Lahaina before and after the 2023 fire (timelapse); the Maui fires at 50 cm (Maxar Open Data) |
 | mines · cities · wildlife | the Kalgoorlie Super Pit, Lusail rising from sand, the Okavango flood pulse (timelapses); Maasai Mara, every layer |
 | drones | dry-lake cracks from a drone survey (OpenAerialMap) |
 | gatherings | 12 London street cameras, each clip re-hashed |
 | commerce | an agent's purchase as an evidence track: quote → invoice → delivery port → evidence bundle, chained and stamped |
-| robotics | the ALOHA coffee dataset (LeRobot): every file with its publisher hash |
+| robotics | an ALOHA robot episode file (MP4, 502 MB), 12 keyframes decoded from hashed bytes; the whole LeRobot dataset listed |
+| wildlife | a lion and an impala in Kruger (iNaturalist, research grade), the Okavango flood pulse, Maasai Mara |
 | 3d · medical · models | a million Gaussian splats; a CT slice in Hounsfield units; GPT-2, TinyLlama, a model comparison |
 
 **Who keeps it**, one per card (enforced by `rule gallery`):
@@ -72,6 +76,22 @@ Each card is a piece of real-world evidence, shown with a picture, a noun, the v
 **Pictures** are `emem: thumb.v1` notes made by `tools/thumbs.mjs`, which opens each link in a real browser and keeps what the page drew from bytes it had just checked. A card shows a picture only if the note's name matches its bytes and the note names the card's link. Timelapses play as sprites.
 
 **Live.** The header shows the size of emem's signed log, checked against the pinned key and refreshed every minute. The channel card streams agents' writes.
+
+## Grids: cities and forests, square by square
+
+- `city: <place>`: a 12 × 12 grid over about 6 km. Each square is a cell whose facts carry emem's signature: vegetation (Sentinel-2 NDVI), ground heat by day (MODIS), and buildings (Overture). The page then:
+  - draws each band as a map;
+  - computes the correlation between vegetation and ground heat over every square that has both (Pearson r);
+  - draws the building footprints of the central square kilometre.
+- `forest: <place>`: canopy in 2000 and year of loss (Hansen), plus vegetation now, read against the EU deforestation regulation (forest = canopy ≥ 10 %; cut-off 31 December 2020). It counts squares lost before and after the cut-off and adds emem's deforestation alert at the centre.
+
+Squares are located in parallel (`/v1/locate`) and recalled in two passes (`/v1/recall_many`, the second collecting what the first left pending). Every square's receipt is checked, and each map's values are bound into one `emem:bundle:`. The grid is stored as `emem: grid.v1`. Reopening redraws the maps from the note and checks every bundle's signature.
+
+## Video, photographs and observations
+
+- **MP4:** the index (`moov`, at either end) names every frame. A keyframe group is a chunk, hashed with its frame count and bit rate. Keyframes are decoded in the browser with WebCodecs (AV1 or H.264) from the very bytes that were hashed, then played in order. Example: a LeRobot ALOHA episode file (502 MB).
+- **JPEG:** the whole picture is hashed, and the preview is drawn from those bytes. EXIF gives the camera, the time and GPS. A photo with a place is tied to emem's cell and signed facts there. Example: a Nikon COOLPIX photo from Tuscany, October 2008.
+- **Wildlife observations:** an iNaturalist observation URL points at its original photograph. The species, research grade, time, place, observer and licence come from the observation; the place from the observation ties it to a cell and emem facts. Example: a southern lion watching an impala in Kruger.
 
 ## Timelapses and tracks
 
