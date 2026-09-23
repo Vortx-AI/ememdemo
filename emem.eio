@@ -65,6 +65,19 @@ step probe  : remote   -> hashes
 step pin    : hashes   -> link
 flow point  : probe pin
 
+# a pointer grows by reading more of its source, never by trust; the next chunks are fixed by the order of their names' hashes
+step extend : notes    -> hashes
+flow extend : fetch extend pin
+
+# another key re-reads the source and signs what it saw, addressed to the pointer's author
+step attest : notes    -> link
+flow witness : fetch attest
+
+# two pointers, row by row: identical bytes, different bytes, or only in one
+step pair   : pair     -> pointers
+step diff   : pointers -> link
+flow compare : pair diff
+
 give preview <<
 {index}
 >>
@@ -112,18 +125,31 @@ emem  https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.
 pin   RFC 9110
 >>
 
-show in_place : GPT-2's weights, tensor by tensor <<
+show in_place : GPT-2's weights, tensor by tensor, with statistics <<
 tag   safetensors
 from  https://huggingface.co/openai-community/gpt2/resolve/main/model.safetensors
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/se3a4ufdok573uqlmh7c6yok24.md
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/amii4tnpkfoofsyzrbbs2vxsj4.md
 pin   GPT-2 weights
 >>
 
-show in_place : A Sentinel-2 band, 238 MB, named where it lives <<
+show in_place : A Sentinel-2 band, 238 MB, tied to its place on Earth <<
 tag   COG
 from  https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/43/P/GQ/2026/5/S2B_43PGQ_20260512_0_L2A/B08.tif
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/ph43czid7jgehwer4qqmq54ej4.md
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/tm3nwiorldoo7v4uryp65gsonu.md
 pin   238 MB raster
+>>
+
+show in_place : Two models compared, tensor by tensor <<
+tag   compare
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/zld2kdiy5nw5dghcjo3whbwona.md
+note  GPT-2 against distilgpt2: which tensors are byte-identical, which differ, and by how much.
+pin   compare two models
+>>
+
+show in_place : TinyLlama, 483 MB of GGUF, without downloading it <<
+tag   GGUF
+from  https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q2_K.gguf
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/iqkrgor7sbtgigivc3fd726icy.md
 >>
 
 show code : expressjs/express at v5.2.1 <<
@@ -155,19 +181,19 @@ pin   flood risk in Chennai
 show in_place : A microscope image, chunk by chunk <<
 tag   OME-Zarr
 from  https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/nisxyl6cc5sdflk7xfogftnt7y.md
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/54t6krywa6eeklzpapklpuhqau.md
 >>
 
 show in_place : A video feed, segment by segment, chained <<
 tag   HLS
 from  https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/xecxqrfvavpsb7bf66uctnd2ri.md
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/2q7e5sh7wxal6u5lfsjatmzeiu.md
 >>
 
-show in_place : A CT slice, technical tags only <<
+show in_place : A CT slice, technical tags only, in Hounsfield units <<
 tag   DICOM
 from  https://raw.githubusercontent.com/pydicom/pydicom/main/src/pydicom/data/test_files/CT_small.dcm
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/fp3jg74qahq4dqeanktc5wjv54.md
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/elk3oajsbjlws4ad4up7ha7rey.md
 >>
 
 show agents : The standard two agents ratified <<
@@ -256,6 +282,6 @@ check   Paste your AI's answer. Every "quote" in it is checked against the sourc
 
 rule words say 6..12
 rule plain say in note blank : cid blake3 ed25519 hash signed token emem: sha256 attester bundle
-rule typed make open resolve ask point
+rule typed make open resolve ask point extend witness compare
 rule carry give : {link} {index} {curl} {mcp} {a2a}
 rule gallery show

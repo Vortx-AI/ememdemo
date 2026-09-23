@@ -23,11 +23,12 @@ emem's principle is that the address stays separate from the data. Paste a link 
 
 | source | a chunk is | example in the gallery | at the source → on emem |
 |---|---|---|---|
-| model weights (safetensors) | one tensor, found by the file's own header | GPT-2 on Hugging Face | 548 MB → 13.5 KB |
-| cloud-optimised GeoTIFF | one tile at one zoom level | a Sentinel-2 band on AWS | 238 MB → 8.1 KB |
-| OME-Zarr (microscopy) | one array chunk at one resolution level | IDR image 6001240 | ~28.5 MB → 11.3 KB |
-| HLS video (CCTV, live feeds) | one segment, **hash-chained** so a live feed only extends | the Mux test stream | ~22.8 MB → 12.0 KB |
-| DICOM (medical) | the header, then 1 MiB pixel blocks | a CT slice from pydicom's test data | 39 KB → 1.0 KB |
+| model weights (safetensors) | one tensor, found by the file's own header | GPT-2 on Hugging Face | 548 MB → 19.7 KB |
+| model weights (GGUF) | one tensor, quantized or not, by its GGML block size | TinyLlama 1.1B, Q2_K | 483 MB → 10.6 KB |
+| cloud-optimised GeoTIFF or BigTIFF | one tile at one zoom level | a Sentinel-2 band on AWS | 238 MB → 12.7 KB |
+| OME-Zarr (microscopy) | one array chunk at one resolution level | IDR image 6001240 | ~28.5 MB → 11.5 KB |
+| HLS video (CCTV, live feeds) | one segment, **hash-chained** so a live feed only extends | the Mux test stream | ~22.8 MB → 12.2 KB |
+| DICOM (medical) | the header, then 1 MiB pixel blocks | a CT slice from pydicom's test data | 39 KB → 1.3 KB |
 | anything with byte ranges | a 4 MiB range (streamed once if the server hides its size) | `point: <url>` forces this | |
 
 **The pointer (`emem: pointer.v1`)** holds:
@@ -42,7 +43,22 @@ The pointer itself is a hash-named, signed note, so its name commits to all of i
 
 **Re-checking it.** Opening a pointer re-hashes the table against its root, then re-reads an even spread of chunks from the source. That is how a pointer detects data that changed after it was named. Tested: a clean source gives "6 of 6 sampled chunks still match"; one altered response gives "1 of 6 sampled chunks have CHANGED".
 
-**Coverage, stated.** Large sources are sampled deterministically. Every small tensor, every overview tile and the smallest Zarr level are hashed completely; the largest level is sampled evenly. The pointer says `chunks: 107 of 161 hashed`, and the same input gives the same pointer in any browser. DICOM pointers copy technical tags only (modality, size, spacing); patient fields stay at the source, and only their hash is recorded.
+**Coverage, stated.** Large sources are sampled deterministically. Every small tensor, every overview tile and the smallest Zarr level are hashed completely; large tensors are sampled by the hash of their name and the largest raster level evenly. The pointer says `chunks: 107 of 161 hashed`, and the same input gives the same pointer in any browser. DICOM pointers copy technical tags only (modality, size, spacing); patient fields stay at the source, and only their hash is recorded.
+
+**Statistics per chunk.** Each hashed tensor, tile or pixel block also carries its mean, standard deviation, minimum and maximum, computed from the bytes that were hashed:
+- float tensors (F32, F16, BF16) directly;
+- deflate-compressed GeoTIFF tiles are inflated in the browser, horizontal differencing is undone, and nodata is left out (with the share of valid pixels);
+- uncompressed 16-bit DICOM pixels are rescaled, in Hounsfield units for CT.
+
+An agent can tell what a chunk holds before it downloads it.
+
+**Tied to a place.** A GeoTIFF's tie point, pixel size and EPSG code give its projected corners. The page inverts UTM (or Web Mercator) to latitude and longitude, asks emem for the cell at the centre, and writes signed facts about that cell into the pointer. For the Sentinel-2 tile these are ground elevation, NDVI and 2 m air temperature, each as an `emem:fact:` token. The tile is then a place, not just a file. (Checked: tile 43PGQ's centre, 13.061 N 77.350 E, is just north-west of Bengaluru, as the tile grid says.)
+
+**Coverage grows by reading.** "hash 8 more" writes a new pointer that names the one it `extends`. It keeps the earlier rows, re-reads two of them to be sure the source has not changed, and hashes the next 8. "Next" is fixed: defaults first, then by the BLAKE3 hash of each row's label, so two readers anywhere extend to the same rows.
+
+**Witnesses.** "witness" makes this browser's key re-read 6 chunks from the source itself and sign what it found. The note is addressed to the pointer's author (`…/arcade/witness-<time>-to-<author>.md`, readable at `/v1/inbox`). Opening a pointer lists its witnesses, and each one counts only after its bytes and its Ed25519 signature check here. A witness says one more independent reader saw the same bytes; it does not make the data true. Your own key cannot witness your own pointer.
+
+**Compare.** `compare: <pointer A> <pointer B>` matches rows by unit name (without type, shape or a `transformer.`-style prefix). Equal hashes mean equal bytes at both sources, so nothing is downloaded to decide it. One identical unit is still re-read from both sources. Large tensors are sampled by the hash of their name, not their position, so two models sample the same tensors. (Found: GPT-2 and distilgpt2 share one byte-identical sampled tensor, the causal mask `h.4.attn.bias`. The other 55 tensors both pointers hashed differ; their statistics show by how much.)
 
 **Science, checked.** The GPT-2 pointer reports 137,022,720 parameters, not the familiar 124M. The file also stores 12 causal-mask buffers (`attn.bias`, 12 × 1024 × 1024 ≈ 12.6M values), so the pointer reports what the file holds.
 
@@ -133,7 +149,7 @@ A signature proves who wrote the bytes, not that the claim is true.
 |---|---|
 | The hero says what goes in, what comes out, and who uses it. Short. | `rule words say 6..12` |
 | No insider words before there is a result | `rule plain say in note blank : cid blake3 ed25519 hash signed token …` |
-| Every step is declared, implemented, and its types connect | `rule typed make open resolve ask` |
+| Every step is declared, implemented, and its types connect | `rule typed make open resolve ask point extend witness compare` |
 | Every output carries the result | `rule carry give : {link} {index} {curl} {mcp} {a2a}` |
 | Every gallery card opens something the page can open, and runs only files it can read | `rule gallery show` |
 
@@ -161,7 +177,7 @@ rule   gallery show
 | `src/eio.mjs` | rules, page, flows, gallery, checks |
 | `tools/seal.mjs` | seals the site on emem and compiles `llms.txt` and the agent card |
 | `src/read.mjs` | any input becomes markdown with headings, then sections and an index |
-| `src/point.mjs` | large data named where it lives: structure readers, chunk hashes, Merkle root or chain, re-check |
+| `src/point.mjs` | large data named where it lives: structure readers (COG/BigTIFF, Zarr, HLS, safetensors, GGUF, DICOM), chunk hashes and statistics, Merkle root or chain, place, extend, re-check, compare |
 | `src/emem.mjs` | the wire: names, keys, signed writes, reads, the token family, proofs, ask, the channel feed |
 | `src/vendor/` | emem's verifier, pinned (Apache-2.0) |
 | `src/img/` | the emem mark, from Vortx-AI/emem |
@@ -180,6 +196,8 @@ rule   gallery show
 
 ## Limits, stated
 
+- **Hashing happens in the reader's browser.** Every byte hashed crosses the network once. Hashing next to the data (in the bucket's region, or on the microscope's own server) is roadmap, not shipped.
+- **Witnesses are keys, not people.** Anyone can make keys; a witness count shows independent re-reads, not independent parties.
 - **Everything written is public.** Deleting only unpublishes.
 - **Size:** 4 MB of text and 160 sections per link.
 - **OCR:** English only, first 40 pages. The recognizer (7 MB) loads on first use.
