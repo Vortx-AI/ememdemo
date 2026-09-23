@@ -325,7 +325,19 @@ export const pack=(blocks,max)=>{
  return out;
 };
 
-// what an agent needs to pick a section without opening it: its title, pages, and the headings or symbols inside
+// distinctive terms: words frequent in one section and rare in the others (tf·idf, idf = ln(N/df)),
+// so a section with no headings still says what sets it apart
+const STOP=new Set(("the and for that with this from are was were been being have has had not but can could will would may might must shall should which their there these those into than then when what where who whom how all any each other such only also more most some very use used using one two its our your you they them his her him she about over under between both after before same own out off per via does did done here just like make made many much new now see set way well yes get got let put say said see").split(" "));
+const terms=sections=>{
+ if(sections.length<3)return sections.map(()=>[]);
+ const bags=sections.map(s=>{const m=new Map();for(const w of s.text.toLowerCase().replace(/\[page \d+\]|https?:\/\/\S+/g," ").match(/[a-z][a-z0-9_]{3,}/g)||[])if(!STOP.has(w))m.set(w,(m.get(w)||0)+1);return m});
+ const df=new Map();for(const b of bags)for(const w of b.keys())df.set(w,(df.get(w)||0)+1);
+ const N=bags.length;
+ return bags.map(b=>{const len=[...b.values()].reduce((a,c)=>a+c,0)||1;
+  return[...b].filter(([w,c])=>c>=2&&df.get(w)<N).map(([w,c])=>[w,c/len*Math.log(N/df.get(w))]).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([w])=>w)});
+};
+
+// what an agent needs to pick a section without opening it: its title, pages, the headings or symbols inside, and its distinctive terms
 const commonDir=docs=>{const parts=docs.map(d=>d.split("/").slice(0,-1));let n=0;while(parts.every(p=>n<p.length&&p[n]===parts[0][n]))n++;return n?parts[0].slice(0,n).join("/")+"/":""};
 export const describe=(sections,multi,total=40000)=>{
  let page=1;
@@ -341,11 +353,13 @@ export const describe=(sections,multi,total=40000)=>{
   if(!covers.length&&!first.code){const b=one(real(first.text).replace(/^#+\s.*$/m,"")).slice(0,110);return{title:label(first,0)+pages,covers:b?`begins "${b}${b.length>=110?"…":""}"`:""}}
   return{title:label(first,0)+pages,covers};
  });
- const len=r=>Array.isArray(r.covers)?r.covers.join("; ").length:0,sum=rows.reduce((n,r)=>n+len(r),0);
- return rows.map(r=>{
+ const len=r=>Array.isArray(r.covers)?r.covers.join("; ").length:0,sum=rows.reduce((n,r)=>n+len(r),0),tw=terms(sections);
+ return rows.map((r,i)=>{
+  const low=JSON.stringify(r.covers).toLowerCase(),key=tw[i].filter(w=>!low.includes(w)).slice(0,5);
+  r.terms=key.length?`terms: ${key.join(", ")}`:"";
   if(!Array.isArray(r.covers))return r;
   const budget=sum>total?Math.max(300,Math.floor(len(r)*total/sum)):Infinity;let t="",n=0;
   for(const c of r.covers){if(t&&t.length+c.length+2>budget)break;t+=(t?"; ":"")+c;n++}
-  return{title:r.title,covers:n<r.covers.length?`${t}; +${r.covers.length-n} more`:t};
+  return{title:r.title,covers:n<r.covers.length?`${t}; +${r.covers.length-n} more`:t,terms:r.terms};
  });
 };

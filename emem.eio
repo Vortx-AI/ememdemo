@@ -103,14 +103,14 @@ curl -s https://emem.dev/.well-known/agent-card.json
 show documents : RFC 9110, HTTP Semantics <<
 tag   PDF · 194 pages
 from  https://www.rfc-editor.org/rfc/rfc9110.pdf
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/oge2de5em4me5v2uivpc6o3q3y.md
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.md
 pin   RFC 9110
 >>
 
 show code : expressjs/express at v5.2.1 <<
 tag   repo
 from  https://github.com/expressjs/express/tree/v5.2.1
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/l6weyjv6bitff7b7rfwiltpfem.md
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/5otn33skohjocfbhychddlovme.md
 pin   express repo
 >>
 
@@ -147,7 +147,7 @@ emem  live
 show documents : Attention Is All You Need <<
 tag   PDF · arXiv
 from  https://arxiv.org/pdf/1706.03762
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/fswqilse3icamhozcqfo5dpd64.md
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/5k4rsdbh3oe3zudjanr42mh6wy.md
 >>
 
 show scans : A scanned invoice <<
@@ -164,19 +164,19 @@ emem  emem:cube:23vfacx23nr3dwki6si4yrolmmp3wr6dtrhjxbw4rihiaafrpyga:s2.B08:2050
 show code : One folder: express/lib <<
 tag   folder
 from  https://github.com/expressjs/express/tree/v5.2.1/lib
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/p7wqanv4nwhylisv3ha7s2nhla.md
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/lfo5ntdsfnhsbtgdjql66ksbja.md
 >>
 
 show web : Python's json docs <<
 tag   web page
 from  https://docs.python.org/3/library/json.html
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/e6cj47k77h3mzhp2x72l4fzhhu.md
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/ebixkphpoixlevcid7rrbkftku.md
 >>
 
 show web : emem's own llms.txt <<
 tag   text
 from  https://emem.dev/llms.txt
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/mr5kiacmc4zwyng3pjabxpcn2y.md
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/3leopeycdguy4bfqq6lceopkne.md
 >>
 
 show documents : Q3 product review, with speaker notes <<

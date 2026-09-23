@@ -101,3 +101,5 @@ footer a:hover{color:var(--fg)}
 .thumbs canvas{width:calc(50% - 3px);max-width:150px;image-rendering:pixelated;border:1px solid var(--line);display:block}
 .out .thumbs{margin:0 0 calc(2*var(--u))}
 .out .thumbs canvas{width:180px;max-width:48%}
+.verdict .weak{color:var(--mute)}
+.verdict .weak::before{content:"~";color:var(--mute)}

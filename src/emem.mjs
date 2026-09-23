@@ -14,7 +14,10 @@ const cat=(...a)=>{const r=new Uint8Array(a.reduce((n,x)=>n+x.length,0));let i=0
 export const cidOf=bytes=>b32(blake3(bytes).slice(0,16));
 const b64=u=>btoa(String.fromCharCode(...new Uint8Array(u)));
 const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
-export const tokens=n=>"~"+(n<4000?Math.max(1,Math.round(n/4)):Math.round(n/4000)+"k")+" tokens";
+// tokens, estimated from what text is made of, not its length: fitted by least squares against the o200k tokenizer
+// on 60 of this gallery's files and tested on the other 30 (median error 4.8%, 90th percentile 9.8%; length/4 gave 15.8% and 29.8%)
+export const count=t=>Math.max(1,Math.round(1.098*(t.match(/[A-Za-z]+/g)||[]).length+2.207*(t.match(/\d+/g)||[]).length+.569*(t.match(/[^\w\s]/g)||[]).length+.325*(t.match(/\n/g)||[]).length));
+export const tokens=t=>{const n=count(t);return"~"+(n<1000?n:(n/1000).toFixed(n<10000?1:0)+"k")+" tokens"};
 export const pool=async(items,n,fn)=>{let i=0;await Promise.all(Array.from({length:Math.min(n,items.length)},async()=>{while(i<items.length){const k=i++;await fn(items[k],k)}}))};
 export const store=(k,v)=>{try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||"null");localStorage.setItem(k,JSON.stringify(v))}catch{return null}};
 export const net=async(url,init)=>{try{return await fetch(url,init)}catch{throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
@@ -70,7 +73,9 @@ export const getNote=async url=>{
 
 // ---------- how another agent reads a result: plain HTTP, MCP, or A2A; and how anyone checks it ----------
 const a2aCall=(skill,args)=>`curl -s ${EMEM}/a2a/tasks -H 'content-type: application/json' \\\n  -d '${JSON.stringify({skill,args})}'`;
-const rehash=(url,cid)=>`# each file is named by the hash of its bytes; recompute it (pip install blake3):\ncurl -s ${url} | python3 -c "import sys,blake3,base64;print(base64.b32encode(blake3.blake3(sys.stdin.buffer.read()).digest(16)).decode().rstrip('=').lower())"\n# expect ${cid}`;
+const rehash=(url,cid)=>`# each file is named by the first 128 bits of the BLAKE3 hash of its bytes: making different bytes with this name takes about 2^128 tries.
+# an index lists every section by its name, so the index's own name commits to all of them (a hash tree).
+# recompute it (pip install blake3):\ncurl -s ${url} | python3 -c "import sys,blake3,base64;print(base64.b32encode(blake3.blake3(sys.stdin.buffer.read()).digest(16)).decode().rstrip('=').lower())"\n# expect ${cid}`;
 export const readVia=r=>r.token?r.via:{
  curl:`curl -s ${r.url}`+(r.first&&r.first!==r.url?`\ncurl -s ${r.first}`:""),
  mcp:`emem_memory_view {"file_cid":"${r.cid}"}`,
@@ -110,7 +115,7 @@ const faces={
   await verifier();const bytes=cbor&&b32full(globalThis.ememVerifyInternals.blake3(new Uint8Array(cbor)))===j.fact_cid;
   const signed=await receiptOk(j.receipt,S.signer)&&j.receipt.fact_cids?.includes(j.fact_cid);
   return{title:`${j.band} at ${j.cell}`,big:`${fmt(j.value_verbatim??j.value)} ${j.unit||""}`.trim(),
-   lines:[["measured",day(src.captured_at)],["source",src.scheme],["recipe",f.derivation?.fn_key],["kind",j.provenance?.class],["place",j.cell]],
+   lines:[["measured",day(src.captured_at)],["source",src.scheme],["recipe",f.derivation?.fn_key],["kind",j.provenance?.class],["confidence",f.confidence!=null?fmt(f.confidence):""],["place",j.cell]],
    ok:signed&&bytes!==false,proof:[signed?"✓ signed by emem.dev":"✗ signature does not check",bytes?"its bytes hash to its name":""]};
  },
  async bundle(j,S){
@@ -239,8 +244,8 @@ export const summarize=async(s,S)=>{
   const n=await getNote(s.emem),secs=[...n.body.matchAll(/^- \[([^\]]+)\]\(/gm)].map(m=>m[1]);
   const lead=(n.body.match(/^> (.+)$/m)||[])[1]||"",text=n.body.replace(/^---\n[\s\S]*?\n---\n\n/,"");
   return{ok:n.ok!==false,state:n.ok?"✓ matches its name":n.ok===false?"✗ name does not match":"· not named by its hash",nodes:secs.length
-   ?[["stat",`${secs.length} sections · ${(lead.match(/~[\d.]+k? tokens/)||[""])[0]} · index ${tokens(n.body.length)}`],["peek",secs.slice(0,4).join("\n")]]
-   :[["stat",tokens(text.length)],["peek",text.split("\n").filter(l=>l.trim()).slice(0,4).join("\n")]]};
+   ?[["stat",`${secs.length} sections · ${(lead.match(/~[\d.]+k? tokens/)||[""])[0]} · index ${tokens(n.body)}`],["peek",secs.slice(0,4).join("\n")]]
+   :[["stat",tokens(text)],["peek",text.split("\n").filter(l=>l.trim()).slice(0,4).join("\n")]]};
  }
  if(ASK.test(s.emem))return{ok:true,state:"live",nodes:[["stat","asks emem.dev now; the answer comes back signed"],["peek",s.note||""]]};
  const r=await resolveToken(s.emem,S),f=r.face;

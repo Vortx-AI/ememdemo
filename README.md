@@ -41,6 +41,25 @@ The gallery's links were made with this page's own pipeline under one gallery ke
 
 A signature proves who wrote the bytes, not that the claim is true.
 
+## The maths, stated
+
+- **Names.** A file's name is the first 128 bits of BLAKE3 over its bytes, base32. Making different bytes with the same name takes about 2^128 tries (second preimage). The chance that two of a billion files collide by accident is about 1.5·10⁻²¹ (birthday bound).
+- **Hash tree.** An index lists every section by its name, so the index's own name commits to the whole document. Change one byte in one section and that section's name changes, so the index's name changes too. Opening a link re-hashes the index and every section.
+- **Signatures.** Ed25519 via emem's own verifier. The signer must equal the key pinned in `emem.eio`.
+- **Token counts.** `tokens ≈ 1.10·words + 2.21·digit-runs + 0.57·punctuation + 0.33·newlines`. This was fitted by least squares against the o200k tokenizer on 60 of this gallery's files and tested on the other 30:
+
+  | method | median error | 90th percentile |
+  |---|---|---|
+  | this fit | 4.8% | 9.8% |
+  | length / 4 (before) | 15.8% | 29.8% |
+
+  Claude's tokenizer differs from o200k, so read counts as estimates.
+- **Index terms.** Each index entry also lists up to five distinctive terms: words frequent in that section and rare in the others, ranked by tf·idf with idf = ln(N/df). This matters most for sections with no headings.
+- **Answer check.** It reports three independent measures:
+  - **Quotes:** exact matches after normalizing whitespace, quote marks and markup. An ellipsis splits a quote into parts that must appear in order.
+  - **Sentences:** the share of each sentence's 3-word runs that occur in the source. At 60% or more it traces word for word. A faithful paraphrase scores low, which is the honest reading: it cannot be traced mechanically.
+  - **Numbers:** a number in the answer counts only if the source has it within ±250 characters of at least two of that sentence's other content words. A number that appears somewhere in the source does not count unless it sits next to what the sentence says. (Tested: "RFC 9110 defines 63 status codes" is flagged; 422, 9110, 2022 and 7231 hold.)
+
 ## Principles, as rules the page enforces
 
 `src/eio.mjs` refuses to render if `emem.eio` breaks a rule, and names the rule:

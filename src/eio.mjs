@@ -83,10 +83,10 @@ const ops={
  },
  async sign(r){
   const k=await key();r.key=k.pub;
-  const n=r.sections.length,total=r.text.length;
+  const n=r.sections.length,total=r.text;
   r.notes=await Promise.all(r.sections.map((s,i)=>note(`---\nsource: ${r.title}\nsection: ${i+1} of ${n}: ${r.about[i].title}\n---\n\n${s.text.trim()}\n`,k)));
   if(n>1){
-   const lines=r.sections.map((s,i)=>`- [${r.about[i].title.replace(/[[\]]/g,"")}](${r.notes[i].url}): ${tokens(s.text.length)}${r.about[i].covers?" · "+r.about[i].covers:""}`);
+   const lines=r.sections.map((s,i)=>`- [${r.about[i].title.replace(/[[\]]/g,"")}](${r.notes[i].url}): ${tokens(s.text)}${r.about[i].covers?" · "+r.about[i].covers:""}${r.about[i].terms?" · "+r.about[i].terms:""}`);
    const skipped=r.skipped.length?`\n## Not included\n\n${r.skipped.slice(0,20).map(x=>"- "+x).join("\n")}${r.skipped.length>20?`\n- and ${r.skipped.length-20} more`:""}\n`:"";
    r.index=await note(`# ${r.title}\n\n> ${r.what}. ${tokens(total)} in ${n} sections. Read this index, then fetch only the sections your task needs. Every link is named by the hash of its bytes.\n\n## Sections\n\n${lines.join("\n")}\n${skipped}`,k);
   }
@@ -100,7 +100,7 @@ const ops={
  },
  async link(r){
   const top=r.index||r.notes[0],n=r.notes.length+(r.index?1:0);
-  Object.assign(r,{url:top.url,cid:top.cid,body:top.body,first:r.notes[0].url,proof:`${n} of ${n} files stored`});
+  Object.assign(r,{url:top.url,cid:top.cid,body:top.body,first:r.notes[0].url,proof:`${n} of ${n} files stored`+(r.index?` · one name commits to all ${r.notes.length} sections`:"")});
   Object.assign(r,readVia(r));
   return r;
  },
@@ -121,10 +121,10 @@ const ops={
   const bad=r.checked.filter(c=>c.ok===false).map(c=>c.url.split("/").pop()),unnamed=r.checked.filter(c=>c.ok==null).length,ok=n-bad.length-unnamed;
   r.bad=bad.length>0;
   r.proof=r.bad?`${bad.length} of ${n} files do NOT match their names: ${bad.slice(0,3).join(", ")}${bad.length>3?" …":""}`
-   :unnamed===n?`not named by its hash, so there is nothing to match (its hash is ${r.cid})`:`${ok} of ${n} files match their names`+(unnamed?` · ${unnamed} not named by hash`:"");
+   :unnamed===n?`not named by its hash, so there is nothing to match (its hash is ${r.cid})`:`${ok} of ${n} files match their names`+(unnamed?` · ${unnamed} not named by hash`:"")+(n>1&&!unnamed?` · one name commits to all ${n-1} sections`:"");
   const parts=n>1?r.checked.slice(1):r.checked;
   r.text=parts.map(strip).join("\n");r.first=parts[0].url;
-  r.shape=n>1?`It is an index of ${n-1} sections (${tokens(r.text.length)} in all); each entry says what its section covers.`:`It is one file (${tokens(r.text.length)}).`;
+  r.shape=n>1?`It is an index of ${n-1} sections (${tokens(r.text)} in all); each entry says what its section covers.`:`It is one file (${tokens(r.text)}).`;
   Object.assign(r,readVia(r));
   return r;
  }
@@ -144,6 +144,27 @@ const quotes=(a,src)=>{const q=new Set();
  for(const m of a.matchAll(/^>\s?(.{12,})$/gm))q.add(m[1].trim());
  return[...q]};
 const found=(src,q)=>{let at=0;for(const part of norm(q).split(/\s*(?:\.\.\.|…)\s*/).filter(p=>p.length>=4)){const i=src.indexOf(part,at);if(i<0)return false;at=i+part.length}return true};
+
+// beyond quotes: how much of each sentence traces to the source word for word, and whether its numbers are in the source.
+// trace = share of the sentence's 3-word runs that occur in the source; a paraphrase scores low, which is the honest reading.
+const words3=t=>{const w=norm(t).replace(/[^a-z0-9\s]/g," ").split(/\s+/).filter(Boolean),o=[];for(let i=0;i+2<w.length;i++)o.push(w[i]+" "+w[i+1]+" "+w[i+2]);return o};
+const nums=t=>(t.match(/\d[\d,]*(?:\.\d+)?/g)||[]).map(x=>x.replace(/,/g,"").replace(/\.0+$/,"")).filter(x=>x.length>1);
+const SW=new Set("the and for that with this from are was were been have has not but can will may must which their there these those into than then when what where who how all any each other such only also more most some very uses used using about over under between after before does".split(" "));
+// a number counts only where the source has it next to the words it came with: an occurrence within ±250 characters
+// of at least two of the sentence's other content words (one, if the sentence has fewer than three)
+const numberHeld=(n,sentence,src)=>{
+ const ctx=[...new Set((norm(sentence).match(/[a-z][a-z-]{3,}/g)||[]).filter(w=>!SW.has(w)))],need=ctx.length<3?1:2;
+ const re=new RegExp(`(?<![\\d.])${n.replace(/\./g,"\\.")}(?![\\d])`,"g");let m;
+ while((m=re.exec(src))){const win=src.slice(Math.max(0,m.index-250),m.index+250);if(ctx.filter(w=>win.includes(w)).length>=need)return true}
+ return false;
+};
+const grounding=(answer,source)=>{
+ const grams=new Set(words3(source)),src=norm(source).replace(/(\d),(\d)/g,"$1$2");
+ const sentences=answer.split(/(?<=[.!?])\s+|\n+/).map(x=>x.trim()).filter(Boolean);
+ const traced=sentences.filter(x=>x.split(/\s+/).length>=6).map(x=>{const g=words3(x);return{x,score:g.length?g.filter(y=>grams.has(y)).length/g.length:0}});
+ const numbers=sentences.flatMap(x=>[...new Set(nums(x))].map(n=>({n,ok:numberHeld(n,x,src),x})));
+ return{traced,numbers};
+};
 
 // ---------- page ----------
 const h=(tag,attrs={},...kids)=>{const e=document.createElement(tag);for(const[k,v]of Object.entries(attrs))k.startsWith("on")?e[k]=v:e.setAttribute(k,v);e.append(...kids.flat().filter(x=>x!=null&&x!==false));return e};
@@ -183,8 +204,18 @@ const boot=async()=>{
   if(tab==="check"){pane.replaceChildren(ans,verdict);ans.oninput()}
   else{code.textContent=fill(gives.find(g=>g.arg===tab).body,vals());pane.replaceChildren(code,copy)}
  };
- ans.oninput=()=>{if(!run?.text){verdict.replaceChildren();return}const src=norm(run.text),q=quotes(ans.value,src),n=q.filter(s=>found(src,s)).length;
-  verdict.replaceChildren(...(q.length?[h("li",{class:"sum"},`${n} of ${q.length} quotes are in the source`)]:ans.value.trim()?[h("li",{class:"sum"},'no "quotes" found in the answer')]:[]),...q.map(s=>h("li",{class:found(src,s)?"yes":"no"},s)))};
+ ans.oninput=()=>{
+  if(!run?.text||!ans.value.trim()){verdict.replaceChildren();return}
+  const src=norm(run.text),q=quotes(ans.value,src),nq=q.filter(x=>found(src,x)).length,g=grounding(ans.value,run.text);
+  const good=g.traced.filter(t=>t.score>=.6).length,okn=g.numbers.filter(n=>n.ok).length,bad=g.numbers.filter(n=>!n.ok);
+  verdict.replaceChildren(
+   h("li",{class:"sum"},[q.length?`quotes: ${nq} of ${q.length} are in the source`:"quotes: none",
+    g.traced.length?`sentences: ${good} of ${g.traced.length} trace to it word for word (≥60% of their 3-word runs)`:"",
+    g.numbers.length?`numbers: ${okn} of ${g.numbers.length} appear in it, in context`:""].filter(Boolean).join("  ·  ")),
+   ...q.map(x=>h("li",{class:found(src,x)?"yes":"no"},x)),
+   ...bad.map(n=>h("li",{class:"no"},`${n.n} is not in the source next to what this sentence says: ${n.x}`)),
+   ...g.traced.filter(t=>t.score<.3).map(t=>h("li",{class:"weak"},`${Math.round(t.score*100)}% traced: ${t.x}`)));
+ };
  grab.onclick=async()=>{try{await navigator.clipboard.writeText(run.url);grab.textContent="copied"}catch{grab.textContent="select and copy"}setTimeout(()=>grab.textContent="copy link",1400)};
  copy.onclick=async()=>{try{await navigator.clipboard.writeText(code.textContent);copy.textContent="copied"}catch{copy.textContent="select and copy"}setTimeout(()=>copy.textContent="copy",1400)};
  const drawRecent=()=>{const list=store("emem.recent")||[];recent.hidden=!list.length;recent.replaceChildren(...(list.length?[h("li",{class:"sum"},"recent")]:[]),
@@ -208,8 +239,8 @@ const boot=async()=>{
    show(list,i);run=r;tab=gives[0].arg;
    link.textContent=r.url;link.href=r.url;link.target="_blank";link.rel="noopener";grab.hidden=false;
    meta.className="meta"+(r.bad?" bad":"");
-   const secs=r.token?0:r.notes?.length??(r.checked.length>1?r.checked.length-1:1),size=r.token?r.shape.split(/\.\s/)[0].replace(/^It is /,"").replace(/\.$/,""):secs>1?`${secs} sections, ${tokens(r.text.length)}`:tokens(r.text.length);
-   meta.textContent=[r.proof,secs>1?`${size}; the index is ${tokens(r.body.length)}`:size,r.skipped?.length?`${r.skipped.length} not included`:"",expect&&r.cid===expect?"same file names as the gallery copy":""].filter(Boolean).join("  ·  ");
+   const secs=r.token?0:r.notes?.length??(r.checked.length>1?r.checked.length-1:1),size=r.token?r.shape.split(/\.\s/)[0].replace(/^It is /,"").replace(/\.$/,""):secs>1?`${secs} sections, ${tokens(r.text)}`:tokens(r.text);
+   meta.textContent=[r.proof,secs>1?`${size}; the index is ${tokens(r.body)}`:size,r.skipped?.length?`${r.skipped.length} not included`:"",expect&&r.cid===expect?"same file names as the gallery copy":""].filter(Boolean).join("  ·  ");
    if(!r.bad){history.replaceState(null,"","?s="+encodeURIComponent(r.token||r.url));
     store("emem.recent",[{url:r.token||r.url,title:r.title||r.url,shape:size},...(store("emem.recent")||[]).filter(x=>x.url!==(r.token||r.url))].slice(0,8));drawRecent()}
    pics.replaceChildren(...(r.face?.canvases||[]).map(c=>{const d=c.cloneNode();d.getContext("2d").drawImage(c,0,0);return d}));
