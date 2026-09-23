@@ -8,16 +8,35 @@
 #   flow name : a b c      steps in order; each output type must be the next input type
 #   rule ...               checked at load; a broken rule stops the page, like a compiler
 
+mark    ./src/img/mark-64.png
+link    gallery  #gallery
+link    A2A      https://emem.dev/a2a
+link    channel  https://emem.dev/channel
+link    docs     https://emem.dev/docs
+link    GitHub   https://github.com/Vortx-AI/emem
+
 say     Turn any file into a link your AI agent can read.
 in      Drop files, paste text, or paste a URL or GitHub repo
 note    Public: anyone with the link can read it.
-empty   your link appears here
 blank   Nothing to read yet. Drop a file, or paste text, a URL or a GitHub repo.
 
 kind docs   : pdf docx pptx xlsx epub html htm md mdx rst txt
 kind data   : csv tsv json jsonl yaml yml toml xml ini sql log
 kind code   : js mjs cjs ts tsx jsx py rb go rs java kt swift c h cc cpp hpp cs php sh bash css scss vue svelte lua r jl dart ex exs hs scala eio
 kind images : png jpg jpeg webp gif bmp
+
+# the emem.dev key every receipt must be signed by; a receipt signed by any other key does not count
+signer  777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
+
+# the token family: name : what it is | how it is read over HTTP | the MCP tool (and A2A skill) that resolves it
+token fact      : one signed measurement at a place          | POST /v1/memory_token/resolve {"token":"{token}"}  | emem_memory_token_resolve
+token bundle    : several measurements under one handle      | GET  /v1/memory_bundle/{token}                      | emem_memory_bundle_resolve
+token cell      : a place on Earth, about 10 m across         | POST /v1/recall {"cell":"{id}","bands":["copdem30m.elevation_mean","indices.ndvi","era5.t2m","cams.pm25"]} | emem_recall
+token entity    : one shared identity for a real thing        | GET  /v1/entity/{token}                             | emem_entity_resolve
+token raster    : a field of pixels over an area              | POST /v1/raster/resolve {"token":"{token}","spot_check":true} | emem_raster_resolve
+token cube      : the same field across several dates         | POST /v1/cube/resolve {"token":"{token}"}          | emem_cube_resolve
+token rasterset : several fields bound into one               | POST /v1/raster_bundle/resolve {"token":"{token}"} | emem_raster_bundle_resolve
+token state     : one recorded step of an answer's reasoning  | GET  /v1/state/{token}                              | -
 
 limit   4000000
 section 24000
@@ -35,14 +54,20 @@ step fetch  : url      -> notes
 step prove  : notes    -> link
 flow open   : fetch prove
 
-give index <<
+step resolve : name    -> link
+flow resolve : resolve
+
+step ask    : question -> link
+flow ask    : ask
+
+give preview <<
 {index}
 >>
 
 give AGENTS.md <<
 ## Context: {title}
 Before writing code, read {link}
-{shape} Fetch only the sections the task needs. If it does not say something, do not guess.
+{shape} Fetch only what the task needs. If it does not say something, do not guess.
 >>
 
 give chat <<
@@ -51,37 +76,145 @@ When you rely on it, quote it word for word in "double quotes". If it does not s
 >>
 
 give curl <<
-curl -s {link}
-curl -s {first}
+{curl}
 
-# each file is named by the hash of its bytes; recompute it (pip install blake3):
-curl -s {link} | python3 -c "import sys,blake3,base64;print(base64.b32encode(blake3.blake3(sys.stdin.buffer.read()).digest(16)).decode().rstrip('=').lower())"
-# expect {cid}
+{verify}
 >>
 
 give MCP <<
 claude mcp add --transport http emem https://emem.dev/mcp/full
-# then, in any MCP agent: read {link}
-emem_memory_view {"file_cid":"{cid}"}
+# then, in any MCP agent:
+{mcp}
 >>
 
-# shown in the index tab before anything is dropped: a real excerpt, so the output is visible first
-sample <<
-# RFC 9110: HTTP Semantics
+give A2A <<
+# any agent, no SDK and no key: every emem tool is also an A2A skill
+{a2a}
 
-> 194-page PDF. ~113k tokens in 23 sections. Read this index, then fetch only the sections your task needs.
+# all skills, from the agent card
+curl -s https://emem.dev/.well-known/agent-card.json
+>>
 
-## Sections
+# the gallery: real inputs and what they became. Each card re-checks its result as the page loads.
+#   from  the input (a URL, a repo, or a file in ./samples); "run it yourself" feeds it through the pipeline again
+#   emem  the result: a link, a token, a file name, the log head, "ask: …", or "live"
+#   pin   also offered as a one-click "try" under the box
 
-- [9. Methods · pp. 71–79](…): ~6k tokens · 9.1. Overview; 9.2.1. Safe Methods; 9.2.2. Idempotent Methods; 9.3.1. GET; 9.3.3. POST
-- [15. Status Codes · pp. 125–133](…): ~6k tokens · 15.1. Overview of Status Codes; 15.3.1. 200 OK; 15.3.2. 201 Created; 15.4. Redirection 3xx
-- [15.4.1. 300 Multiple Choices · pp. 133–142](…): ~6k tokens · 15.5.1. 400 Bad Request; 15.5.4. 403 Forbidden; 15.5.21. 422 Unprocessable Content
-  … one line per section. Your agent reads this first, then opens only what it needs.
+show documents : RFC 9110, HTTP Semantics <<
+tag   PDF · 194 pages
+from  https://www.rfc-editor.org/rfc/rfc9110.pdf
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.md
+pin   RFC 9110
+>>
+
+show code : expressjs/express at v5.2.1 <<
+tag   repo
+from  https://github.com/expressjs/express/tree/v5.2.1
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/5otn33skohjocfbhychddlovme.md
+pin   express repo
+>>
+
+show scans : A build error, as a screenshot <<
+tag   image · OCR
+from  ./samples/build-error.png
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/3n4cwt4dighrfgrxdwv6hv3fe4.md
+pin   error screenshot
+>>
+
+show places : Bengaluru, ground elevation <<
+tag   emem:fact
+emem  emem:fact:defi.zb493.xuqA.zcb5f:tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq
+pin   a signed fact
+>>
+
+show places : Flood risk in Chennai, asked live <<
+tag   ask
+emem  ask: flood risk in Chennai
+note  The answer comes back signed, with every fact it used and one handle for all of them.
+pin   flood risk in Chennai
+>>
+
+show agents : The standard two agents ratified <<
+tag   A2A
+emem  l6ppjyiygzt3q4btpwfvvlzdy4
+>>
+
+show agents : The public channel, live <<
+tag   channel
+emem  live
+>>
+
+show documents : Attention Is All You Need <<
+tag   PDF · arXiv
+from  https://arxiv.org/pdf/1706.03762
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/5k4rsdbh3oe3zudjanr42mh6wy.md
+>>
+
+show scans : A scanned invoice <<
+tag   scan · OCR
+from  ./samples/invoice-scan.pdf
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/g6u3kpc4varj6epnzcbxkqmpyi.md
+>>
+
+show places : Cubbon Park from orbit, two dates <<
+tag   emem:cube
+emem  emem:cube:23vfacx23nr3dwki6si4yrolmmp3wr6dtrhjxbw4rihiaafrpyga:s2.B08:20500..20585:ganwwj25obuob3pp7pjtkd4awtihnluotdowe2cqtrj77af5qlna
+>>
+
+show code : One folder: express/lib <<
+tag   folder
+from  https://github.com/expressjs/express/tree/v5.2.1/lib
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/lfo5ntdsfnhsbtgdjql66ksbja.md
+>>
+
+show web : Python's json docs <<
+tag   web page
+from  https://docs.python.org/3/library/json.html
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/ebixkphpoixlevcid7rrbkftku.md
+>>
+
+show web : emem's own llms.txt <<
+tag   text
+from  https://emem.dev/llms.txt
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/3leopeycdguy4bfqq6lceopkne.md
+>>
+
+show documents : Q3 product review, with speaker notes <<
+tag   slides
+from  ./samples/q3-review.pptx
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/ltqerf5jdi7xm3d4mbu6kfinxi.md
+>>
+
+show documents : Pricing 2026 <<
+tag   spreadsheet
+from  ./samples/pricing-2026.xlsx
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/fdbti2scqfx7ax2n6abfpq64ke.md
+>>
+
+show places : Bengaluru, four readings, one handle <<
+tag   emem:bundle
+emem  emem:bundle:y2k6h2laeo4libfsiebucdw4mu
+>>
+
+show places : The Amazon rainforest, one identity <<
+tag   emem:entity
+emem  emem:entity:5pitnkcnle3cq6yldbffj52zja
+>>
+
+show proof : Everything emem.dev ever signed, in one head <<
+tag   log
+emem  https://emem.dev/v1/log/sth
+>>
+
+show proof : A file whose name lies <<
+tag   mismatch
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/avmvdexjuwqwjjzyncczvmfyzq.md
 >>
 
 check   Paste your AI's answer. Every "quote" in it is checked against the source.
 
 rule words say 6..12
-rule plain say in note empty blank : cid blake3 ed25519 hash signed token emem: sha256 attester bundle
-rule typed make open
-rule carry give : {link} {index}
+rule plain say in note blank : cid blake3 ed25519 hash signed token emem: sha256 attester bundle
+rule typed make open resolve ask
+rule carry give : {link} {index} {curl} {mcp} {a2a}
+rule gallery show

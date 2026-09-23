@@ -10,8 +10,9 @@ const LIB={
 };
 const READER="https://r.jina.ai/";
 
+import {net} from "./emem.mjs";
+
 // ---------- plumbing ----------
-export const net=async(url,init)=>{try{return await fetch(url,init)}catch{throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
 const loaded={};
 const script=(src,global)=>loaded[src]??=new Promise((ok,no)=>{const s=document.createElement("script");s.src=src;s.onload=()=>ok(window[global]);s.onerror=()=>no(new Error("Could not load a reader from cdn.jsdelivr.net. Check your connection."));document.head.append(s)});
 export const ext=n=>(n.match(/\.([a-z0-9]+)$/i)?.[1]||"").toLowerCase();
@@ -138,6 +139,7 @@ let OCR;
 const ocr=()=>OCR??=import(LIB.ocr).then(T=>(T.createWorker||T.default.createWorker)("eng",1,{
  workerPath:NPM+"tesseract.js@5.1.1/dist/worker.min.js",corePath:NPM+"tesseract.js-core@5.1.1",langPath:NPM+"@tesseract.js-data/eng@1.0.0/4.0.0_best_int"}));
 const ocrPdf=async(doc,name,tick)=>{
+ tick("loading text recognition (7 MB, first time only)");
  const n=Math.min(doc.numPages,40),w=await ocr(),pages=[];
  for(let p=1;p<=n;p++){
   tick(`reading scan ${p}/${n}`);
@@ -151,7 +153,15 @@ const ocrPdf=async(doc,name,tick)=>{
 };
 const imageDoc=async(file,name,tick)=>{
  tick("reading image text");
- const text=(await(await ocr()).recognize(file)).data.text;
+ const bmp=await createImageBitmap(file),cv=document.createElement("canvas");cv.width=bmp.width;cv.height=bmp.height;
+ const g=cv.getContext("2d");g.drawImage(bmp,0,0);
+ // OCR reads dark text on light; light-on-dark images (terminals, dark mode) are inverted first
+ const px=g.getImageData(0,0,cv.width,cv.height),d=px.data;let sum=0,n=0;
+ for(let i=0;i<d.length;i+=4*97){sum+=d[i]*.3+d[i+1]*.59+d[i+2]*.11;n++}
+ if(sum/n<110){for(let i=0;i<d.length;i+=4){d[i]=255-d[i];d[i+1]=255-d[i+1];d[i+2]=255-d[i+2]}g.putImageData(px,0,0)}
+ tick("loading text recognition (7 MB, first time only)");
+ const w=await ocr();tick("reading image text");
+ const text=(await w.recognize(cv)).data.text;
  if(!text.trim())throw new Error(`${name}: no text found in the image.`);
  return{title:name,md:textMd(text),what:"image, text read by OCR"};
 };
@@ -187,10 +197,11 @@ const epubDoc=async buf=>{
 export const toDoc=async(it,kinds,tick)=>{
  const name=it.name,e=ext(name),kind=kinds[e];
  if(it.text!=null)return{name,title:"",md:tidy(it.text),kind:"prose",what:"pasted text"};
- if(it.remote)return webDoc(it.remote,tick);
+ if(it.remote)return webDoc(it.remote,kinds,tick);
  if(!kind)throw new Error(`${name}: ${/^(mp3|wav|m4a|ogg|flac|mp4|mov|webm|mkv|avi)$/.test(e)?"audio and video are not read yet":`.${e||"?"} files are not read`}.`);
- let buf;if(it.file)buf=await it.file.arrayBuffer();else{const x=await net(it.url);if(!x.ok)throw new Error(`${name}: could not be fetched (${x.status}).`);buf=await x.arrayBuffer()}
+ let buf;if(it.file)buf=await it.file.arrayBuffer();else{const x=await net(it.url);if(!x.ok)throw Object.assign(new Error(`${name}: could not be fetched (${x.status}).`),{gone:x.status===404});buf=await x.arrayBuffer()}
  let d;
+ if(/^(pdf|docx|xlsx|pptx|epub)$/.test(e))tick("loading the reader");
  if(e==="pdf")d=await pdfDoc(buf,name,tick);
  else if(e==="docx")d=await docxDoc(buf);
  else if(e==="xlsx")d=await xlsxDoc(buf);
@@ -207,9 +218,23 @@ export const toDoc=async(it,kinds,tick)=>{
  return{name,title:one(d.title),md:d.md,kind:"prose",what:d.what};
 };
 
-// web pages go through a reader that returns markdown; its preamble is metadata, not content
-const webDoc=async(url,tick)=>{
- tick("reading page");
+// a file served with open CORS is read here by the same readers as a dropped file;
+// a web page goes through a reader that returns markdown, whose preamble is metadata, not content
+const TYPES={"application/pdf":"pdf","text/plain":"txt","text/markdown":"md","text/csv":"csv","application/json":"json","application/epub+zip":"epub",
+ "application/vnd.openxmlformats-officedocument.wordprocessingml.document":"docx","application/vnd.openxmlformats-officedocument.presentationml.presentation":"pptx",
+ "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":"xlsx","image/png":"png","image/jpeg":"jpg","image/webp":"webp"};
+const webDoc=async(url,kinds,tick)=>{
+ tick("reading link");
+ const direct=await fetch(url).catch(()=>null);
+ if(direct?.ok){
+  const type=(direct.headers.get("content-type")||"").split(";")[0].trim().toLowerCase(),u=new URL(url);
+  const pe=ext(u.pathname),e=kinds[pe]?pe:TYPES[type]||"";
+  if(e&&kinds[e]){
+   const base=decodeURIComponent(u.pathname.split("/").filter(Boolean).pop()||u.host),name=ext(base)===e?base:`${base}.${e}`;
+   const d=await toDoc({name,file:new File([await direct.blob()],name)},kinds,tick);
+   return{...d,what:`${d.what} from ${u.host}`};
+  }
+ }
  const x=await net(READER+url);if(!x.ok)throw new Error(`Could not read ${url} (${x.status}).`);
  const t=await x.text(),at=t.indexOf("Markdown Content:");
  const title=one((t.match(/^Title:\s*(.+)$/m)||[])[1]);
@@ -221,13 +246,15 @@ export const REPO=/^https?:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:\/
 export const repoItems=async(m,kinds,budget)=>{
  const[,o,n,mode,ref,sub=""]=m;
  const api=p=>net(`https://api.github.com/repos/${o}/${n}${p}`).then(x=>x.ok?x.json():null).catch(()=>null);
+ // a version tag is already immutable; a branch moves, so it is pinned to its current commit when GitHub answers
+ const tag=/^v?\d+(\.\d+)+/.test(ref||"");
  let branch=ref;if(!branch)branch=(await api(""))?.default_branch;
- const sha=(await api(`/commits/${encodeURIComponent(branch||"HEAD")}`))?.sha;
+ const sha=tag?null:(await api(`/commits/${encodeURIComponent(branch||"HEAD")}`))?.sha;
  let list=null,ver=null;
  for(const v of [sha,branch,"main","master"].filter(Boolean)){const x=await net(`https://data.jsdelivr.com/v1/packages/gh/${o}/${n}@${encodeURIComponent(v)}?structure=flat`);if(x.ok){list=(await x.json()).files;ver=v;break}}
  if(!list)throw new Error(`Could not list github.com/${o}/${n}. It may be private, missing, or over 150 MB.`);
  const cdn=p=>`https://cdn.jsdelivr.net/gh/${o}/${n}@${encodeURIComponent(ver)}${p.split("/").map(encodeURIComponent).join("/")}`;
- const label=`github.com/${o}/${n}${sub}`,at=ver===sha?`commit ${sha.slice(0,12)}`:`branch ${ver}`;
+ const label=`github.com/${o}/${n}${sub}`,at=ver===sha?`commit ${sha.slice(0,12)}`:`${tag?"tag":"branch"} ${ver}`;
  if(mode==="blob")return{name:label,items:[{name:sub.slice(1),url:cdn(sub)}],what:`file ${label} at ${at}`};
  const SKIP=/(^|\/)(node_modules|dist|build|out|vendor|third_party|\.git|\.next|target|coverage|__pycache__|\.venv)\//i;
  const LOCK=/(\.min\.|\.map$|(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|poetry\.lock|go\.sum|composer\.lock)$)/i;
@@ -298,7 +325,19 @@ export const pack=(blocks,max)=>{
  return out;
 };
 
-// what an agent needs to pick a section without opening it: its title, pages, and the headings or symbols inside
+// distinctive terms: words frequent in one section and rare in the others (tf·idf, idf = ln(N/df)),
+// so a section with no headings still says what sets it apart
+const STOP=new Set(("the and for that with this from are was were been being have has had not but can could will would may might must shall should which their there these those into than then when what where who whom how all any each other such only also more most some very use used using one two its our your you they them his her him she about over under between both after before same own out off per via does did done here just like make made many much new now see set way well yes get got let put say said see").split(" "));
+const terms=sections=>{
+ if(sections.length<3)return sections.map(()=>[]);
+ const bags=sections.map(s=>{const m=new Map();for(const w of s.text.toLowerCase().replace(/\[page \d+\]|https?:\/\/\S+/g," ").match(/[a-z][a-z0-9_]{3,}/g)||[])if(!STOP.has(w))m.set(w,(m.get(w)||0)+1);return m});
+ const df=new Map();for(const b of bags)for(const w of b.keys())df.set(w,(df.get(w)||0)+1);
+ const N=bags.length;
+ return bags.map(b=>{const len=[...b.values()].reduce((a,c)=>a+c,0)||1;
+  return[...b].filter(([w,c])=>c>=2&&df.get(w)<N).map(([w,c])=>[w,c/len*Math.log(N/df.get(w))]).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([w])=>w)});
+};
+
+// what an agent needs to pick a section without opening it: its title, pages, the headings or symbols inside, and its distinctive terms
 const commonDir=docs=>{const parts=docs.map(d=>d.split("/").slice(0,-1));let n=0;while(parts.every(p=>n<p.length&&p[n]===parts[0][n]))n++;return n?parts[0].slice(0,n).join("/")+"/":""};
 export const describe=(sections,multi,total=40000)=>{
  let page=1;
@@ -314,11 +353,13 @@ export const describe=(sections,multi,total=40000)=>{
   if(!covers.length&&!first.code){const b=one(real(first.text).replace(/^#+\s.*$/m,"")).slice(0,110);return{title:label(first,0)+pages,covers:b?`begins "${b}${b.length>=110?"…":""}"`:""}}
   return{title:label(first,0)+pages,covers};
  });
- const len=r=>Array.isArray(r.covers)?r.covers.join("; ").length:0,sum=rows.reduce((n,r)=>n+len(r),0);
- return rows.map(r=>{
+ const len=r=>Array.isArray(r.covers)?r.covers.join("; ").length:0,sum=rows.reduce((n,r)=>n+len(r),0),tw=terms(sections);
+ return rows.map((r,i)=>{
+  const low=JSON.stringify(r.covers).toLowerCase(),key=tw[i].filter(w=>!low.includes(w)).slice(0,5);
+  r.terms=key.length?`terms: ${key.join(", ")}`:"";
   if(!Array.isArray(r.covers))return r;
   const budget=sum>total?Math.max(300,Math.floor(len(r)*total/sum)):Infinity;let t="",n=0;
   for(const c of r.covers){if(t&&t.length+c.length+2>budget)break;t+=(t?"; ":"")+c;n++}
-  return{title:r.title,covers:n<r.covers.length?`${t}; +${r.covers.length-n} more`:t};
+  return{title:r.title,covers:n<r.covers.length?`${t}; +${r.covers.length-n} more`:t,terms:r.terms};
  });
 };
