@@ -1,40 +1,61 @@
-# emem.eio — this file is the whole site.
-# One statement per line: <verb> <args>. `<<` opens a block, `>>` closes it.
-# src/eio.mjs reads it. It turns `hero` `in` `give` `check` `foot` into the page
-# and runs `flow` step by step. Braces {x} are filled from the run.
+# emem.eio — the whole site. src/eio.mjs compiles it, checks every rule, then runs it.
+#
+#   verb args            one statement per line
+#   verb args <<  ...  >>  a block
+#   {x}                  filled from the run
+#   step name : A -> B   a typed step; the runtime must implement it
+#   flow name : a b c    steps in order; each output type must be the next input type
+#   rule ...             checked at load; a broken rule stops the page, like a compiler
 
-title   emem
-hero    One link. Every AI reads the same source.
+say     Turn any file into a link your AI agent can read.
+in      Drop files, paste text, or paste a URL or GitHub repo
+note    Public: anyone with the link can read it.
+empty   your link appears here
 
-in      drop  Drop a file, paste text, or paste a link
-accept  pdf docx txt md csv json html htm xml log  js ts py rs go java c h css yaml toml sql
-limit   2000000
+accept  pdf docx md mdx eio txt rst csv tsv json jsonl yaml yml toml xml html htm log ini sql  js mjs ts tsx jsx py rb go rs java kt swift c h cc cpp cs php sh css
+limit   4000000
+section 24000
+max     160
 
-# the path from anything to a link
-flow    take  -> text  -> sign  -> put  -> link
-# the path from a link back to proof
-open    fetch -> hash  -> match
+step read   : input    -> items
+step text   : items    -> docs
+step split  : docs     -> sections
+step sign   : sections -> signed
+step store  : signed   -> stored
+step link   : stored   -> link
+flow make   : read text split sign store link
 
-give    copy   Copy for AI       {prompt}
-give    copy   Copy with text    {prompt_text}
-give    go     ChatGPT           https://chatgpt.com/?q={prompt}
-give    go     Claude            https://claude.ai/new?q={prompt}
+step fetch  : url      -> notes
+step prove  : notes    -> link
+flow open   : fetch prove
 
-check   Paste the AI's answer. Every "quote" is checked against the source.
-
-prompt <<
-Source: {url}
-Read the source before you answer. When you rely on it, quote it word for word in "double quotes". If the source does not say it, say that.
-emem · {cid} · the file name is the hash of its bytes
+give AGENTS.md <<
+## Context
+Before writing code, read {link}
+{shape}. Fetch only what the task needs. If it does not say something, do not guess.
 >>
 
-prompt_text <<
-Source: {url}
-Answer from the source below. When you rely on it, quote it word for word in "double quotes". If the source does not say it, say that.
-emem · {cid}
------ source -----
-{text}
------ end -----
+give chat <<
+Read {link} before you answer.
+When you rely on it, quote it word for word in "double quotes". If it does not say something, say so.
 >>
 
-foot    Public. Anyone with the link can read it. Signed by this browser · {key}
+give curl <<
+curl -s {link}
+
+# each file is named by the hash of its bytes; recompute it (pip install blake3):
+curl -s {link} | python3 -c "import sys,blake3,base64;print(base64.b32encode(blake3.blake3(sys.stdin.buffer.read()).digest(16)).decode().rstrip('=').lower())"
+# expect {cid}
+>>
+
+give MCP <<
+claude mcp add --transport http emem https://emem.dev/mcp/full
+# then, in any MCP agent:
+emem_memory_view {"file_cid":"{cid}"}
+>>
+
+check   Paste your AI's answer. Every "quote" in it is checked against the source.
+
+rule words say 6..12
+rule plain say in note empty : cid blake3 ed25519 hash signed token emem: sha256 attester bundle
+rule typed make open
