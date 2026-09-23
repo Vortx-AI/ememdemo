@@ -38,6 +38,9 @@ fs.writeFileSync(ROOT+"llms.txt",`# ememdemo: ${P.one("say")}
 - **Witness a pointer.** Re-read a spread of its chunks from the source, then store a note addressed to its author at \`/memories/by_attester/<you8>/arcade/witness-<YYYYMMDD-HHMMSS>-to-<author8>.md\`, titled \`# <you8> -> <author8>: witness <pointer name> ok|changed k/n\`, with \`pointer: <url>\` in its body. Find witnesses with \`GET ${EMEM}/v1/inbox?to=<author8>\`; check each one's bytes and signature before counting it.
 - **Compare two pointers.** Match rows by label (without type, shape or wrapper prefix). The same hash means the same bytes at both sources; nothing needs to be downloaded to decide it. Stats columns (mean, sd, min, max of a tensor, tile or pixel block) say how much a changed unit differs.
 - **Tie a raster to a place.** The GeoTIFF tie point and pixel size give its projected centre; invert the projection (UTM or Web Mercator) to latitude and longitude, then \`GET ${EMEM}/v1/locate?lat=&lng=\` for its cell and \`POST ${EMEM}/v1/recall\` for signed facts there.
+- **Name a whole folder.** A Hugging Face repository (\`GET https://huggingface.co/api/models/<repo>/tree/main?recursive=true\`) or an S3 prefix (\`GET https://<bucket>.s3.<region>.amazonaws.com/?list-type=2&prefix=<prefix>\`) is listed, never downloaded. Store \`emem: directory.v1\`: one row per file (path, url, size, the publisher's own hash: sha256 for LFS files, git blob sha1, or the S3 ETag) and a Merkle root over blake3(path, size, hash). List again to see what changed.
+- **Read every layer at a place.** \`GET ${EMEM}/v1/locate?q=<place>\` gives the cell. \`POST ${EMEM}/v1/recall {"cell","bands":[…]}\` with optical (s2.B04, s2.B08, indices.ndvi), radar (sentinel1_raw), terrain (copdem30m.elevation_mean, gmrt.topobathy_mean), weather (weather.*), climate (era5.t2m, modis.lst_*), air (cams.pm25) and built (overture.*) bands returns signed facts plus the published algorithms that apply. \`POST ${EMEM}/v1/terrain\` adds slope, ruggedness and position; \`POST ${EMEM}/v1/band_composite\` a cloud-masked median raster token; \`POST ${EMEM}/v1/memory_bundle\` binds every fact into one emem:bundle token. Check every receipt.
+- **Several links, one index.** Read each page, split into sections, store each, and store one index that names them all: a whole website or a paper with its code becomes one link.
 - **Check an answer's citations.** \`POST ${EMEM}/a2a/tasks {"skill":"emem_guard_verdict","args":{"texts":["<answer>"]}}\` returns a signed allow or deny with a reason code.
 - **Ask about a place.** \`POST ${EMEM}/v1/ask {"q":"flood risk in Chennai"}\`; add \`Accept: text/event-stream\` for stages.
 
@@ -77,7 +80,7 @@ const put=async(path,body)=>{
 const store=async body=>{const bytes=U(body),cid=b32(blake3(bytes).slice(0,16)),path=`/memories/by_attester/${pub.slice(0,8)}/${cid}.md`;await put(path,body);return{url:EMEM+path,sha:await sha256(bytes)}};
 
 // load order: dependencies before the modules that import them
-const FILES=["emem.eio","src/emem.css","src/vendor/emem-verify-core.js","src/lang.mjs","src/emem.mjs","src/read.mjs","src/point.mjs","src/eio.mjs","llms.txt",".well-known/agent-card.json"];
+const FILES=["emem.eio","src/emem.css","src/vendor/emem-verify-core.js","src/lang.mjs","src/emem.mjs","src/read.mjs","src/point.mjs","src/world.mjs","src/eio.mjs","llms.txt",".well-known/agent-card.json"];
 const lines=[];
 for(const f of FILES){const s=await store(read(f));lines.push(`file ${f} ${s.sha} ${s.url}`);console.log("sealed",f)}
 

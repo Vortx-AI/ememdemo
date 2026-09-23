@@ -7,7 +7,8 @@ body{background:var(--bg);color:var(--fg);font:16px/1.5 Inter,ui-sans-serif,syst
 button,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
 main{width:min(720px,100% - 4*var(--u));margin:0 auto;padding:clamp(40px,11vh,120px) 0 calc(4*var(--u))}
-h1{font-size:clamp(34px,6.2vw,64px);line-height:1.02;font-weight:560;letter-spacing:-.045em;margin:0 0 calc(5*var(--u))}
+h1{font-size:clamp(34px,6.2vw,64px);line-height:1.02;font-weight:560;letter-spacing:-.045em;margin:0 0 calc(2*var(--u))}
+.sub{font-size:clamp(16px,2.1vw,19px);line-height:1.45;color:var(--mute);margin:0 0 calc(4*var(--u));max-width:40em}
 .drop{border:1px solid var(--line);background:var(--field);transition:border-color .12s}
 .drop:focus-within,.drop[data-over]{border-color:var(--fg)}
 .drop textarea{display:block;width:100%;border:0;background:transparent;resize:vertical;min-height:calc(12*var(--u));padding:calc(2*var(--u));outline:0;font-size:17px}

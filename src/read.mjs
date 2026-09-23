@@ -254,8 +254,12 @@ export const repoItems=async(m,kinds,budget)=>{
  const sha=tag?null:(await api(`/commits/${encodeURIComponent(branch||"HEAD")}`))?.sha;
  let list=null,ver=null;
  for(const v of [sha,branch,"main","master"].filter(Boolean)){const x=await net(`https://data.jsdelivr.com/v1/packages/gh/${o}/${n}@${encodeURIComponent(v)}?structure=flat`);if(x.ok){list=(await x.json()).files;ver=v;break}}
- if(!list)throw new Error(`Could not list github.com/${o}/${n}. It may be private, missing, or over 150 MB.`);
- const cdn=p=>`https://cdn.jsdelivr.net/gh/${o}/${n}@${encodeURIComponent(ver)}${p.split("/").map(encodeURIComponent).join("/")}`;
+ // over jsDelivr's 50 MB cap: GitHub's own tree (one API call), files from raw.githubusercontent.com, still pinned
+ let raw=false;
+ if(!list){const v=sha||branch||"HEAD",t=await api(`/git/trees/${encodeURIComponent(v)}?recursive=1`);
+  if(t?.tree){list=t.tree.filter(e=>e.type==="blob").map(e=>({name:"/"+e.path,size:e.size||0}));ver=sha||v;raw=true}}
+ if(!list)throw new Error(`Could not list github.com/${o}/${n}. It may be private or missing, or GitHub's hourly limit for this browser is used up.`);
+ const cdn=p=>raw?`https://raw.githubusercontent.com/${o}/${n}/${encodeURIComponent(ver)}${p.split("/").map(encodeURIComponent).join("/")}`:`https://cdn.jsdelivr.net/gh/${o}/${n}@${encodeURIComponent(ver)}${p.split("/").map(encodeURIComponent).join("/")}`;
  const label=`github.com/${o}/${n}${sub}`,at=ver===sha?`commit ${sha.slice(0,12)}`:`${tag?"tag":"branch"} ${ver}`;
  if(mode==="blob")return{name:label,items:[{name:sub.slice(1),url:cdn(sub)}],what:`file ${label} at ${at}`};
  const SKIP=/(^|\/)(node_modules|dist|build|out|vendor|third_party|\.git|\.next|target|coverage|__pycache__|\.venv)\//i;

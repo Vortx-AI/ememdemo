@@ -15,8 +15,9 @@ link    channel  https://emem.dev/channel
 link    docs     https://emem.dev/docs
 link    GitHub   https://github.com/Vortx-AI/emem
 
-say     Turn any file into a link your AI agent can read.
-in      Drop files, paste text, or paste a URL, a GitHub repo, or a link to large data
+say     Tokenise huge files for agents to use.
+sub     Models, satellite scenes, scans, video, code, whole websites and whole places. Your agent gets one small link, reads only the part it needs, and can check every byte.
+in      Drop files, or paste a URL, a repo, a folder, a link to large data, or world: a place
 note    Public: anyone with the link can read it.
 blank   Nothing to read yet. Drop a file, or paste text, a URL or a GitHub repo.
 
@@ -73,6 +74,12 @@ flow extend : fetch extend pin
 step attest : notes    -> link
 flow witness : fetch attest
 
+# a place, every layer: satellites, radar, terrain, weather, climate, air, the built world; one handle for all of it
+step locate : place    -> cell
+step layers : cell     -> layers
+step weave  : layers   -> link
+flow world  : locate layers weave
+
 # two pointers, row by row: identical bytes, different bytes, or only in one
 step pair   : pair     -> pointers
 step diff   : pointers -> link
@@ -118,18 +125,25 @@ curl -s https://emem.dev/.well-known/agent-card.json
 #   emem  the result: a link, a token, a file name, the log head, "ask: …", "live", or "self" (the seal this page runs from)
 #   pin   also offered as a one-click "try" under the box
 
-show documents : RFC 9110, HTTP Semantics <<
-tag   PDF · 194 pages
-from  https://www.rfc-editor.org/rfc/rfc9110.pdf
-emem  https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.md
-pin   RFC 9110
->>
-
 show in_place : GPT-2's weights, tensor by tensor, with statistics <<
 tag   safetensors
 from  https://huggingface.co/openai-community/gpt2/resolve/main/model.safetensors
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/amii4tnpkfoofsyzrbbs2vxsj4.md
-pin   GPT-2 weights
+>>
+
+show world : Cubbon Park, Bengaluru: every layer at once <<
+tag   world
+from  world: Cubbon Park, Bengaluru
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/5xwwg22drabkcqk4pew364y7ia.md
+note  Optical and radar satellites, terrain, weather, climate, air and buildings: 17 signed measurements, cross-checked, one handle.
+pin   every layer at Cubbon Park
+>>
+
+show emem : The whole emem.dev site, as one link <<
+tag   13 pages
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/elcqkssuxj6qy2ajfjra7eihqu.md
+note  The whitepaper, every doc and llms.txt: 23 sections an agent reads one at a time.
+pin   emem.dev, tokenised
 >>
 
 show in_place : A Sentinel-2 band, 238 MB, tied to its place on Earth <<
@@ -139,11 +153,67 @@ emem  https://emem.dev/memories/by_attester/ddzmyzhn/tm3nwiorldoo7v4uryp65gsonu.
 pin   238 MB raster
 >>
 
+show file_systems : A whole Sentinel-2 scene: 21 files, 1.76 GB, one link <<
+tag   S3 folder
+from  https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/43/P/GQ/2026/5/S2B_43PGQ_20260512_0_L2A/
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/ytrbmovcooav45okmof7pxt3bi.md
+pin   a satellite scene folder
+>>
+
 show in_place : Two models compared, tensor by tensor <<
 tag   compare
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/zld2kdiy5nw5dghcjo3whbwona.md
 note  GPT-2 against distilgpt2: which tensors are byte-identical, which differ, and by how much.
 pin   compare two models
+>>
+
+show documents : RFC 9110, HTTP Semantics <<
+tag   PDF · 194 pages
+from  https://www.rfc-editor.org/rfc/rfc9110.pdf
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.md
+pin   RFC 9110
+>>
+
+show places : Flood risk in Chennai, asked live <<
+tag   ask
+emem  ask: flood risk in Chennai
+note  The answer comes back signed, with every fact it used and one handle for all of them.
+pin   flood risk in Chennai
+>>
+
+show world : Marina Beach, Chennai: every layer at once <<
+tag   world
+from  world: Marina Beach, Chennai
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/cpoqzy7ic6mbpx65o7y4aqstpe.md
+>>
+
+show emem : The emem repository, all 139 parts <<
+tag   repo
+from  https://github.com/Vortx-AI/emem
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/lhtghurgjug5ukdwpzatsl76ra.md
+>>
+
+show emem : The emem whitepaper <<
+tag   whitepaper
+from  https://emem.dev/whitepaper
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/csdud43x6i6nl6aroqvode4lsu.md
+>>
+
+show emem : emem's algorithms, sensors and sources <<
+tag   registries
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/fuj7spcgodcjedmpudfgeoh3sm.md
+note  Every published formula, every satellite and sensor behind each band, every upstream source.
+>>
+
+show emem : Setting an agent up: card, quickstart, limits <<
+tag   setup
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/w2b7venmj4ltqf6ewegvfx4l5a.md
+>>
+
+show file_systems : GPT-2's whole repository: 26 files, 5.63 GB <<
+tag   HF repo
+from  https://huggingface.co/openai-community/gpt2
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/lo2r67wc6j3nsibudljr7lhrmi.md
 >>
 
 show in_place : TinyLlama, 483 MB of GGUF, without downloading it <<
@@ -152,30 +222,27 @@ from  https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/iqkrgor7sbtgigivc3fd726icy.md
 >>
 
+show world : The Port of Rotterdam: every layer at once <<
+tag   world
+from  world: Port of Rotterdam
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/tyifoi4xotipon4essdfxrw7we.md
+>>
+
 show code : expressjs/express at v5.2.1 <<
 tag   repo
 from  https://github.com/expressjs/express/tree/v5.2.1
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/5otn33skohjocfbhychddlovme.md
-pin   express repo
 >>
 
 show scans : A build error, as a screenshot <<
 tag   image · OCR
 from  ./samples/build-error.png
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/3n4cwt4dighrfgrxdwv6hv3fe4.md
-pin   error screenshot
 >>
 
 show places : Bengaluru, ground elevation <<
 tag   emem:fact
 emem  emem:fact:defi.zb493.xuqA.zcb5f:tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq
->>
-
-show places : Flood risk in Chennai, asked live <<
-tag   ask
-emem  ask: flood risk in Chennai
-note  The answer comes back signed, with every fact it used and one handle for all of them.
-pin   flood risk in Chennai
 >>
 
 show in_place : A microscope image, chunk by chunk <<
@@ -281,7 +348,8 @@ emem  https://emem.dev/memories/by_attester/ddzmyzhn/avmvdexjuwqwjjzyncczvmfyzq.
 check   Paste your AI's answer. Every "quote" in it is checked against the source.
 
 rule words say 6..12
-rule plain say in note blank : cid blake3 ed25519 hash signed token emem: sha256 attester bundle
-rule typed make open resolve ask point extend witness compare
+rule words sub 12..32
+rule plain say sub in note blank : cid blake3 ed25519 hash signed emem: sha256 attester bundle merkle
+rule typed make open resolve ask point extend witness compare world
 rule carry give : {link} {index} {curl} {mcp} {a2a}
 rule gallery show
