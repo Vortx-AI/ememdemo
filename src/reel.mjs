@@ -57,7 +57,10 @@ export const paint=reel=>{
 // the frames, playing: one canvas that shows each frame in turn
 export const play=canvases=>{
  if(!canvases.length)return null;const cv=document.createElement("canvas");cv.width=canvases[0].width;cv.height=canvases[0].height;cv.className="preview reel";
- let i=0;const g=cv.getContext("2d"),step=()=>{if(!cv.isConnected&&i>0)return;g.drawImage(canvases[i%canvases.length],0,0);i++;setTimeout(step,i%canvases.length?650:1400)};step();return cv};
+ cv.setAttribute("role","img");cv.setAttribute("aria-label",`timelapse of ${canvases.length} frames, ${canvases[0].dataset.date||""} to ${canvases.at(-1).dataset.date||""}`);
+ // reduced motion: the frames stay still (the first one), and every frame is still listed beside it
+ const still=typeof matchMedia==="function"&&matchMedia("(prefers-reduced-motion: reduce)").matches;
+ let i=0;const g=cv.getContext("2d"),step=()=>{if(!cv.isConnected&&i>0)return;if(still&&i>0)return;g.drawImage(canvases[i%canvases.length],0,0);i++;setTimeout(step,i%canvases.length?650:1400)};step();return cv};
 
 export const reelNote=(p,reel,rasterset)=>{
  const ok=reel.frames.filter(f=>f.ok).length;

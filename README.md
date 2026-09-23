@@ -13,7 +13,7 @@ The box takes anything:
 | an emem link | the link re-checked: every file is re-hashed against its name |
 | any emem token: `emem:fact`, `bundle`, `cell`, `entity`, `raster`, `cube`, `rasterset`, `state` | the record it names, resolved and its signature checked in the browser |
 | a bare file name (26 characters) | the file, read by name over **A2A**, with its author's signature checked |
-| a link to large data: model weights (safetensors, GGUF), GeoTIFF/COG/BigTIFF, OME-Zarr, HLS video, DICOM, or any file with byte ranges | a **pointer**: the data stays at its source; emem holds its address, chunk hashes and statistics |
+| a link to large data: model weights (safetensors, GGUF), GeoTIFF/COG/BigTIFF, OME-Zarr, HLS video, DICOM, MP4, PMTiles, Parquet, FlatGeobuf, or any file with byte ranges | a **pointer**: the data stays at its source; emem holds its address, chunk hashes and statistics |
 | a Hugging Face repository or an S3 folder ending in `/` | a **listing** of every file with its publisher's content hash; nothing downloaded |
 | several links, one per line | one index over all of them |
 | `cameras: London` | 12 street cameras: each clip hashed again, the sun recomputed, the counts labelled as a detector's reading |
@@ -291,6 +291,23 @@ Each note kind declares its schema in `emem.eio` as a `spec` block. The schema i
 | indexed · stored | doc · text | index and text notes |
 | resolve · pin · open | any emem token · log head · other links | tokens |
 
+## Private links, keys and drift
+
+- **Private links.** In the publish panel, **encrypt** seals every note with AES-256-GCM (`emem: sealed.v1`). The key travels only in the link's `#k=…` fragment, which browsers never send to a server. The note's name is still the hash of the stored ciphertext, so anyone can check integrity, but only a holder of the whole link can read it. An index and all its sections share one key; the agent line carries it as `key=`.
+- **Keys.** The signing key is a non-extractable `CryptoKey` in IndexedDB: scripts on the page can sign with it but can't read it. A recovery file can be made only during setup (a new key, or one restored from a file), before the key is locked. After a reload the key is device-only. Old keys in `localStorage` are moved in once, and the plain copy is deleted. The site's own key is pinned in the loader (`SEAL.site`), so a seal by any other key is refused, and it is published in `.well-known/emem-agents.json`.
+- **Drift chains.** `tools/drift.mjs` re-reads 6 chunks of every gallery pointer and appends a `drift.v1` note to that pointer's chain:
+  - each entry names the one before it and records then/now hashes;
+  - each is stamped after the log head;
+  - entries are filed under `arcade/drift-<cid8>-<time>` in the watcher's folder;
+  - `.github/workflows/drift.yml` runs it daily with the site key as a secret.
+
+  Reopening a pointer reads the chain, checks every entry's author against the site key and that each names the previous one, and shows "recorded drift checks: n since …, every one held" (or when a change was seen).
+- **Our own outputs, guarded.** World, grid, compare, timelapse, track and camera notes that cite emem tokens go to emem-guard before they are stored. The signed verdict is written into the note (`guard: allow · n citations · verdict signed by emem.dev`). A guard that can't answer is recorded as unavailable, never as allow.
+- **Heads you have seen.** The page remembers the log heads this browser saw and, on each visit, proves (RFC 9162) that today's log still holds every one. That is a per-reader check against a log that rewrites its past or shows readers different histories.
+- **Back.** Each result is a place in history. Back reopens the previous reference, a read that never writes or re-runs a query.
+- **Stop keeps work.** Stopping a pointer mid-way offers to keep the chunks already hashed as a partial pointer, in one explicit write. `more:` continues it in the fixed order.
+- **Languages.** `lang es << … >>` in `emem.eio` holds a visitor-facing set of lines. The same rules check it (word counts, no jargon). Spanish and Hindi ship; `?lang=` picks one.
+
 ## Agents together: request, claim, deliver, verify
 
 Agents can hand work to each other with no coordinator, following emem's agent-to-agent standard v2:
@@ -411,6 +428,8 @@ rule   gallery show
 | `tools/probes.mjs`, `tools/issue-state.mjs` | open items as rerunnable probes; results stored as signed state notes |
 | `SECURITY.md` | threat model |
 | `tests/`, `.github/workflows/test.yml` | offline unit tests and live browser tests, run in CI |
+| `tools/drift.mjs`, `.github/workflows/drift.yml` | daily drift chains for gallery pointers |
+| `.github/workflows/seal.yml` | reseals from main with the site key as a secret |
 | `src/camera.mjs` | street cameras: geo.qa postcards, clips re-hashed, sun recomputed |
 | `src/world.mjs` | every layer at a place: recall, terrain, composite, algorithms, cross-checks, one bundle |
 | `src/point.mjs` | large data named where it lives: structure readers (COG/BigTIFF, Zarr, HLS, safetensors, GGUF, DICOM), chunk hashes and statistics, Merkle root or chain, place, extend, re-check, compare |

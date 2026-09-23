@@ -23,6 +23,8 @@ export const compile=src=>{
  // a gallery entry: kind : title, then "field value" lines
  const shows=all("show").map(s=>{const m=s.arg.match(/^(\w+)\s*:\s*(.+)$/);if(!m||!s.body)throw new Error(`line ${s.line}: show needs "kind : title <<" and fields`);
   return{kind:m[1],title:m[2],...Object.fromEntries(s.body.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{const i=l.search(/\s/);return i<0?[l,""]:[l.slice(0,i),l.slice(i).trim()]}))}});
- return{one,all,steps,flows,kinds,tokens,shows};
+ // a language is a second set of the visitor-facing lines, "lang es << say … >>", held to the same rules
+ const langs=Object.fromEntries(all("lang").map(l=>[l.arg.trim(),compile(l.body||"")]));
+ return{one,all,steps,flows,kinds,tokens,shows,langs};
 };
 

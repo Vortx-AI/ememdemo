@@ -114,9 +114,9 @@ footer a:hover{color:var(--fg)}
 .card .stat{margin:0;font:12px var(--mono)}
 .card .peek{margin:0;flex:1;font:11px/1.55 var(--mono);color:var(--mute);white-space:pre-wrap;overflow:hidden;max-height:7.8em;-webkit-mask-image:linear-gradient(#000 55%,transparent);mask-image:linear-gradient(#000 55%,transparent)}
 .card .acts{display:flex;gap:var(--u);margin-top:auto}
-.card .acts span{font:12px var(--mono);border:1px solid var(--fg);padding:3px 10px}
-.card .acts span:first-child{background:var(--fg);color:var(--bg)}
-.card .acts span:not(:first-child){color:var(--fg)}
+.card .acts button{font:12px var(--mono);border:1px solid var(--fg);padding:3px 10px;background:transparent;cursor:pointer}
+.card .acts button:first-child{background:var(--fg);color:var(--bg)}
+.card .acts button:not(:first-child){color:var(--fg)}
 .feed{list-style:none;margin:0;padding:0;display:grid;gap:4px;font:11px/1.45 var(--mono);flex:1}
 .feed li{display:flex;gap:var(--u);overflow:hidden;white-space:nowrap}
 .feed li b{font-weight:400;color:var(--mute);flex:none}
@@ -146,6 +146,7 @@ footer .link:hover{color:var(--fg)}
 .card .verbs{font:12px var(--mono);color:var(--fg);margin:4px 0 0;line-height:1.5}
 .chiprow{display:flex;flex-wrap:wrap;gap:6px}.chiprow+.chiprow{margin-top:6px}.chiprow.by button{font-size:11px;opacity:.85}
 .live{font:12px var(--mono);color:var(--mute)}.live b{color:var(--fg);font-weight:600}.live.up b{color:var(--ok)}
+.live.bad b{color:var(--no)}
 .r1row{display:flex;gap:var(--u);align-items:center;margin:4px 0 var(--u)}
 .r1{font:12px/1.5 var(--mono);color:var(--fg);background:var(--field);border:1px solid var(--line);padding:4px 8px;overflow-x:auto;white-space:nowrap;flex:1;min-width:0}
 .grab.small{font-size:11px;padding:4px 8px;white-space:nowrap}
@@ -165,3 +166,13 @@ footer .link:hover{color:var(--fg)}
 .out .raw>summary{cursor:pointer;opacity:.75;margin:.6em 0;font-size:13px}
 .out.stale{opacity:.55}.out.stale::before{content:attr(data-stale);display:block;font-size:12px;color:var(--no)}
 .verbs .task{display:inline-flex;gap:6px;align-items:center;margin:2px 8px 2px 0}
+.consent .enc{display:block;font-size:13px;margin:.4em 0 .8em;opacity:.85}
+
+/* keyboard: every control shows where focus is */
+:focus-visible{outline:2px solid var(--accent,#3b82f6);outline-offset:2px}
+/* long names wrap instead of widening the page */
+.url,.r1,.scope,.meta,.steps,.verbs a{overflow-wrap:anywhere}
+.r1row{flex-wrap:wrap}
+@media (max-width:420px){.r1{white-space:normal}.tasks button{padding:4px 9px}.consent .bar{flex-wrap:wrap}}
+/* motion only for people who have not asked for less */
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

@@ -36,4 +36,15 @@ await test("a big index opens by sampling, and check all reads every section",as
  await o.pg.waitForFunction(()=>document.querySelector(".r1")?.textContent,null,{timeout:60000});assert.match(await o.pg.textContent(".out .scope"),/sections [\d, ]+ of 23 read and match/);
  await o.pg.click(".verbs button");await o.pg.waitForTimeout(400);await idle(o.pg);assert.match(await o.pg.textContent(".out .scope"),/24 of 24 files match/)});
 
+await test("the signing key is non-extractable and never in localStorage",async keep=>{const o=await open("?boot=local");keep(o);await o.pg.waitForSelector(".card");await o.pg.waitForFunction(()=>/key /.test(document.querySelector("footer").textContent));
+ const k=await o.pg.evaluate(()=>new Promise(ok=>{const q=indexedDB.open("emem",1);q.onsuccess=()=>{const g=q.result.transaction("keys").objectStore("keys").get("site");g.onsuccess=()=>ok({ext:g.result?.priv?.extractable,ls:localStorage.getItem("emem.key")})}}));
+ assert.equal(k.ext,false);assert.equal(k.ls,null)});
+await test("a private link opens only with its #k=",async keep=>{const o=await open("?boot=local");keep(o);await o.pg.waitForSelector(".card");
+ await o.pg.fill("textarea","private test "+Date.now()+"\nonly with the key");await o.pg.click(".go");await o.pg.waitForSelector(".consent:not([hidden])");await o.pg.check("#enc");await o.pg.click(".consent .publish");await idle(o.pg);
+ const link=await o.pg.textContent(".url");assert.match(link,/#k=[A-Za-z0-9_-]{43}$/);const plain=link.replace(/#k=.*/,"");
+ assert.match(await (await fetch(plain)).text(),/^---\nemem: sealed\.v1/);
+ await o.pg.fill("textarea",plain);await o.pg.click(".go");await idle(o.pg);assert.match(await o.pg.textContent(".steps .err"),/encrypted/);
+ await o.pg.fill("textarea",link);await o.pg.click(".go");await idle(o.pg);assert.match(await o.pg.textContent(".out .scope"),/1 of 1 files match/)});
+await test("the page reads a language the source declares",async keep=>{const o=await open("?boot=local&lang=es");keep(o);await o.pg.waitForSelector(".card");assert.match(await o.pg.textContent("h1"),/Tokeniza archivos enormes/)});
+
 await b.close();srv.kill();console.log(`${pass} passed, ${fail} failed`);process.exit(fail?1:0);

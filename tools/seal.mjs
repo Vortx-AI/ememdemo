@@ -135,7 +135,9 @@ const m=await store(manifest);
 console.log("manifest",m.url);
 
 // ---------- 4. pin it ----------
-const html=read("index.html").replace(/const SEAL=\{[^}]*\};/,`const SEAL={url:"${m.url}",sha256:"${m.sha}"};`);
+const html=read("index.html").replace(/const SEAL=\{[^}]*\};/,`const SEAL={url:"${m.url}",sha256:"${m.sha}",site:"${pub}"};`);
+// the site key, published where anyone (and emem's enlistment check) can find it: .well-known/emem-agents.json
+fs.writeFileSync(ROOT+".well-known/emem-agents.json",JSON.stringify({agents:[{key:pub,nick:"ememdemo",role:"seals vortx-ai.github.io/ememdemo and signs its gallery"}]},null,1)+"\n");
 if(!html.includes(m.sha))throw new Error("index.html has no SEAL line to pin");
 // the page may run exactly one inline script, the loader just pinned: its sha256 goes into the Content-Security-Policy.
 // Everything else it runs is a blob made from checked bytes, or a pinned library; nothing may frame it, post forms or change its base.

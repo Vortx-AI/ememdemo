@@ -26,6 +26,24 @@ task    sense  a place  | a place, or "lat, lng"; also timelapse:, city:, forest
 task    check  a link   | an emem link, token or file name, to re-check every byte |
 blank   Nothing to read yet. Drop a file, or paste text, a URL or a GitHub repo.
 
+# the same lines for visitors in other languages (?lang=es to try); the rules above hold for every one
+lang es <<
+say     Tokeniza archivos enormes para que los agentes los usen.
+sub     Modelos, escenas de satélite, escaneos, vídeo, código, sitios web enteros y lugares enteros. Tu agente recibe un enlace pequeño, lee solo la parte que necesita y puede comprobar cada byte.
+in      Suelta archivos, o pega una URL, un repositorio, una carpeta, datos grandes, world:, timelapse:, city:, forest: un lugar, o cameras: London
+note    Público: cualquiera con el enlace puede leerlo.
+blank   Aún no hay nada que leer. Suelta un archivo, o pega texto, una URL o un repositorio de GitHub.
+check   Pega la respuesta de tu IA. Cada "cita" se comprueba contra la fuente.
+>>
+lang hi <<
+say     एजेंटों के उपयोग के लिए विशाल फ़ाइलों को टोकन में बदलें।
+sub     मॉडल, सैटेलाइट दृश्य, स्कैन, वीडियो, कोड, पूरी वेबसाइटें और पूरी जगहें। आपके एजेंट को एक छोटा लिंक मिलता है, वह केवल ज़रूरी हिस्सा पढ़ता है और हर बाइट जाँच सकता है।
+in      फ़ाइलें छोड़ें, या URL, रिपॉज़िटरी, फ़ोल्डर, बड़ा डेटा, world:, timelapse:, city:, forest: कोई जगह, या cameras: London चिपकाएँ
+note    सार्वजनिक: लिंक वाला कोई भी इसे पढ़ सकता है।
+blank   अभी पढ़ने को कुछ नहीं है। एक फ़ाइल छोड़ें, या टेक्स्ट, URL या GitHub रिपॉज़िटरी चिपकाएँ।
+check   अपने AI का उत्तर चिपकाएँ। उसका हर "उद्धरण" स्रोत से जाँचा जाता है।
+>>
+
 kind docs   : pdf docx pptx xlsx epub html htm md mdx rst txt
 kind data   : csv tsv json jsonl yaml yml toml xml ini sql log
 kind code   : js mjs cjs ts tsx jsx py rb go rs java kt swift c h cc cpp hpp cs php sh bash css scss vue svelte lua r jl dart ex exs hs scala eio
@@ -235,6 +253,15 @@ head: # <from8> -> <requester8>: verify <request cid8> ok|no
 fields: from to request deliver verdict(ok|no: why) ; a key may not verify its own delivery
 state: requested → claimed → delivered → verified by n keys (T1: keys, not parties)
 >>
+spec drift.v1 <<
+head: # <watcher8> -> <author8>: drift <cid8> ok|changed k/n
+fields: of(link) previous(url|none) entry(n) source table read at ; after: sth
+path: arcade/drift-<cid8>-<time>-to-<author8>.md in the watcher's folder ; rows: | what | offset | length | then | now |
+>>
+spec sealed.v1 <<
+fields: cipher(AES-256-GCM) iv(base64url) ; body: base64url ciphertext of a whole note
+key: 32 bytes, base64url, only in the link's fragment #k=… ; the name is the hash of the stored ciphertext, so integrity is public and content is not
+>>
 spec thumb.v1 <<
 fields: of frames drawn
 body: data:image/webp;base64 sprite, frames side by side ; show only if of == card link and name matches bytes
@@ -263,6 +290,29 @@ from  https://esawebb.org/media/archives/images/original/weic2205a.tif
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/wkxa7tcmw2orf7ujjf5yi66dhe.md
 thumb https://emem.dev/memories/by_attester/ddzmyzhn/cewrfxewtujjvuibt35yhk6hwi.md
 pin   Webb nebula
+>>
+
+show earth : The whole Earth's terrain, 30 GB of tiles <<
+tag   PMTiles · 30.5 GB
+by    third party
+from  https://r2-public.protomaps.com/protomaps-sample-datasets/terrarium_z9.pmtiles
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/ppdqanaf7ufpxedvwdrwuqhf5u.md
+thumb https://emem.dev/memories/by_attester/ddzmyzhn/nurixabv76sxwnyxfmmfl62sra.md
+pin   Earth's terrain
+>>
+
+show models : MNIST, 600 row groups, footer statistics <<
+tag   Parquet · 16 MB
+by    third party
+from  https://huggingface.co/datasets/ylecun/mnist/resolve/main/mnist/train-00000-of-00001.parquet
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/dyjympcgazia2a4qztshrfx4pm.md
+>>
+
+show government : Every US county, with its spatial index <<
+tag   FlatGeobuf · 8 MB
+by    third party
+from  https://flatgeobuf.org/test/data/UScounties.fgb
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/aqq3465nvlazh7xzy7jkiqii4q.md
 >>
 
 show space : Mars, December 2024 <<
@@ -672,6 +722,12 @@ show agents : Two agents ratify <<
 tag   A2A
 by    machine
 emem  l6ppjyiygzt3q4btpwfvvlzdy4
+>>
+
+show emem : emem's corpus, live <<
+tag   stream
+by    machine
+emem  stream
 >>
 
 show agents : Public channel, live <<

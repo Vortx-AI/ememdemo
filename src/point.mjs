@@ -353,8 +353,90 @@ const photo=async(url,tick,bytes)=>{
   about:[[x.make,x.model].filter(Boolean).join(" ")||"camera not recorded",x.when?`taken ${x.when}`:"time not recorded",x.lat!=null?`at ${x.lat.toFixed(5)}, ${x.lng.toFixed(5)}${x.alt!=null?`, ${Math.round(x.alt)} m`:""} (from its EXIF)`:"no place in its EXIF","the whole picture is hashed; the preview is drawn from those bytes"]};
 };
 
-const pick=u=>/\.mp4(\?|$)|\.m4v(\?|$)|\.mov(\?|$)/i.test(u)?mp4:/\.jpe?g(\?|$)/i.test(u)?photo:/\.splat(\?|$)/i.test(u)||/\.ply(\?|$)/i.test(u)?splats:/\.safetensors(\?|$)/i.test(u)?safetensors:/\.gguf(\?|$)/i.test(u)?gguf:/\.m3u8(\?|$)/i.test(u)?hls:/\.zarr(\/|$)/i.test(u)?zarr:/\.dcm(\?|$)/i.test(u)?dicom:/\.tiff?(\?|$)/i.test(u)?tiff:null;
-const FILEISH=/^(point:\s*)?https?:\/\/\S+?(\.m3u8|\.zarr\/?|\.dcm|\.safetensors|\.gguf|\.splat|\.ply|\.jpe?g|\.m4v|\.tiff?|\.nc|\.h5|\.hdf5|\.las|\.laz|\.parquet|\.mp4|\.mov|\.bin|\.zip)(\?\S*)?$|^point:\s*https?:\/\/\S+$/i;
+// ---------- tiled maps (PMTiles v3): a 127-byte header, directories of tile ids, then the tiles ----------
+const gunzip=async b=>new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+const pmDir=d=>{let p=0;const v=()=>{let r=0,m=1,b;do{b=d[p++];r+=(b&0x7f)*m;m*=128}while(b&0x80);return r};
+ const n=v(),e=Array.from({length:n},()=>({}));let last=0;for(const x of e){last+=v();x.id=last}for(const x of e)x.run=v();for(const x of e)x.len=v();
+ e.forEach((x,i)=>{const o=v();x.off=o===0&&i?e[i-1].off+e[i-1].len:o-1});return e};
+const zxy=id=>{let acc=0,z=0;for(;z<32;z++){const n=4**z;if(acc+n>id)break;acc+=n}let t=id-acc,x=0,y=0;const n=2**z;
+ for(let s=1;s<n;s*=2){const rx=Math.floor(t/2)%2,ry=(Math.floor(t)^rx)&1;if(ry===0){if(rx===1){x=s-1-x;y=s-1-y}[x,y]=[y,x]}x+=s*rx;y+=s*ry;t=Math.floor(t/4)}return`${z}/${x}/${y}`};
+const pmtiles=async(url,tick)=>{
+ const h=await range(url,0,127);if(new TextDecoder().decode(h.slice(0,7))!=="PMTiles"||h[7]!==3)throw new Error("Not a PMTiles v3 archive.");
+ const dv=new DataView(h.buffer,h.byteOffset),u64=o=>Number(dv.getBigUint64(o,true)),i32=o=>dv.getInt32(o,true)/1e7;
+ const H0={root:[u64(8),u64(16)],meta:[u64(24),u64(32)],leaf:u64(40),data:u64(56),tiles:u64(80),contents:u64(88),ic:h[97],tc:h[98],tt:h[99],minz:h[100],maxz:h[101],bbox:[i32(102),i32(106),i32(110),i32(114)],c:[i32(123),i32(119)]};
+ const unz=async b=>H0.ic===2?gunzip(b):b;
+ tick("reading the tile directory");
+ const root=pmDir(await unz(await range(url,H0.root[0],H0.root[1])));
+ const all=[{label:"header and root directory",offset:0,length:H0.root[0]+H0.root[1],dflt:true},...(H0.meta[1]?[{label:"metadata",offset:H0.meta[0],length:H0.meta[1],dflt:true}]:[])];
+ let tiles=root.filter(e=>e.run>0);const leaves=root.filter(e=>e.run===0);
+ // a big archive keeps its tiles in leaf directories: read the first two, so their tiles can be named
+ for(const [k,l] of leaves.slice(0,2).entries()){all.push({label:`leaf directory ${k}`,offset:H0.leaf+l.off,length:l.len,dflt:true});tiles=tiles.concat(pmDir(await unz(await range(url,H0.leaf+l.off,l.len))).filter(e=>e.run>0))}
+ let meta={};try{meta=JSON.parse(new TextDecoder().decode(await unz(await range(url,H0.meta[0],Math.min(H0.meta[1],262144)))))}catch{}
+ const TYPE={1:"vector (MVT)",2:"PNG",3:"JPEG",4:"WebP",5:"AVIF"}[H0.tt]||"unknown",raster=[2,3,4,5].includes(H0.tt)&&H0.tc<=1,terrarium=/terrarium/i.test(JSON.stringify(meta)+url);
+ const ts=tiles.map(e=>({label:`tile ${zxy(e.id)}${e.run>1?` (+${e.run-1} repeats)`:""}`,offset:H0.data+e.off,length:e.len}));
+ const pickT=firstBy(ts,t=>t.label,8);
+ const decode=raster&&typeof document!=="undefined"?async(b,label)=>{const im=await createImageBitmap(new Blob([b]));const cv=document.createElement("canvas");cv.className="grid";cv.width=im.width;cv.height=im.height;const g=cv.getContext("2d");g.drawImage(im,0,0);
+  // terrarium tiles encode elevation in RGB (e = R·256 + G + B/256 − 32768): drawn as a hypsometric ramp, lit from the north-west
+  if(terrarium){const W=cv.width,Hh=cv.height,d=g.getImageData(0,0,W,Hh),px=d.data,E=new Float32Array(W*Hh);for(let i=0;i<W*Hh;i++)E[i]=px[i*4]*256+px[i*4+1]+px[i*4+2]/256-32768;
+   const L=[[-6000,[8,30,80]],[-200,[40,100,170]],[0,[120,180,220]],[1,[60,120,70]],[400,[120,160,85]],[1200,[190,175,115]],[2500,[150,115,85]],[4000,[235,235,235]]];
+   const ramp=e=>{for(let k=1;k<L.length;k++)if(e<=L[k][0]){const[a0,c0]=L[k-1],[a1,c1]=L[k],t=Math.max(0,Math.min(1,(e-a0)/(a1-a0)));return c0.map((v,j)=>v+(c1[j]-v)*t)}return L.at(-1)[1]};
+   for(let y=0;y<Hh;y++)for(let x=0;x<W;x++){const i=y*W+x,e=E[i],dx=E[y*W+Math.min(W-1,x+1)]-E[y*W+Math.max(0,x-1)],dy=E[Math.min(Hh-1,y+1)*W+x]-E[Math.max(0,y-1)*W+x],sh=e>0?Math.max(.55,Math.min(1.25,1-(dx-dy)/60)):1,c=ramp(e);
+    px[i*4]=c[0]*sh;px[i*4+1]=c[1]*sh;px[i*4+2]=c[2]*sh;px[i*4+3]=255}g.putImageData(d,0,0)}
+  g.font="bold 13px ui-monospace,monospace";g.fillStyle="rgba(0,0,0,.55)";g.fillRect(4,4,110,20);g.fillStyle="#fff";g.fillText(label,9,19);cv.dataset.date=label;return cv}:null;
+ return{kind:`tiled map (PMTiles, ${TYPE} tiles)`,units:H0.contents||ts.length,frames:!!decode,
+  all:[...all,...ts.map((t,k)=>({...t,dflt:pickT.has(t),...(decode&&pickT.has(t)?{decode:b=>decode(b,t.label.replace(/^tile /,"").replace(/ .*/,"")),grab:{video:true,t:k}}:{})}))],
+  about:[`${(H0.contents||0).toLocaleString("en")} distinct tiles (${(H0.tiles||0).toLocaleString("en")} addressed), zoom ${H0.minz}–${H0.maxz}, ${TYPE}${terrarium?" (terrarium elevation, drawn as a ramp)":""}`,meta.name?`name: ${meta.name}`:"",meta.attribution?`attribution: ${String(meta.attribution).replace(/<[^>]+>/g,"").slice(0,160)}`:"",`the header and directories pin every tile's byte range; ${ts.length} tile entries were read from ${leaves.length?`the first ${Math.min(2,leaves.length)} of ${leaves.length} leaf directories`:"the root directory"}`].filter(Boolean),
+  // a place only when the extent is a place: a whole-world archive has no centre worth naming
+  ...(H0.bbox[2]-H0.bbox[0]<=20&&H0.bbox[3]-H0.bbox[1]<=20?{place:{lat:+(((H0.bbox[1]+H0.bbox[3])/2).toFixed(6)),lng:+(((H0.bbox[0]+H0.bbox[2])/2).toFixed(6)),bbox:H0.bbox}}:{})};
+};
+
+// ---------- tables (Parquet): the footer (Thrift compact) lists every row group's column chunks and their statistics ----------
+const thrift=(b,p=0)=>{const zz=n=>n%2?-(n+1)/2:n/2;const vi=()=>{let r=0,m=1,x;do{x=b[p++];r+=(x&0x7f)*m;m*=128}while(x&0x80);return r};
+ const val=t=>{switch(t){case 1:return true;case 2:return false;case 3:return b[p++];case 4:case 5:case 6:return zz(vi());case 7:{const d=new DataView(b.buffer,b.byteOffset+p,8).getFloat64(0,true);p+=8;return d}
+  case 8:{const n=vi(),s=b.subarray(p,p+n);p+=n;return s}case 9:case 10:{const hd=b[p++];let n=hd>>4;const et=hd&15;if(n===15)n=vi();return Array.from({length:n},()=>et===1||et===2?b[p++]===1:val(et))}
+  case 11:{const n=vi();if(!n)return[];const kt=b[p++];return Array.from({length:n},()=>[val(kt>>4),val(kt&15)])}case 12:return st();default:throw new Error("Parquet footer: unknown Thrift type "+t)}};
+ const st=()=>{const o={};let id=0;for(;;){const x=b[p++];if(!x)return o;const d=x>>4,t=x&15;id=d?id+d:zz(vi());o[id]=val(t)}};
+ return st()};
+const shown=(v,type)=>{if(!(v instanceof Uint8Array))return"";const dv=new DataView(v.buffer,v.byteOffset,v.length);
+ if(type===1&&v.length===4)return String(dv.getInt32(0,true));if(type===2&&v.length===8)return String(dv.getBigInt64(0,true));if(type===4&&v.length===4)return dv.getFloat32(0,true).toPrecision(6);if(type===5&&v.length===8)return dv.getFloat64(0,true).toPrecision(8);
+ const t=new TextDecoder().decode(v);return/^[\x20-\x7e -￿]*$/.test(t)?JSON.stringify(t.slice(0,24)):`${v.length} bytes`};
+const parquet=async(url,tick,bytes)=>{
+ if(!bytes)throw new Error("Parquet needs the file size (the footer is at the end).");
+ const tail=await range(url,bytes-8,8);if(new TextDecoder().decode(tail.slice(4))!=="PAR1")throw new Error("Not a Parquet file (no PAR1 at the end).");
+ const n=new DataView(tail.buffer,tail.byteOffset).getUint32(0,true);if(n>64e6)throw new Error("Parquet footer is implausibly large.");
+ tick("reading the footer");const fm=thrift(await range(url,bytes-8-n,n));
+ const schema=(fm[2]||[]).map(e=>new TextDecoder().decode(e[4]||new Uint8Array())).slice(1),rgs=fm[4]||[],rows=fm[3]||0;
+ const CODEC=["none","snappy","gzip","lzo","brotli","lz4","zstd","lz4_raw"];
+ const cols=rgs.flatMap((rg,g)=>(rg[1]||[]).map(cc=>{const m=cc[3]||{},path=(m[3]||[]).map(x=>new TextDecoder().decode(x)).join("."),S=m[12]||{};
+  const off=m[11]||m[9],len=m[7];
+  return{label:`row group ${g} column ${path}`,offset:off,length:len,statsText:[S[6]||S[2]?`min ${shown(S[6]||S[2],m[1])}`:"",S[5]||S[1]?`max ${shown(S[5]||S[1],m[1])}`:"",S[3]!=null?`nulls ${S[3]}`:"",`${m[5]} values`,CODEC[m[4]]||""].filter(Boolean).join(" · ")}})).filter(c=>c.length>0);
+ const pickC=firstBy(cols,c=>c.label,8);
+ return{kind:"table (Parquet)",units:cols.length+1,
+  all:[{label:"footer: schema, row groups, column chunks and their statistics",offset:bytes-8-n,length:n+8,dflt:true},...cols.map(c=>({...c,dflt:pickC.has(c),stats:()=>c.statsText}))],
+  about:[`${Number(rows).toLocaleString("en")} rows, ${rgs.length} row group${rgs.length===1?"":"s"}, ${schema.length} columns: ${schema.slice(0,12).join(", ")}${schema.length>12?" …":""}`,fm[6]?`written by ${new TextDecoder().decode(fm[6]).slice(0,80)}`:"","one chunk per column per row group; each row carries the footer's own min, max and null count, so a changed column shows without reading it"].filter(Boolean)};
+};
+
+// ---------- vector features (FlatGeobuf): magic, a FlatBuffers header, a packed Hilbert R-tree, then the features ----------
+const flatgeobuf=async(url,tick,bytes)=>{
+ const m=await range(url,0,12);if(!(m[0]===0x66&&m[1]===0x67&&m[2]===0x62))throw new Error("Not a FlatGeobuf file.");
+ const hl=new DataView(m.buffer,m.byteOffset).getUint32(8,true);if(hl>16e6)throw new Error("FlatGeobuf header is implausibly large.");
+ const hb=await range(url,12,hl),dv=new DataView(hb.buffer,hb.byteOffset),tbl=dv.getUint32(0,true),vt=tbl-dv.getInt32(tbl,true),vts=dv.getUint16(vt,true);
+ const at=i=>{const o=4+2*i;return o<vts?dv.getUint16(vt+o,true):0};
+ const str=i=>{const o=at(i);if(!o)return"";const p=tbl+o+dv.getUint32(tbl+o,true),n=dv.getUint32(p,true);return new TextDecoder().decode(hb.subarray(p+4,p+4+n))};
+ const env=(()=>{const o=at(1);if(!o)return null;const p=tbl+o+dv.getUint32(tbl+o,true),n=dv.getUint32(p,true);return Array.from({length:n},(_,k)=>dv.getFloat64(p+4+8*k,true))})();
+ const count=at(8)?Number(dv.getBigUint64(tbl+at(8),true)):0,node=at(9)?dv.getUint16(tbl+at(9),true):16,GT=["mixed (per feature)","point","line","polygon","multipoint","multiline","multipolygon"][at(2)?hb[tbl+at(2)]:0]||"mixed";
+ // the packed R-tree's size follows from the feature count and node size (40 bytes per node)
+ let nodes=count,level=count;if(node>1&&count)while(level>1){level=Math.ceil(level/node);nodes+=level}
+ const start=12+hl,idx=node&&count?nodes*40:0,feat=start+idx,end=bytes||feat,CH=4<<20,parts=[];for(let o=feat;o<end;o+=CH)parts.push({label:`features bytes ${o}…${Math.min(end,o+CH)-1}`,offset:o,length:Math.min(CH,end-o)});
+ const pickP=new Set(spread(parts.length,6).map(i=>parts[i]));
+ return{kind:`vector features (FlatGeobuf, ${GT})`,units:parts.length+(idx?2:1),
+  all:[{label:"magic and header",offset:0,length:start,dflt:true},...(idx?[{label:"spatial index (packed Hilbert R-tree)",offset:start,length:idx,dflt:idx<=8<<20}]:[]),...parts.map(p=>({...p,dflt:pickP.has(p)}))],
+  about:[`${count.toLocaleString("en")} ${GT} features${str(0)?` · ${str(0)}`:""}`,str(11)?`title: ${str(11)}`:"",`spatial index: ${nodes.toLocaleString("en")} nodes of up to ${node}`,env?`extent: ${env.map(v=>v.toFixed(3)).join(", ")}`:""].filter(Boolean),
+  ...(env&&env.length>=4&&env[2]-env[0]<=20&&env[3]-env[1]<=20?{place:{lat:+(((env[1]+env[3])/2).toFixed(6)),lng:+(((env[0]+env[2])/2).toFixed(6)),bbox:env.slice(0,4)}}:{})};
+};
+
+const pick=u=>/\.pmtiles(\?|$)/i.test(u)?pmtiles:/\.parquet(\?|$)/i.test(u)?parquet:/\.fgb(\?|$)/i.test(u)?flatgeobuf:/\.mp4(\?|$)|\.m4v(\?|$)|\.mov(\?|$)/i.test(u)?mp4:/\.jpe?g(\?|$)/i.test(u)?photo:/\.splat(\?|$)/i.test(u)||/\.ply(\?|$)/i.test(u)?splats:/\.safetensors(\?|$)/i.test(u)?safetensors:/\.gguf(\?|$)/i.test(u)?gguf:/\.m3u8(\?|$)/i.test(u)?hls:/\.zarr(\/|$)/i.test(u)?zarr:/\.dcm(\?|$)/i.test(u)?dicom:/\.tiff?(\?|$)/i.test(u)?tiff:null;
+const FILEISH=/^(point:\s*)?https?:\/\/\S+?(\.pmtiles|\.fgb|\.m3u8|\.zarr\/?|\.dcm|\.safetensors|\.gguf|\.splat|\.ply|\.jpe?g|\.m4v|\.tiff?|\.nc|\.h5|\.hdf5|\.las|\.laz|\.parquet|\.mp4|\.mov|\.bin|\.zip)(\?\S*)?$|^point:\s*https?:\/\/\S+$/i;
 // a folder: a Hugging Face repository (or a folder in it), or an S3 prefix ending in /
 export const DIR=/^https:\/\/huggingface\.co\/(datasets\/|spaces\/)?[\w.-]+\/[\w.-]+(\/tree\/[^/\s]+(\/\S*)?)?\/?$|^https:\/\/[a-z0-9.-]+\.s3(\.[a-z0-9-]+)?\.amazonaws\.com\/\S*\/$/i;
 // a wildlife observation (iNaturalist): its photograph is pointed at; species, time and place come with it
@@ -390,7 +472,7 @@ const assemble=(s,chunks)=>{
 
 // a pointer reopened: the same picture, drawn only from chunks that still hash to the pointer's rows
 export const previewOf=async(body,tick=()=>{})=>{
- const src=field(body,"source"),rd=src&&pick(src);if(!rd||![tiff,dicom,splats,mp4,photo].includes(rd))return null;
+ const src=field(body,"source"),rd=src&&pick(src);if(!rd||![tiff,dicom,splats,mp4,photo,pmtiles].includes(rd))return null;
  const rows=new Map(parseRows(body).map(r=>[r.label,r])),{bytes}=await size(src).catch(()=>({}));
  const s=await rd(src,()=>{},bytes);
  if(s.preview){// a scan is read whole: every row must still match before its pixels are shown
@@ -432,23 +514,26 @@ export const probe=async(raw,tick,opts={})=>{
  const carried=chunks.filter(c=>had.has(c.label)&&!had.get(c.label).absent);
  for(const i of spread(carried.length,2)){const c=carried[i],r=had.get(c.label),b=c.url?await whole(c.url):await range(url,r.offset,r.length);if(H(b)!==r.hash)throw new Error(`${c.label} no longer matches the pointer being extended; the source changed.`)}
  for(const c of carried){const r=had.get(c.label);Object.assign(c,{hash:r.hash,length:r.length,statsText:r.stats,kept:true})}
- let done=0,read=0;
+ let done=0,read=0,halted=null;
+ // a Stop keeps what was already hashed: the rows so far become a partial pointer the person may choose to keep
  await pool(chunks,6,async c=>{
   if(c.hash){done++;if(!c.kept)read+=c.length;return}
   const b=s.bytes&&!c.url?s.bytes.slice(c.offset,c.offset+c.length):c.url?await whole(c.url).catch(e=>e.status===404?null:Promise.reject(e)):await range(url,c.offset,c.length);
   if(b===null){c.absent=true;c.hash=ZERO;c.length=0}else{c.hash=H(b);if(c.url)c.length=b.length;read+=b.length;if(c.stats)c.statsText=await Promise.resolve(c.stats(b)).catch(()=>"");if(c.decode&&(s.mosaic||s.frames))c.pix=await c.decode(b).catch(()=>null);if(s.sample)s.sample(c,b)}
   tick(`${++done}/${chunks.length} chunks · ${mb(read)} read`);
- });
+ }).catch(e=>{if(!/^Stopped/.test(e.message))throw e;halted=e});
+ if(halted){const got=chunks.filter(c=>c.hash);if(!got.length)throw halted;chunks.splice(0,chunks.length,...got)}
  for(const c of chunks)if(c.url===url)c.url="";
  let total=s.streamed?s.bytes:s.whole?null:bytes,est=null;
  if(s.whole){const got=chunks.filter(c=>!c.absent&&/chunk|segment/.test(c.label));if(got.length)est=Math.round(got.reduce((a,c)=>a+c.length,0)/got.length*(s.units-s.all.filter(c=>!/chunk|segment/.test(c.label)).length))}
- const place=s.place&&opts.placeAbout?await opts.placeAbout(s.place).catch(()=>[]):[];
+ const place=s.place&&opts.placeAbout&&!halted?await opts.placeAbout(s.place).catch(()=>[]):[];
  // a row at the source itself is written "·" and hashed with an empty url
  const r=s.chained?chain(chunks):root(chunks),name=decodeURIComponent(url.split("/").filter(Boolean).pop()||host),withStats=chunks.some(c=>c.statsText);
  const rows=chunks.map(c=>`| ${c.label} | ${c.url&&c.url!==url?c.url:"·"} | ${c.offset} | ${c.length} | ${c.absent?"absent (fill value)":c.hash} |${withStats?` ${(c.statsText||"").replace(/\|/g,"/")} |`:""}`);
  const prevCid=opts.have?(opts.haveUrl||"").split("/").pop().replace(/\.md$/,""):"";
- const body=`---\nemem: pointer.v1\nsource: ${url}\nbytes: ${total??(est?`about ${est} (estimated from the chunks read)`:"unknown")}\netag: ${etag||"not exposed"}\nkind: ${s.kind}\nchunks: ${chunks.length} of ${s.units} hashed\n${s.chained?"chain":"root"}: ${r}\nhash: blake3-256 of each chunk's bytes\norder: defaults, then by blake3(label without type or shape)\n${prevCid?`extends: ${prevCid}\n`:""}${s.place?`place: ${s.place.lat},${s.place.lng}\nbbox: ${s.place.bbox.join(",")}\n`:""}---\n\n# ${name}\n\n> ${s.kind} at ${host}${total?`, ${mb(total)}`:est?`, about ${mb(est)}`:""}.\n\n${s.about.map(a=>"- "+a).join("\n")}\n- ${chunks.length} of ${s.units} chunks hashed${prevCid?`; extends ${prevCid}, whose ${carried.length} rows are kept and 2 of them re-read`:""}; more can be hashed later, in a fixed order, without re-reading these\n${place.length?`\n## Place\n\n${place.map(a=>"- "+a).join("\n")}\n`:""}\n## Chunks\n\n| what | url (· is the source) | offset | length | blake3 |${withStats?" stats |":""}\n|---|---|---|---|---|${withStats?"---|":""}\n${rows.join("\n")}\n`;
+ const body=`---\nemem: pointer.v1\nsource: ${url}\nbytes: ${total??(est?`about ${est} (estimated from the chunks read)`:"unknown")}\netag: ${etag||"not exposed"}\nkind: ${s.kind}\nchunks: ${chunks.length} of ${s.units} hashed${halted?" (stopped early: a partial pointer; more: continues it)":""}\n${s.chained?"chain":"root"}: ${r}\nhash: blake3-256 of each chunk's bytes\norder: defaults, then by blake3(label without type or shape)\n${prevCid?`extends: ${prevCid}\n`:""}${s.place?`place: ${s.place.lat},${s.place.lng}\nbbox: ${s.place.bbox.join(",")}\n`:""}---\n\n# ${name}\n\n> ${s.kind} at ${host}${total?`, ${mb(total)}`:est?`, about ${mb(est)}`:""}.\n\n${s.about.map(a=>"- "+a).join("\n")}\n- ${chunks.length} of ${s.units} chunks hashed${prevCid?`; extends ${prevCid}, whose ${carried.length} rows are kept and 2 of them re-read`:""}; more can be hashed later, in a fixed order, without re-reading these\n${place.length?`\n## Place\n\n${place.map(a=>"- "+a).join("\n")}\n`:""}\n## Chunks\n\n| what | url (· is the source) | offset | length | blake3 |${withStats?" stats |":""}\n|---|---|---|---|---|${withStats?"---|":""}\n${rows.join("\n")}\n`;
  const preview=assemble(s,chunks);
+ if(halted)throw Object.assign(new Error(`Stopped after hashing ${chunks.length} chunks. Nothing was published.`),{partial:{body,url,name,kind:s.kind,bytes:total,est,read,chunks,units:s.units,rootHash:r,chained:!!s.chained,about:s.about,place:s.place,preview}});
  return{body,url,name,kind:s.kind,bytes:total,est,read,chunks,units:s.units,rootHash:r,chained:!!s.chained,about:s.about,place:s.place,preview};
 };
 

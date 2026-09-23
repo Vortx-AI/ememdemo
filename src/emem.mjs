@@ -32,21 +32,42 @@ export const stopped=()=>{if(RUN.ctl?.signal.aborted)throw new Error("Stopped. N
 export const net=async(url,init={})=>{const signal=init.signal||RUN.ctl?.signal;stopped();try{const x=await fetch(url,signal?{...init,signal}:init);if(RUN.ctl&&!init.signal){RUN.req++;if(init.method!=="HEAD")RUN.bytes+=+x.headers.get("content-length")||0}return x}catch(e){if(signal?.aborted)stopped();throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
 
 // ---------- key: made in this browser, never sent anywhere ----------
-let KEY=null;
+// The working key is a non-extractable CryptoKey kept in IndexedDB: a script that runs here can sign with it but can't read it.
+// A recovery file can only be made at setup (a new key, or one restored from a file), before the key is locked;
+// after a reload the key is device-only. Old keys in localStorage are moved in once and the plain copy deleted.
+let KEY=null,RECOVER=null;
+const E={name:"Ed25519"};
+const idb=(mode,fn)=>new Promise((ok,no)=>{let o;try{o=indexedDB.open("emem",1)}catch(e){return no(e)}o.onupgradeneeded=()=>o.result.createObjectStore("keys");o.onerror=()=>no(o.error);
+ o.onsuccess=()=>{const t=o.result.transaction("keys",mode),r=fn(t.objectStore("keys"));t.oncomplete=()=>ok(r?.result);t.onerror=()=>no(t.error)}});
+const lock=async(pkcs8,pubRaw)=>{const priv=await crypto.subtle.importKey("pkcs8",pkcs8,E,false,["sign"]),pub=b32(new Uint8Array(pubRaw));
+ try{await idb("readwrite",st=>st.put({priv,pub},"site"))}catch{store("emem.key",{priv:b64(pkcs8),pub:b64(pubRaw)});return{priv,pub,stored:"local"}} // no IndexedDB (private mode): the old way, said so
+ return{priv,pub,stored:"device"}};
+export const keyState=()=>KEY?{stored:KEY.stored,recoverable:!!RECOVER}:null;
 export const key=async()=>{
  if(KEY)return KEY;
- const E={name:"Ed25519"},saved=store("emem.key");
  try{
-  if(saved)KEY={priv:await crypto.subtle.importKey("pkcs8",unb64(saved.priv),E,false,["sign"]),pub:b32(unb64(saved.pub))};
-  else{
-   const k=await crypto.subtle.generateKey(E,true,["sign","verify"]);
-   const priv=await crypto.subtle.exportKey("pkcs8",k.privateKey),pub=await crypto.subtle.exportKey("raw",k.publicKey);
-   store("emem.key",{priv:b64(priv),pub:b64(pub)});
-   KEY={priv:k.privateKey,pub:b32(new Uint8Array(pub))};
-  }
+  const saved=await idb("readonly",st=>st.get("site")).catch(()=>null);
+  if(saved?.priv){KEY={priv:saved.priv,pub:saved.pub,stored:"device"};return KEY}
+  const old=store("emem.key");
+  if(old){RECOVER={priv:old.priv,pub:old.pub};KEY=await lock(unb64(old.priv),unb64(old.pub));if(KEY.stored==="device")try{localStorage.removeItem("emem.key")}catch{}return KEY}
+  const k=await crypto.subtle.generateKey(E,true,["sign","verify"]);
+  const priv=await crypto.subtle.exportKey("pkcs8",k.privateKey),pub=await crypto.subtle.exportKey("raw",k.publicKey);
+  RECOVER={priv:b64(priv),pub:b64(pub)};KEY=await lock(priv,pub);
  }catch{throw new Error("This browser cannot sign (no Ed25519). Update it and try again.")}
  return KEY;
 };
+
+// ---------- private notes: AES-256-GCM with a key that travels only in the link's #fragment (never sent to a server) ----------
+// The note's name is still the hash of what is stored (the ciphertext), so anyone can check integrity; only a holder of #k= can read it.
+const b64u=u=>b64(u).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""),unb64u=s=>unb64(s.replace(/-/g,"+").replace(/_/g,"/")+"===".slice((s.length+3)%4));
+export const newSecret=()=>b64u(crypto.getRandomValues(new Uint8Array(32)));
+const aes=s=>crypto.subtle.importKey("raw",unb64u(s),"AES-GCM",false,["encrypt","decrypt"]);
+export const SEALED=/^---\nemem: sealed\.v1\n/;
+export const sealText=async(body,secret)=>{const iv=crypto.getRandomValues(new Uint8Array(12)),c=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},await aes(secret),U(body)));
+ return`---\nemem: sealed.v1\ncipher: AES-256-GCM\niv: ${b64u(iv)}\n---\n\n${b64u(c)}\n`};
+export const openText=async(body,secret)=>{const iv=(body.match(/^iv: (\S+)$/m)||[])[1],c=body.replace(/^---\n[\s\S]*?\n---\n\n/,"").trim();
+ try{return new TextDecoder().decode(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64u(iv)},await aes(secret),unb64u(c)))}catch{throw new Error("This note is encrypted, and the #k= in the link doesn't open it.")}};
+export const SECRET_LINK=/^(https:\/\/emem\.dev\/memories\/\S+\.md)#k=([A-Za-z0-9_-]{43})$/;
 
 // ---------- notes: named by the hash of their bytes, signed by the writer ----------
 // a note may instead be addressed to another key (at = "arcade/<what>-<time>-to-<their 8>.md"); the signature covers that path
@@ -226,6 +247,26 @@ const viewChecked=async cid=>{
 // a note at any path, with who wrote it proved offline: bytes re-hashed, and the author's signature over its path checked
 export const signedNote=async url=>{const g=await getNote(url),{n,same,author}=await viewChecked(g.cid);
  return{url,body:g.body,cid:g.cid,key:n.attester_pubkey_b32,path:n.path,at:n.signed_at,ok:same&&author===true&&EMEM+n.path===url}};
+// a link's drift chain, as a watcher recorded it (tools/drift.mjs): each entry's author must be the watcher's full key,
+// and each must name the one before it. Returns what the chain says, or null when nobody is watching.
+export const driftOf=async(url,watcher)=>{const cid8=(url.match(/([a-z2-7]{26})\.md$/)||[])[1]?.slice(0,8);if(!cid8||!watcher)return null;
+ const listed=(await json(await net(`${EMEM}/memories/by_attester/${watcher.slice(0,8)}/arcade/?limit=5000`))).entries||[];
+ const paths=listed.map(e=>e.path).filter(p=>p.includes(`/arcade/drift-${cid8}-`)).sort().slice(-30);if(!paths.length)return null;
+ const es=await Promise.all(paths.map(p=>signedNote(EMEM+p).catch(()=>null)));
+ const f=(b,k)=>(b.match(new RegExp(`^${k}: (.+)$`,"m"))||[])[1]||"";let linked=true,bad=0;
+ es.forEach((e,i)=>{if(!e||!e.ok||e.key!==watcher||f(e.body,"of")!==url)bad++;else if(i&&f(e.body,"previous")!==es[i-1]?.url)linked=false});
+ const good=es.filter(e=>e?.ok&&e.key===watcher),changed=good.filter(e=>/ changed \d+\/\d+$/m.test((e.body.match(/^# (.+)$/m)||[])[1]||""));
+ return{n:good.length,bad,linked,since:f(good[0]?.body||"","at").slice(0,10),last:f(good.at(-1)?.body||"","at").slice(0,16).replace("T"," "),changed:changed.length,lastChange:f(changed.at(-1)?.body||"","at").slice(0,10)}};
+// emem's corpus stream (GET /v1/stream): a signed corpus.state tick every 15 s. Each tick is verified here against the
+// pinned key: ed25519 over blake3(PreimageV1 "emem.stream.tick.v1" {1 version, 2 key_epoch u32-BE, 3 served_at, 4 registry_cid, 5 distinct_cells u64-BE}).
+export const corpusStream=(S,onTick)=>{if(typeof EventSource==="undefined")return null;const es=new EventSource(`${EMEM}/v1/stream?interval=15`);
+ const pre=(domain,segs)=>{const o=[...U("emem.preimage.v1\0")],d=U(domain),u32=n=>o.push(n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255);u32(d.length);o.push(...d);for(const[t,b]of segs){o.push(t);u32(b.length);o.push(...b)}return new Uint8Array(o)};
+ const be=(n,w)=>{const b=new Uint8Array(w);let v=BigInt(n);for(let i=w-1;i>=0;i--){b[i]=Number(v&255n);v>>=8n}return b};
+ es.addEventListener("state",async m=>{try{const ev=JSON.parse(m.data);await verifier();const I=globalThis.ememVerifyInternals;
+  const p=pre("emem.stream.tick.v1",[[1,U(String(ev.version))],[2,be(ev.responder.key_epoch,4)],[3,U(ev.served_at)],[4,U(ev.manifests.registry_cid)],[5,be(ev.corpus.distinct_cells,8)]]);
+  const ok=ev.responder.pubkey_b32===S.signer&&I.ed.verify(I.b32decode(ev.signature.signature_b32),I.blake3(p),I.b32decode(S.signer));
+  onTick({ok,cells:ev.corpus.distinct_cells,bands:ev.corpus.distinct_bands,facts:ev.corpus.facts_scanned,at:ev.served_at})}catch{onTick({ok:false})}});
+ return es};
 export const inboxOf=async k8=>(await json(await net(`${EMEM}/v1/inbox?to=${k8}&limit=500`))).messages||[];
 const byName=async(cid,S,tick)=>{
  tick("by name over A2A");
@@ -339,9 +380,9 @@ export const guard=async(text,S)=>{
 };
 
 // the key, carried between browsers: a backup is the key itself, so whoever holds the file can write as you
-export const exportKey=()=>{const k=store("emem.key");return k?JSON.stringify({emem_key:1,pub_b32:b32(unb64(k.pub)),...k},null,1):null};
+// a recovery file exists only while this setup's copy is in memory (this session, before a reload)
+export const exportKey=()=>RECOVER?JSON.stringify({emem_key:1,pub_b32:b32(unb64(RECOVER.pub)),...RECOVER},null,1):null;
 export const importKey=async text=>{
  const j=JSON.parse(text);if(!j.priv||!j.pub)throw new Error("That file is not an emem key backup.");
- await crypto.subtle.importKey("pkcs8",unb64(j.priv),{name:"Ed25519"},false,["sign"]);
- store("emem.key",{priv:j.priv,pub:j.pub});KEY=null;return b32(unb64(j.pub));
+ KEY=await lock(unb64(j.priv),unb64(j.pub));RECOVER={priv:j.priv,pub:j.pub};return KEY.pub;
 };
