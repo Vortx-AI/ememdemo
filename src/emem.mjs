@@ -263,6 +263,10 @@ export const summarize=async(s,S)=>{
   if(/^emem: world\.v1$/m.test(n.body)){const facts=(n.body.match(/ · emem:fact:/g)||[]).length,secs=(n.body.match(/^## (satellite|terrain|weather|climate|vegetation|air|the built)/gm)||[]).length;
    return{ok:n.ok!==false,state:n.ok?"✓ matches its name":"✗ name does not match",nodes:[["big",`${facts} measurements`],["stat",`${secs} layers · cross-checked · one handle`],["peek",n.body.split("\n").filter(l=>/^- /.test(l)).map(l=>l.slice(2).replace(/ · emem:\S+$/,"")).slice(0,4).join("\n")]]};
   }
+  // a camera survey: how many cameras, how many clips re-hashed
+  if(/^emem: camera\.v1$/m.test(n.body)){const k=x=>(n.body.match(new RegExp(`^${x}: (.+)$`,"m"))||[])[1]||"";
+   return{ok:n.ok!==false,state:n.ok?"✓ matches its name":"✗ name does not match",nodes:[["big",`${k("cameras")} cameras`],["stat",`clips ${k("clips").split(" re-")[0]} re-hashed · sun ${k("sun").split(" positions")[0]} recomputed`],["peek",[...n.body.matchAll(/^\| ([a-z ]+) \| defi[^|]+\| [^|]+ \| [^|]+ \| ([^|]+) \|/gm)].filter(m=>/\d/.test(m[2])).slice(0,4).map(m=>`${m[1]}: ${m[2].trim()}`).join("\n")]]};
+  }
   // a comparison of two pointers: how many units are byte-identical, how many differ
   if(/^emem: compare\.v1$/m.test(n.body)){const f=k=>+(n.body.match(new RegExp(`^${k}: (\\d+)`,"m"))||[])[1]||0;
    return{ok:n.ok!==false,state:n.ok?"✓ matches its name":"✗ name does not match",nodes:[["big",`${f("same")} identical`],["stat",`${f("changed")} differ · ${f("only_a")} only in A · ${f("only_b")} only in B`],["peek",n.body.split("\n").filter(l=>/^- /.test(l)).map(l=>l.slice(2)).slice(0,3).join("\n")]]};

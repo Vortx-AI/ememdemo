@@ -3,6 +3,7 @@ import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,g
 import {toDoc,REPO,repoItems,blocksOf,pack,describe} from "./read.mjs";
 import {compile} from "./lang.mjs";
 import {WORLD,locate,layers,weave} from "./world.mjs";
+import {CAMERA,look,keep,rehash} from "./camera.mjs";
 import {POINTABLE,probe,recheck,relist,compare,parseRows,reread,mb} from "./point.mjs";
 
 // the verbs that act on pointers: extend one, witness one, compare two
@@ -21,6 +22,8 @@ const rules={
  gallery(P){for(const s of P.shows){const t=s.emem||"",m=t.match(/^emem:([a-z]+):/);
   if(!(NOTE.test(t)||CID.test(t)||STH.test(t)||ASK.test(t)||t==="live"||t==="self"||(m&&P.tokens[m[1]])))return`gallery card "${s.title}" points at something this page cannot open`;
   if(s.from?.startsWith("./")&&!P.kinds[(s.from.match(/\.([a-z0-9]+)$/i)||[])[1]?.toLowerCase()])return`gallery card "${s.title}" runs a file this page cannot read`}},
+ // every step says what it is doing and what it did, so a person and an agent read the same progress
+ verbs(P){for(const[n,st]of Object.entries(P.steps))if(st.doing===n)return`step "${n}" has no verbs ("| doing done")`},
  carry(P,args){const need=args.slice(args.indexOf(":")+1);for(const g of P.all("give"))if(!need.some(k=>g.body?.includes(k)))return`output "${g.arg}" carries none of ${need.join(" ")}`}
 };
 const check=(P,ops)=>P.all("rule").map(r=>{const[name,...args]=r.arg.split(/\s+/);const fn=rules[name];return fn?fn(P,args,ops):`unknown rule "${name}"`}).filter(Boolean);
@@ -128,6 +131,14 @@ const ops={
    a2a:`curl -s ${EMEM}/a2a/tasks -H 'content-type: application/json' \\\n  -d '${JSON.stringify({skill:"emem_recall",args:{cell:w.cell,bands:Object.keys(w.latest)}})}'`,
    verify:"# every receipt was checked in this page with emem's own verifier, against the key pinned in emem.eio\n# the note's name is the hash of its bytes; each token in it resolves to one signed fact"});
   return r},
+ // street cameras: which are live, every clip hashed again here, every sky recomputed, all of it kept as one note
+ async look(r){r.v=await look(r.input.match(CAMERA)[1].trim(),r.tick);return r},
+ async keep(r){const k=keep(r.v),key0=await key(),n=await note(k.body,key0);r.tick("storing the survey");await put(n,key0.pub);
+  Object.assign(r,{url:n.url,cid:n.cid,body:k.body,text:k.body,title:(k.body.match(/^# (.+)$/m)||[])[1],camera:true,bad:k.okClip<k.n,
+   face:{imgs:r.v.rows.filter(x=>x.showable).map(x=>x.thumb)},
+   proof:`${k.okClip} of ${k.n} clips re-hashed here and match · ${k.okSky} of ${k.skies} sun positions recomputed · counts are a detector's reading, not a signature · geo.qa receipts ${r.v.receipts}`,
+   size:`${k.n} cameras · ${mb(n.bytes.length)} on emem`,shape:`It is a survey of ${k.n} London street cameras: each clip named by its sha256 (re-hashed here), what a named detector counted, and where the sun was.`});
+  Object.assign(r,readVia({...r,first:null}));return r},
  // a question about a place, answered by emem.dev with signed facts
  async ask(r){Object.assign(r,await ask(r.input.match(ASK)[1].trim(),r.spec,r.tick));return r},
  // a witness: this browser's key re-reads the source and signs what it found, addressed to the pointer's author
@@ -167,6 +178,11 @@ const ops={
   r.text=parts.map(strip).join("\n");r.first=parts[0].url;
   // a pointer: re-read a spread of chunks from the source; the data may have changed even though the pointer cannot
   const top=r.checked[0];
+  // a camera survey: every clip fetched and hashed again
+  if(/^emem: camera\.v1$/m.test(top.body)){const c=await rehash(top.body,r.tick);
+   Object.assign(r,{camera:true,url:top.url,cid:top.cid,text:top.body,title:(top.body.match(/^# (.+)$/m)||[])[1]||r.title,bad:r.bad||c.ok<c.n,face:{imgs:c.thumbs.slice(0,6)},
+    proof:`${r.proof} · clips hashed again: ${c.ok===c.n?`all ${c.n} still match`:`${c.n-c.ok} of ${c.n} have CHANGED or are gone`}`,size:`${c.n} cameras`,shape:"It is a survey of street cameras: each clip named by its sha256, what a named detector counted, and where the sun was."});
+   Object.assign(r,readVia({...r,first:null}));return r}
   // a place, every layer: the bundle is resolved again (its signature checked) and the composite redrawn from bytes that hash to their name
   if(/^emem: world\.v1$/m.test(top.body)){
    const bt=(top.body.match(/^bundle: (emem:bundle:\S+)/m)||[])[1],ct=(top.body.match(/^composite: (emem:raster:\S+)/m)||[])[1];
@@ -284,7 +300,8 @@ const boot=async()=>{
  const box=h("textarea",{placeholder:P.one("in"),rows:"3",spellcheck:"false","aria-label":"what to turn into a link"});
  const go=h("button",{class:"go","aria-label":"make link",title:"make link (Ctrl+Enter)"},"→");
  const drop=h("div",{class:"drop"},box,h("div",{class:"bar"},h("button",{class:"pick",onclick:()=>file.click()},"choose files"),go),file);
- const steps=h("ol",{class:"steps","aria-live":"polite"}),tries=h("div",{class:"tries"});
+ // the work, as it happens: one line of verbs, a bar for the step in hand, and a map of the units it has finished
+ const steps=h("ol",{class:"steps","aria-live":"polite"}),head=h("p",{class:"work-head"}),map=h("div",{class:"map","aria-hidden":"true"}),work=h("div",{class:"work",hidden:""},head,steps,map),tries=h("div",{class:"tries"});
  const link=h("a",{class:"url"}),meta=h("p",{class:"meta"}),grab=h("button",{class:"grab",hidden:""},"copy link");
  // what a pointer can do next: cover more of its source, or be witnessed by this browser's key
  const verbs=h("div",{class:"verbs",hidden:""});
@@ -296,7 +313,7 @@ const boot=async()=>{
  document.body.replaceChildren(
   h("header",{class:"top"},h("a",{class:"brand",href:"./"},h("img",{src:P.one("mark"),alt:"",width:"26",height:"26"}),h("span",{},"emem")),
    h("nav",{"aria-label":"emem"},...P.all("link").map(l=>{const[label,href]=l.arg.split(/\s{2,}/);return h("a",href.startsWith("#")?{href}:{href,target:"_blank",rel:"noopener"},label)}))),
-  h("main",{},h("h1",{},P.one("say")),P.one("sub")?h("p",{class:"sub"},P.one("sub")):null,drop,h("p",{class:"note"},P.one("note")),tries,steps,out,recent),
+  h("main",{},h("h1",{},P.one("say")),P.one("sub")?h("p",{class:"sub"},P.one("sub")):null,drop,h("p",{class:"note"},P.one("note")),tries,work,out,recent),
   h("section",{class:"gallery",id:"gallery"},chips,cards,more),
   h("footer",{},who,sealState));
 
@@ -307,8 +324,11 @@ const boot=async()=>{
   out.hidden=false;
   tabs.replaceChildren(...[...gives.map(g=>g.arg),"check"].map(n=>h("button",{role:"tab","aria-selected":String(n===tab),onclick:()=>{tab=n;draw()}},n)));
   if(tab==="check"){pane.replaceChildren(ans,guarded,verdict,seal,sealed);ans.oninput()}
-  else{code.textContent=fill(gives.find(g=>g.arg===tab).body,vals());pane.replaceChildren(code,copy)}
+  else{code.replaceChildren(...linkify(fill(gives.find(g=>g.arg===tab).body,vals())));pane.replaceChildren(code,copy)}
  };
+ // every emem name in a result resolves where it stands: a token, a note, a file name; one click, checked like any input
+ const NAME=/(emem:[a-z]+:[^\s|,;)"'`]+|https:\/\/emem\.dev\/memories\/by_attester\/[a-z2-7]{8}\/[^\s|)"'`]+\.md)/g;
+ const linkify=t=>t.split(NAME).map((part,i)=>i%2?h("button",{class:"name",title:"resolve this here",onclick:()=>{box.value=part;scrollTo({top:0,behavior:"smooth"});start(part)}},part):part);
  let last=null,gt=null,pending=null;
  // an answer that cites emem tokens goes to emem-guard: a signed allow or deny, checked here against the pinned key
  const runGuard=async text=>{
@@ -379,23 +399,37 @@ ${last.answer.trim()}
 
  // the latest click wins: an older run keeps going but may no longer touch the page
  let seq=0;const busy=on=>document.querySelector("main").setAttribute("aria-busy",String(on));
- const show=(list,at,sub,bad)=>steps.replaceChildren(...list.map((s,i)=>h("li",{class:i<at?"ok":i===at?(bad?"bad":"now"):""},s+(i===at&&sub?" "+sub:""))));
+ let t0=0,ts=[],clock=null;const secs=ms=>ms<1000?`${Math.round(ms)} ms`:`${(ms/1000).toFixed(1)} s`;
+ const show=(list,at,sub,bad)=>{
+  work.hidden=false;const now=performance.now();ts[at]??=now;
+  const nm=/(\d+)\s*\/\s*(\d+)/.exec(sub||""),done=nm?+nm[1]:0,total=nm?+nm[2]:0;
+  steps.replaceChildren(...list.map((s,i)=>{const st=P.steps[s],state=i<at?"ok":i===at?(bad?"bad":"now"):"";
+   return h("li",{class:state,"data-step":s},h("span",{class:"v"},i<at?st.done:i===at?st.doing:s),
+    i<at&&ts[i+1]!=null?h("span",{class:"t"},secs(ts[i+1]-ts[i])):null,
+    i===at&&sub?h("span",{class:"s"},sub):null,
+    i===at&&total?h("i",{class:"bar",style:`--p:${Math.min(1,done/total)}`}):null)}));
+  // a map of the units: one square per chunk, section or file, filled as each is finished
+  if(total&&total<=600){if(map.childElementCount!==total||map.dataset.step!==list[at]){map.dataset.step=list[at];map.replaceChildren(...Array.from({length:total},()=>h("b")))}
+   [...map.children].forEach((c,k)=>c.className=k<done?"on":"")}
+ };
+ const tickHead=(label,cls)=>{head.className="work-head "+(cls||"");head.replaceChildren(h("b",{},label),h("span",{},secs(performance.now()-t0)))};
  const start=async(input,expect,my=++seq)=>{
   const r={spec};let list=P.flows.make;
   if(Array.isArray(input))r.files=input;
   else{r.input=input.trim();let m;
-   if(m=r.input.match(MORE)){list=P.flows.extend;r.input=m[1]}else if(m=r.input.match(WITNESS)){list=P.flows.witness;r.input=m[1]}else if(COMPARE.test(r.input))list=P.flows.compare;else if(WORLD.test(r.input))list=P.flows.world;
+   if(m=r.input.match(MORE)){list=P.flows.extend;r.input=m[1]}else if(m=r.input.match(WITNESS)){list=P.flows.witness;r.input=m[1]}else if(COMPARE.test(r.input))list=P.flows.compare;else if(WORLD.test(r.input))list=P.flows.world;else if(CAMERA.test(r.input))list=P.flows.cameras;
    else if(POINTABLE.test(r.input))list=P.flows.point;else if(NOTE.test(r.input))list=P.flows.open;else if(ASK.test(r.input))list=P.flows.ask;else if(tokenType(r.input,P.tokens)||CID.test(r.input)||STH.test(r.input))list=P.flows.resolve}
-  if(!r.files?.length&&!r.input){steps.replaceChildren(h("li",{class:"bad"},P.one("blank")));box.focus();busy(false);return}
+  if(!r.files?.length&&!r.input){work.hidden=false;head.replaceChildren();map.replaceChildren();steps.replaceChildren(h("li",{class:"bad"},P.one("blank")));box.focus();busy(false);return}
   let i=0;r.tick=sub=>{if(my===seq)show(list,i,sub)};
-  go.disabled=true;busy(true);
+  go.disabled=true;busy(true);t0=performance.now();ts=[];map.replaceChildren();delete map.dataset.step;clearInterval(clock);
+  clock=setInterval(()=>{if(my===seq)tickHead("ememifying","now");else clearInterval(clock)},100);tickHead("ememifying","now");
   try{
    for(;i<list.length;i++){if(my!==seq)return;show(list,i);await ops[list[i]](r)}
    if(my!==seq)return;
-   show(list,i);run=r;tab=gives[0].arg;
+   show(list,i);clearInterval(clock);tickHead(r.bad?"ememified, with a finding":"ememified",r.bad?"bad":"ok");run=r;tab=gives[0].arg;
    link.textContent=r.url;link.href=r.url;link.target="_blank";link.rel="noopener";grab.hidden=false;
    meta.className="meta"+(r.bad?" bad":"");
-   const secs=r.token||r.pointer||r.world?0:r.notes?.length??(r.checked.length>1?r.checked.length-1:1),size=r.pointer||r.world?r.size:r.token?r.shape.split(/\.\s/)[0].replace(/^It is /,"").replace(/\.$/,""):secs>1?`${secs} sections, ${tokens(r.text)}`:tokens(r.text);
+   const secs=r.token||r.pointer||r.world||r.camera?0:r.notes?.length??(r.checked.length>1?r.checked.length-1:1),size=r.pointer||r.world||r.camera?r.size:r.token?r.shape.split(/\.\s/)[0].replace(/^It is /,"").replace(/\.$/,""):secs>1?`${secs} sections, ${tokens(r.text)}`:tokens(r.text);
    meta.textContent=[r.proof,secs>1?`${size}; the index is ${tokens(r.body)}`:size,r.skipped?.length?`${r.skipped.length} not included`:"",expect&&r.cid===expect?"same file names as the gallery copy":""].filter(Boolean).join("  ·  ");
    if(!r.bad){history.replaceState(null,"","?s="+encodeURIComponent(r.token||r.url));
     store("emem.recent",[{url:r.token||r.url,title:r.title||r.url,shape:size},...(store("emem.recent")||[]).filter(x=>x.url!==(r.token||r.url))].slice(0,8));drawRecent()}
@@ -404,10 +438,10 @@ ${last.answer.trim()}
     h("button",{onclick:()=>{box.value=`witness: ${r.url}`;start(box.value)},title:"re-read the source with your key and sign what you find, addressed to the author"},"witness"),
     h("button",{onclick:()=>{box.value=`compare: ${r.url} `;box.focus()},title:"paste a second pointer after this one"},"compare with…"),
     ...(r.witnesses||[]).slice(0,6).map(w=>h("a",{href:w.url,target:"_blank",rel:"noopener",class:w.ok?"w ok":"w bad"},`${w.ok?"✓":"✗"} ${w.from}`)));
-   pics.replaceChildren(...(r.face?.canvases||[]).map(c=>{const d=c.cloneNode();d.getContext("2d").drawImage(c,0,0);return d}));
+   pics.replaceChildren(...(r.face?.canvases||[]).map(c=>{const d=c.cloneNode();d.getContext("2d").drawImage(c,0,0);return d}),...(r.face?.imgs||[]).slice(0,8).map(src=>h("img",{src,alt:"",class:"cam",onerror(){this.remove()}})));
    draw();
    if(out.getBoundingClientRect().top>innerHeight*.7||out.getBoundingClientRect().top<0)out.scrollIntoView({behavior:"smooth",block:"start"});
-  }catch(e){if(my!==seq)return;show(list,i,"",true);run=null;out.hidden=true;steps.append(h("li",{class:"bad err"},e.message||String(e)))}
+  }catch(e){if(my!==seq)return;clearInterval(clock);show(list,i,"",true);tickHead("stopped","bad");run=null;out.hidden=true;steps.append(h("li",{class:"bad err"},e.message||String(e)))}
   finally{if(my===seq){go.disabled=false;busy(false)}}
  };
 

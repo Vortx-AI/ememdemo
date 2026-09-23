@@ -5,6 +5,7 @@
 #   {x}                    filled from the run
 #   kind name : ext ext    what can be read, grouped
 #   step name : A -> B     a typed step; the runtime must implement it
+#     … | doing done       its verbs: what the page shows while it runs, and once it has
 #   flow name : a b c      steps in order; each output type must be the next input type
 #   rule ...               checked at load; a broken rule stops the page, like a compiler
 
@@ -17,7 +18,7 @@ link    GitHub   https://github.com/Vortx-AI/emem
 
 say     Tokenise huge files for agents to use.
 sub     Models, satellite scenes, scans, video, code, whole websites and whole places. Your agent gets one small link, reads only the part it needs, and can check every byte.
-in      Drop files, or paste a URL, a repo, a folder, a link to large data, or world: a place
+in      Drop files, or paste a URL, a repo, a folder, a link to large data, world: a place, or cameras: London
 note    Public: anyone with the link can read it.
 blank   Nothing to read yet. Drop a file, or paste text, a URL or a GitHub repo.
 
@@ -43,46 +44,51 @@ limit   4000000
 section 24000
 max     160
 
-step read   : input    -> items
-step text   : items    -> docs
-step split  : docs     -> sections
-step sign   : sections -> signed
-step store  : signed   -> stored
-step link   : stored   -> link
+step read   : input    -> items  | reading read
+step text   : items    -> docs  | extracting extracted
+step split  : docs     -> sections  | cutting cut
+step sign   : sections -> signed  | signing signed
+step store  : signed   -> stored  | storing stored
+step link   : stored   -> link  | linking linked
 flow make   : read text split sign store link
 
-step fetch  : url      -> notes
-step prove  : notes    -> link
+step fetch  : url      -> notes  | fetching fetched
+step prove  : notes    -> link  | proving proven
 flow open   : fetch prove
 
-step resolve : name    -> link
+step resolve : name    -> link  | resolving resolved
 flow resolve : resolve
 
-step ask    : question -> link
+step ask    : question -> link  | asking answered
 flow ask    : ask
 
 # large data is named where it lives: only its address and chunk hashes go to emem
-step probe  : remote   -> hashes
-step pin    : hashes   -> link
+step probe  : remote   -> hashes  | probing probed
+step pin    : hashes   -> link  | pinning pinned
 flow point  : probe pin
 
 # a pointer grows by reading more of its source, never by trust; the next chunks are fixed by the order of their names' hashes
-step extend : notes    -> hashes
+step extend : notes    -> hashes  | extending extended
 flow extend : fetch extend pin
 
 # another key re-reads the source and signs what it saw, addressed to the pointer's author
-step attest : notes    -> link
+step attest : notes    -> link  | witnessing witnessed
 flow witness : fetch attest
 
 # a place, every layer: satellites, radar, terrain, weather, climate, air, the built world; one handle for all of it
-step locate : place    -> cell
-step layers : cell     -> layers
-step weave  : layers   -> link
+step locate : place    -> cell  | locating located
+step layers : cell     -> layers  | sensing sensed
+step weave  : layers   -> link  | weaving woven
 flow world  : locate layers weave
 
+# street cameras, as geo.qa encodes them: each clip named by its sha256 and hashed again here; the sun recomputed
+step look   : lens     -> clips  | watching watched
+step keep   : clips    -> link  | keeping kept
+flow cameras : look keep
+
 # two pointers, row by row: identical bytes, different bytes, or only in one
-step pair   : pair     -> pointers
-step diff   : pointers -> link
+step pair   : pair     -> pointers  | pairing paired
+step diff   : pointers -> link  | diffing diffed
 flow compare : pair diff
 
 give preview <<
@@ -151,6 +157,14 @@ tag   COG
 from  https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/43/P/GQ/2026/5/S2B_43PGQ_20260512_0_L2A/B08.tif
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/tm3nwiorldoo7v4uryp65gsonu.md
 pin   238 MB raster
+>>
+
+show cameras : London's street cameras, every clip hashed again <<
+tag   CCTV · geo.qa
+from  cameras: London
+emem  https://emem.dev/memories/by_attester/ddzmyzhn/6icr7gozbbzh7jstvbuecvglnq.md
+note  12 cameras: each clip named by its sha256 and hashed again here, what a detector counted, where the sun was.
+pin   London cameras
 >>
 
 show file_systems : A whole Sentinel-2 scene: 21 files, 1.76 GB, one link <<
@@ -350,6 +364,7 @@ check   Paste your AI's answer. Every "quote" in it is checked against the sourc
 rule words say 6..12
 rule words sub 12..32
 rule plain say sub in note blank : cid blake3 ed25519 hash signed emem: sha256 attester bundle merkle
-rule typed make open resolve ask point extend witness compare world
+rule typed make open resolve ask point extend witness compare world cameras
 rule carry give : {link} {index} {curl} {mcp} {a2a}
 rule gallery show
+rule verbs step

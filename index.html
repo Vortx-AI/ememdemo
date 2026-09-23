@@ -16,13 +16,29 @@
     ?boot=emem runs the whole page from emem.dev alone. ?boot=local skips the seal (development only; the page says so).
     It uses only the browser's own SHA-256, so it depends on no library it would first have to trust.
   -->
+  <style>
+    /* the boot screen: the only thing drawn before the page's code is checked, so it is plain HTML and CSS */
+    :root{--bg:#f4f3ee;--fg:#161713;--mute:#6d6e66;--line:#d3d2ca;--ok:#2f6b45;color-scheme:light dark}
+    @media(prefers-color-scheme:dark){:root{--bg:#121310;--fg:#ecebe4;--mute:#8d8e85;--line:#2e2f2a;--ok:#6fbf8a}}
+    body{margin:0;background:var(--bg);color:var(--fg)}
+    #boot{min-height:100vh;display:grid;place-content:center;justify-items:center;gap:14px;padding:16px;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--mute)}
+    #boot img{animation:spin 2.4s linear infinite}
+    #boot b{color:var(--fg);font-weight:600;letter-spacing:.02em}
+    #boot ol{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;justify-content:center;gap:3px;max-width:320px}
+    #boot li{width:10px;height:10px;background:var(--line);transition:background .2s}
+    #boot li.on{background:var(--ok)}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @media(prefers-reduced-motion:reduce){#boot img{animation:none}}
+  </style>
   <script type="module">
-    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/if2i2wwp74hqlgodbb5hcayaje.md",sha256:"bb02ee44313f933d9f3b4f0829ab32116cdd2ba3ab6e202aa7ad3d5bb9147dc7"};
+    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/psx2vfwehcilcq5oxybrih3ym4.md",sha256:"f73f6be776737b5b8bcae377230c19e0d03d23b2b63c12c0f07923d6bf10f4f1"};
     const mode=new URLSearchParams(location.search).get("boot");
     const hex=async b=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",b))].map(x=>x.toString(16).padStart(2,"0")).join("");
     const get=async u=>{const x=await fetch(u,{cache:"no-cache"});if(!x.ok)throw new Error(`${u} answered ${x.status}`);return x.arrayBuffer()};
     const blob=(b,type)=>URL.createObjectURL(new Blob([b],{type}));
     const refuse=why=>{document.body.replaceChildren(Object.assign(document.createElement("pre"),{style:"margin:32px;font:14px/1.6 ui-monospace,monospace;color:#a3372b;white-space:pre-wrap",textContent:"This page refused to run.\n\n"+why+"\n\nNothing it could not check was executed."}))};
+    const bootSay=t=>{const e=document.getElementById("boot-say");if(e)e.textContent=t};
+    const bootMap=(n,done)=>{const o=document.getElementById("boot-map");if(!o)return;if(o.children.length!==n)o.replaceChildren(...Array.from({length:n},()=>document.createElement("li")));[...o.children].forEach((c,i)=>c.className=i<done?"on":"")};
     const unsealed=()=>{const l=document.createElement("link");l.rel="stylesheet";l.href="./src/emem.css";document.head.append(l);globalThis.__seal={unsealed:true};return import("./src/eio.mjs")};
     try{
       if(mode==="local"||!SEAL.url)await unsealed();
@@ -31,11 +47,13 @@
         if(await hex(mb)!==SEAL.sha256)throw new Error("The manifest at "+SEAL.url+" does not match the sha256 this page pins.");
         const text=new TextDecoder().decode(mb),seal=globalThis.__seal={url:SEAL.url,files:{},report:[],sealed_by:(text.match(/^sealed_by (\S+)/m)||[])[1]};
         const files=text.split("\n").filter(l=>l.startsWith("file ")).map(l=>{const[,path,sha,url]=l.split(/\s+/);return{path,sha,url}});
+        let checked=0;bootMap(files.length,0);bootSay(`checking ${files.length} files against the seal`);
         const libs=Object.fromEntries(text.split("\n").filter(l=>l.startsWith("lib ")).map(l=>{const[,url,sha]=l.split(/\s+/);return[url,sha]}));
         await Promise.all(files.map(async f=>{
           let b=mode==="emem"?null:await get("./"+f.path).catch(()=>null),from="site";
           if(!b||await hex(b)!==f.sha){b=await get(f.url);from=mode==="emem"?"emem":"emem, because this site's copy did not match";if(await hex(b)!==f.sha)throw new Error(f.path+" does not match its seal, even as fetched from emem.dev.")}
           seal.files[f.path]={text:new TextDecoder().decode(b),from};seal.report.push({path:f.path,from});
+          bootMap(files.length,++checked);bootSay(`${checked} of ${files.length} files match the seal`);
         }));
         // modules run from their checked bytes; a relative import is pointed at the checked copy of the file it names
         const urls={};
@@ -53,5 +71,5 @@
     }catch(e){refuse(e.message||String(e))}
   </script>
 </head>
-<body></body>
+<body><div id="boot" role="status" aria-live="polite"><img src="./src/img/mark-64.png" alt="" width="40" height="40"><b>ememifying this page</b><span id="boot-say">reading the seal</span><ol id="boot-map"></ol><noscript>This page needs JavaScript: it checks every file it runs before running it.</noscript></div></body>
 </html>

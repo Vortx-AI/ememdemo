@@ -16,6 +16,7 @@ The box takes anything:
 | a link to large data: model weights (safetensors, GGUF), GeoTIFF/COG/BigTIFF, OME-Zarr, HLS video, DICOM, or any file with byte ranges | a **pointer**: the data stays at its source; emem holds its address, chunk hashes and statistics |
 | a Hugging Face repository or an S3 folder ending in `/` | a **listing** of every file with its publisher's content hash; nothing downloaded |
 | several links, one per line | one index over all of them |
+| `cameras: London` | 12 street cameras: each clip hashed again, the sun recomputed, the counts labelled as a detector's reading |
 | `world: Cubbon Park, Bengaluru` | every layer emem measures there (satellites, radar, terrain, weather, air, buildings, a composite, algorithms), cross-checked, one handle |
 | `more:`, `witness:`, `compare: A B` on pointers | a pointer extended, independently re-read and signed, or diffed against another |
 | `ask: flood risk in Chennai` | a signed answer about a place, every fact it used, and one `emem:bundle` handle for all of it |
@@ -45,6 +46,28 @@ Every result comes with tabs an agent can use directly: **preview · AGENTS.md �
 Agreement is evidence; a gap is a finding. At Marina Beach, the NDVI recomputed from bands equals the stored index (0.0315).
 
 Every fact is then bound into one `emem:bundle:` token. The reading is stored as a hash-named note (`emem: world.v1`), with one line per measurement and its `emem:fact:` token. Reopening it resolves the bundle again, checks its signature, and redraws the composite from pixels that hash to their name.
+
+## Street cameras
+
+`cameras: London` reads the cameras geo.qa keeps and emem.dev fronts (`/v1/perception/*`). For each live place, the page:
+- reads the `geoqa.postcard.v2` record inside the card's SVG: camera, cell, capture time, clip url and sha256, detector fn id, counts, sun position;
+- downloads the clip, hashes it with SHA-256 (it must equal the stated name) and with BLAKE3 (emem's hash);
+- recomputes the sun's elevation and azimuth from latitude, longitude and UTC (low-precision almanac), which must agree within 0.1°.
+
+Tested: 12 of 12 clips match and 12 of 12 skies agree (Aldgate, 14:43 UTC: stated 27.04°/229.50°, recomputed 27.04°/229.50°).
+
+Counts are a detector's reading under a named fn id, reproducible from the clip and signed by no one. The survey says so. geo.qa signs the clip itself; its receipt route answered 500 during testing, and the survey records that rather than claiming a signature. Reopening the survey fetches and hashes every clip again.
+
+## Watching the work: ememification
+
+Every step declares its verbs in `emem.eio` (`step probe : remote -> hashes | probing probed`), and `rule verbs step` refuses a step without them. While a flow runs, the page shows:
+- one line of verbs (done steps in the past tense with their time, the current one with a bar);
+- a **map** with one square per chunk, section, file or camera, filled as each is finished;
+- a head line: "ememifying 6.0 s", then "ememified 24.5 s", or "stopped" with the reason.
+
+The page itself boots the same way: before any of its code runs, the loader shows "ememifying this page" and fills one square per file as it matches the seal.
+
+In every result, each `emem:` token and emem link is a button: one click resolves it in place, checked like any input.
 
 ## Folders: whole repositories and buckets
 
@@ -197,7 +220,7 @@ A signature proves who wrote the bytes, not that the claim is true.
 |---|---|
 | The hero says what goes in, what comes out, and who uses it. Short. | `rule words say 6..12`, `rule words sub 12..32` |
 | No insider words before there is a result | `rule plain say in note blank : cid blake3 ed25519 hash signed token …` |
-| Every step is declared, implemented, and its types connect | `rule typed make open resolve ask point extend witness compare world` |
+| Every step is declared, implemented, and its types connect | `rule typed make open resolve ask point extend witness compare world cameras`, `rule verbs step` |
 | Every output carries the result | `rule carry give : {link} {index} {curl} {mcp} {a2a}` |
 | Every gallery card opens something the page can open, and runs only files it can read | `rule gallery show` |
 
@@ -225,6 +248,7 @@ rule   gallery show
 | `src/eio.mjs` | rules, page, flows, gallery, checks |
 | `tools/seal.mjs` | seals the site on emem and compiles `llms.txt` and the agent card |
 | `src/read.mjs` | any input becomes markdown with headings, then sections and an index |
+| `src/camera.mjs` | street cameras: geo.qa postcards, clips re-hashed, sun recomputed |
 | `src/world.mjs` | every layer at a place: recall, terrain, composite, algorithms, cross-checks, one bundle |
 | `src/point.mjs` | large data named where it lives: structure readers (COG/BigTIFF, Zarr, HLS, safetensors, GGUF, DICOM), chunk hashes and statistics, Merkle root or chain, place, extend, re-check, compare |
 | `src/emem.mjs` | the wire: names, keys, signed writes, reads, the token family, proofs, ask, the channel feed |
