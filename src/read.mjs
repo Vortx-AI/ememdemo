@@ -139,6 +139,7 @@ let OCR;
 const ocr=()=>OCR??=import(LIB.ocr).then(T=>(T.createWorker||T.default.createWorker)("eng",1,{
  workerPath:NPM+"tesseract.js@5.1.1/dist/worker.min.js",corePath:NPM+"tesseract.js-core@5.1.1",langPath:NPM+"@tesseract.js-data/eng@1.0.0/4.0.0_best_int"}));
 const ocrPdf=async(doc,name,tick)=>{
+ tick("loading text recognition (7 MB, first time only)");
  const n=Math.min(doc.numPages,40),w=await ocr(),pages=[];
  for(let p=1;p<=n;p++){
   tick(`reading scan ${p}/${n}`);
@@ -158,7 +159,9 @@ const imageDoc=async(file,name,tick)=>{
  const px=g.getImageData(0,0,cv.width,cv.height),d=px.data;let sum=0,n=0;
  for(let i=0;i<d.length;i+=4*97){sum+=d[i]*.3+d[i+1]*.59+d[i+2]*.11;n++}
  if(sum/n<110){for(let i=0;i<d.length;i+=4){d[i]=255-d[i];d[i+1]=255-d[i+1];d[i+2]=255-d[i+2]}g.putImageData(px,0,0)}
- const text=(await(await ocr()).recognize(cv)).data.text;
+ tick("loading text recognition (7 MB, first time only)");
+ const w=await ocr();tick("reading image text");
+ const text=(await w.recognize(cv)).data.text;
  if(!text.trim())throw new Error(`${name}: no text found in the image.`);
  return{title:name,md:textMd(text),what:"image, text read by OCR"};
 };
@@ -196,8 +199,9 @@ export const toDoc=async(it,kinds,tick)=>{
  if(it.text!=null)return{name,title:"",md:tidy(it.text),kind:"prose",what:"pasted text"};
  if(it.remote)return webDoc(it.remote,kinds,tick);
  if(!kind)throw new Error(`${name}: ${/^(mp3|wav|m4a|ogg|flac|mp4|mov|webm|mkv|avi)$/.test(e)?"audio and video are not read yet":`.${e||"?"} files are not read`}.`);
- let buf;if(it.file)buf=await it.file.arrayBuffer();else{const x=await net(it.url);if(!x.ok)throw new Error(`${name}: could not be fetched (${x.status}).`);buf=await x.arrayBuffer()}
+ let buf;if(it.file)buf=await it.file.arrayBuffer();else{const x=await net(it.url);if(!x.ok)throw Object.assign(new Error(`${name}: could not be fetched (${x.status}).`),{gone:x.status===404});buf=await x.arrayBuffer()}
  let d;
+ if(/^(pdf|docx|xlsx|pptx|epub)$/.test(e))tick("loading the reader");
  if(e==="pdf")d=await pdfDoc(buf,name,tick);
  else if(e==="docx")d=await docxDoc(buf);
  else if(e==="xlsx")d=await xlsxDoc(buf);
@@ -242,13 +246,15 @@ export const REPO=/^https?:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:\/
 export const repoItems=async(m,kinds,budget)=>{
  const[,o,n,mode,ref,sub=""]=m;
  const api=p=>net(`https://api.github.com/repos/${o}/${n}${p}`).then(x=>x.ok?x.json():null).catch(()=>null);
+ // a version tag is already immutable; a branch moves, so it is pinned to its current commit when GitHub answers
+ const tag=/^v?\d+(\.\d+)+/.test(ref||"");
  let branch=ref;if(!branch)branch=(await api(""))?.default_branch;
- const sha=(await api(`/commits/${encodeURIComponent(branch||"HEAD")}`))?.sha;
+ const sha=tag?null:(await api(`/commits/${encodeURIComponent(branch||"HEAD")}`))?.sha;
  let list=null,ver=null;
  for(const v of [sha,branch,"main","master"].filter(Boolean)){const x=await net(`https://data.jsdelivr.com/v1/packages/gh/${o}/${n}@${encodeURIComponent(v)}?structure=flat`);if(x.ok){list=(await x.json()).files;ver=v;break}}
  if(!list)throw new Error(`Could not list github.com/${o}/${n}. It may be private, missing, or over 150 MB.`);
  const cdn=p=>`https://cdn.jsdelivr.net/gh/${o}/${n}@${encodeURIComponent(ver)}${p.split("/").map(encodeURIComponent).join("/")}`;
- const label=`github.com/${o}/${n}${sub}`,at=ver===sha?`commit ${sha.slice(0,12)}`:`branch ${ver}`;
+ const label=`github.com/${o}/${n}${sub}`,at=ver===sha?`commit ${sha.slice(0,12)}`:`${tag?"tag":"branch"} ${ver}`;
  if(mode==="blob")return{name:label,items:[{name:sub.slice(1),url:cdn(sub)}],what:`file ${label} at ${at}`};
  const SKIP=/(^|\/)(node_modules|dist|build|out|vendor|third_party|\.git|\.next|target|coverage|__pycache__|\.venv)\//i;
  const LOCK=/(\.min\.|\.map$|(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|poetry\.lock|go\.sum|composer\.lock)$)/i;

@@ -6,7 +6,7 @@ html,body{margin:0;min-height:100%}
 body{background:var(--bg);color:var(--fg);font:16px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100dvh;display:flex;flex-direction:column;-webkit-font-smoothing:antialiased}
 button,textarea{font:inherit;color:inherit}
 button{cursor:pointer}
-main{width:min(720px,100% - 4*var(--u));margin:0 auto;padding:clamp(40px,11vh,120px) 0 calc(6*var(--u))}
+main{width:min(720px,100% - 4*var(--u));margin:0 auto;padding:clamp(40px,11vh,120px) 0 calc(4*var(--u))}
 h1{font-size:clamp(34px,6.2vw,64px);line-height:1.02;font-weight:560;letter-spacing:-.045em;margin:0 0 calc(5*var(--u))}
 .drop{border:1px solid var(--line);background:var(--field);transition:border-color .12s}
 .drop:focus-within,.drop[data-over]{border-color:var(--fg)}
@@ -17,7 +17,7 @@ h1{font-size:clamp(34px,6.2vw,64px);line-height:1.02;font-weight:560;letter-spac
 .go{border:0;background:var(--fg);color:var(--bg);width:calc(7*var(--u));height:calc(6*var(--u));font-size:20px}
 .go:disabled{opacity:.35;cursor:progress}
 .note{font:12px var(--mono);color:var(--mute);margin:calc(1.5*var(--u)) 0 0}
-.steps{list-style:none;display:flex;gap:calc(1.5*var(--u));padding:0;margin:var(--u) 0 0;font:12px var(--mono);color:var(--mute);min-height:18px}
+.steps{list-style:none;display:flex;flex-wrap:wrap;gap:calc(1.5*var(--u));padding:0;margin:var(--u) 0 0;font:12px var(--mono);color:var(--mute)}
 .steps li.now{color:var(--fg)}
 .steps li.now::after{content:"…"}
 .steps li.ok{color:var(--ok)}
@@ -71,7 +71,9 @@ footer a:hover{color:var(--fg)}
 .tries{display:flex;flex-wrap:wrap;align-items:center;gap:var(--u);margin:calc(1.5*var(--u)) 0 0;font:12px var(--mono);color:var(--mute)}
 .tries button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:3px 10px;font:12px var(--mono);color:var(--fg)}
 .tries button:hover{border-color:var(--fg)}
-.gallery{width:min(1180px,100% - 4*var(--u));margin:calc(3*var(--u)) auto 0;padding:calc(4*var(--u)) 0 calc(8*var(--u));border-top:1px solid var(--line)}
+.gallery{width:min(1180px,100% - 4*var(--u));margin:0 auto;padding:calc(4*var(--u)) 0 calc(8*var(--u));border-top:1px solid var(--line)}
+.more{display:block;margin:calc(3*var(--u)) auto 0;border:1px solid var(--line);background:transparent;padding:var(--u) calc(3*var(--u));font:12px var(--mono);color:var(--fg)}
+.more:hover{border-color:var(--fg)}
 .chips{display:flex;flex-wrap:wrap;gap:var(--u);margin:0 0 calc(3*var(--u))}
 .chips button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:4px 12px;font:12px var(--mono);color:var(--mute)}
 .chips button[aria-pressed=true]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
@@ -95,3 +97,7 @@ footer a:hover{color:var(--fg)}
 .feed li{display:flex;gap:var(--u);overflow:hidden;white-space:nowrap}
 .feed li b{font-weight:400;color:var(--mute);flex:none}
 .feed li span{overflow:hidden;text-overflow:ellipsis}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap}
+.thumbs canvas{width:calc(50% - 3px);max-width:150px;image-rendering:pixelated;border:1px solid var(--line);display:block}
+.out .thumbs{margin:0 0 calc(2*var(--u))}
+.out .thumbs canvas{width:180px;max-width:48%}

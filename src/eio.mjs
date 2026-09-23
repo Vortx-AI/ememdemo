@@ -1,5 +1,5 @@
 // eio runtime: compiles emem.eio, enforces its rules, draws the page, runs its flows against emem.dev.
-import {EMEM,NOTE,LINKS,CID,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,summarize,feed,readVia} from "./emem.mjs";
+import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia} from "./emem.mjs";
 import {toDoc,REPO,repoItems,blocksOf,pack,describe} from "./read.mjs";
 
 // ---------- compiler ----------
@@ -21,7 +21,8 @@ const compile=src=>{
  // a token row: name : what it is | how to read it over HTTP | the MCP tool that resolves it
  const tokens={};
  for(const s of all("token")){const m=s.arg.match(/^(\w+)\s*:\s*([^|]+)\|\s*([^|]+)\|\s*(\S+)\s*$/);if(!m)throw new Error(`line ${s.line}: token needs "name : meaning | METHOD path | mcp_tool"`);
-  const[method,path]=m[3].trim().split(/\s+/);tokens[m[1]]={what:m[2].trim(),method,path,tool:m[4]}}
+  const call=m[3].trim().match(/^(GET|POST)\s+(\S+)\s*(.*)$/);if(!call)throw new Error(`line ${s.line}: token call must be "GET path" or "POST path {json}"`);
+  tokens[m[1]]={what:m[2].trim(),method:call[1],path:call[2],body:call[3]||null,tool:m[4]}}
  // a gallery entry: kind : title, then "field value" lines
  const shows=all("show").map(s=>{const m=s.arg.match(/^(\w+)\s*:\s*(.+)$/);if(!m||!s.body)throw new Error(`line ${s.line}: show needs "kind : title <<" and fields`);
   return{kind:m[1],title:m[2],...Object.fromEntries(s.body.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{const i=l.search(/\s/);return i<0?[l,""]:[l.slice(0,i),l.slice(i).trim()]}))}});
@@ -36,6 +37,10 @@ const rules={
  typed(P,names,ops){for(const n of names){const f=P.flows[n];if(!f)return`flow "${n}" is not defined`;
   for(let i=0;i<f.length;i++){const s=P.steps[f[i]];if(!s)return`flow "${n}": step "${f[i]}" is not declared`;if(!ops[f[i]])return`flow "${n}": step "${f[i]}" has no implementation`;
    if(i&&P.steps[f[i-1]].out!==s.in)return`flow "${n}": ${f[i-1]} gives ${P.steps[f[i-1]].out}, ${f[i]} takes ${s.in}`}}},
+ // every card opens something this page can open, and every sample it runs is a kind it can read
+ gallery(P){for(const s of P.shows){const t=s.emem||"",m=t.match(/^emem:([a-z]+):/);
+  if(!(NOTE.test(t)||CID.test(t)||STH.test(t)||ASK.test(t)||t==="live"||(m&&P.tokens[m[1]])))return`gallery card "${s.title}" points at something this page cannot open`;
+  if(s.from?.startsWith("./")&&!P.kinds[(s.from.match(/\.([a-z0-9]+)$/i)||[])[1]?.toLowerCase()])return`gallery card "${s.title}" runs a file this page cannot read`}},
  carry(P,args){const need=args.slice(args.indexOf(":")+1);for(const g of P.all("give"))if(!need.some(k=>g.body?.includes(k)))return`output "${g.arg}" carries none of ${need.join(" ")}`}
 };
 const check=(P,ops)=>P.all("rule").map(r=>{const[name,...args]=r.arg.split(/\s+/);const fn=rules[name];return fn?fn(P,args,ops):`unknown rule "${name}"`}).filter(Boolean);
@@ -51,14 +56,14 @@ const ops={
   return r;
  },
  async text(r){
-  const docs=[],skipped=[];let done=0;
+  const docs=[],skipped=[];let done=0,gone=0;
   await pool(r.items,r.items.length<2?1:r.items[0].url?24:6,async(it,i)=>{
    try{docs[i]=await toDoc(it,r.spec.kinds,sub=>r.tick(r.items.length>1?`${done}/${r.items.length}`:sub))}
-   catch(e){if(r.items.length===1)throw e;skipped.push(e.message)}
+   catch(e){if(r.items.length===1)throw e;if(e.gone)gone++;else skipped.push(e.message)}
    r.tick(`${++done}/${r.items.length}`);
   });
   r.docs=docs.filter(d=>d&&d.md.replace(/\[page \d+\]/g,"").trim());
-  r.skipped=skipped;
+  r.skipped=gone?[`${gone} listed files are no longer there (the file listing is cached)`,...skipped]:skipped;
   if(!r.docs.length)throw new Error(skipped[0]||"No text found.");
   const size=r.docs.reduce((n,d)=>n+d.md.length,0);
   if(size>r.spec.limit)throw new Error(`Too much text: ${(size/1e6).toFixed(1)} MB. The limit is ${r.spec.limit/1e6} MB per link.`);
@@ -108,11 +113,15 @@ const ops={
   return r;
  },
  // any emem name: a token from the family, or a bare file name; resolved, and its receipt checked
- async resolve(r){Object.assign(r,await resolveToken(r.input,r.spec.tokens,r.tick));return r},
+ async resolve(r){Object.assign(r,await resolveToken(r.input,r.spec,r.tick));return r},
+ // a question about a place, answered by emem.dev with signed facts
+ async ask(r){Object.assign(r,await ask(r.input.match(ASK)[1].trim(),r.spec,r.tick));return r},
  async prove(r){
-  const ok=r.checked.filter(c=>c.ok).length,n=r.checked.length,strip=c=>c.body.replace(/^---\n[\s\S]*?\n---\n\n/,"");
-  const bad=r.checked.filter(c=>!c.ok).map(c=>c.url.split("/").pop());
-  r.bad=bad.length>0;r.proof=r.bad?`${bad.length} of ${n} files do NOT match their names: ${bad.slice(0,3).join(", ")}${bad.length>3?" …":""}`:`${ok} of ${n} files match their names`;
+  const n=r.checked.length,strip=c=>c.body.replace(/^---\n[\s\S]*?\n---\n\n/,"");
+  const bad=r.checked.filter(c=>c.ok===false).map(c=>c.url.split("/").pop()),unnamed=r.checked.filter(c=>c.ok==null).length,ok=n-bad.length-unnamed;
+  r.bad=bad.length>0;
+  r.proof=r.bad?`${bad.length} of ${n} files do NOT match their names: ${bad.slice(0,3).join(", ")}${bad.length>3?" …":""}`
+   :unnamed===n?`not named by its hash, so there is nothing to match (its hash is ${r.cid})`:`${ok} of ${n} files match their names`+(unnamed?` · ${unnamed} not named by hash`:"");
   const parts=n>1?r.checked.slice(1):r.checked;
   r.text=parts.map(strip).join("\n");r.first=parts[0].url;
   r.shape=n>1?`It is an index of ${n-1} sections (${tokens(r.text.length)} in all); each entry says what its section covers.`:`It is one file (${tokens(r.text.length)}).`;
@@ -144,7 +153,7 @@ const boot=async()=>{
  const src=await(await fetch("./emem.eio",{cache:"no-cache"})).text();
  const P=compile(src),broken=check(P,ops),siteCid=cidOf(U(src));
  if(broken.length){document.body.replaceChildren(h("pre",{class:"broken"},"emem.eio breaks its own rules:\n\n"+broken.map(b=>"· "+b).join("\n")));return}
- const spec={kinds:P.kinds,limit:+P.one("limit"),section:+P.one("section"),max:+P.one("max"),tokens:P.tokens};
+ const spec={kinds:P.kinds,limit:+P.one("limit"),section:+P.one("section"),max:+P.one("max"),tokens:P.tokens,signer:P.one("signer")};
  document.title="emem · "+P.one("say");
 
  const file=h("input",{type:"file",multiple:"",accept:Object.keys(P.kinds).map(e=>"."+e).join(","),hidden:""});
@@ -156,13 +165,13 @@ const boot=async()=>{
  const gives=P.all("give"),tabs=h("div",{class:"tabs",role:"tablist"}),pane=h("div",{class:"pane"});
  const code=h("pre",{class:"code",tabindex:"0"}),copy=h("button",{class:"copy"},"copy");
  const ans=h("textarea",{rows:"5",placeholder:P.one("check"),"aria-label":"answer to check"}),verdict=h("ol",{class:"verdict"});
- const out=h("section",{class:"out",hidden:""},h("div",{class:"row"},link,grab),meta,tabs,pane),recent=h("ol",{class:"recent"}),who=h("span");
- const chips=h("div",{class:"chips",role:"toolbar"}),cards=h("div",{class:"cards"});
+ const pics=h("div",{class:"thumbs"}),out=h("section",{class:"out",hidden:""},h("div",{class:"row"},link,grab),meta,pics,tabs,pane),recent=h("ol",{class:"recent"}),who=h("span");
+ const chips=h("div",{class:"chips",role:"toolbar"}),cards=h("div",{class:"cards"}),more=h("button",{class:"more",hidden:""});
  document.body.replaceChildren(
   h("header",{class:"top"},h("a",{class:"brand",href:"./"},h("img",{src:P.one("mark"),alt:"",width:"26",height:"26"}),h("span",{},"emem")),
    h("nav",{"aria-label":"emem"},...P.all("link").map(l=>{const[label,href]=l.arg.split(/\s{2,}/);return h("a",href.startsWith("#")?{href}:{href,target:"_blank",rel:"noopener"},label)}))),
   h("main",{},h("h1",{},P.one("say")),drop,h("p",{class:"note"},P.one("note")),tries,steps,out,recent),
-  h("section",{class:"gallery",id:"gallery"},chips,cards),
+  h("section",{class:"gallery",id:"gallery"},chips,cards,more),
   h("footer",{},who,h("a",{href:"./emem.eio",title:"this page is compiled from this file"},"source · "+siteCid.slice(0,10))));
 
  let run=null,tab=gives[0].arg;
@@ -178,43 +187,50 @@ const boot=async()=>{
   verdict.replaceChildren(...(q.length?[h("li",{class:"sum"},`${n} of ${q.length} quotes are in the source`)]:ans.value.trim()?[h("li",{class:"sum"},'no "quotes" found in the answer')]:[]),...q.map(s=>h("li",{class:found(src,s)?"yes":"no"},s)))};
  grab.onclick=async()=>{try{await navigator.clipboard.writeText(run.url);grab.textContent="copied"}catch{grab.textContent="select and copy"}setTimeout(()=>grab.textContent="copy link",1400)};
  copy.onclick=async()=>{try{await navigator.clipboard.writeText(code.textContent);copy.textContent="copied"}catch{copy.textContent="select and copy"}setTimeout(()=>copy.textContent="copy",1400)};
- const drawRecent=()=>{const list=store("emem.recent")||[];recent.replaceChildren(...(list.length?[h("li",{class:"sum"},"recent")]:[]),
+ const drawRecent=()=>{const list=store("emem.recent")||[];recent.hidden=!list.length;recent.replaceChildren(...(list.length?[h("li",{class:"sum"},"recent")]:[]),
   ...list.map(x=>h("li",{},h("button",{onclick:()=>{box.value=x.url;start(x.url)}},x.title),h("span",{},x.shape))))};
  drawRecent();
  key().then(k=>who.replaceChildren("key ",h("a",{href:`${EMEM}/memories/by_attester/${k.pub.slice(0,8)}/`,target:"_blank",rel:"noopener",title:"every file this browser has stored, listed by emem"},k.pub.slice(0,8))," · kept in this browser")).catch(()=>who.textContent="emem.dev");
 
+ // the latest click wins: an older run keeps going but may no longer touch the page
+ let seq=0;const busy=on=>document.querySelector("main").setAttribute("aria-busy",String(on));
  const show=(list,at,sub,bad)=>steps.replaceChildren(...list.map((s,i)=>h("li",{class:i<at?"ok":i===at?(bad?"bad":"now"):""},s+(i===at&&sub?" "+sub:""))));
- const start=async(input,expect)=>{
+ const start=async(input,expect,my=++seq)=>{
   const r={spec};let list=P.flows.make;
   if(Array.isArray(input))r.files=input;
-  else{r.input=input.trim();if(NOTE.test(r.input))list=P.flows.open;else if(tokenType(r.input,P.tokens)||CID.test(r.input))list=P.flows.resolve}
-  if(!r.files?.length&&!r.input){steps.replaceChildren(h("li",{class:"bad"},P.one("blank")));box.focus();return}
-  let i=0;r.tick=sub=>show(list,i,sub);
-  go.disabled=true;
+  else{r.input=input.trim();if(NOTE.test(r.input))list=P.flows.open;else if(ASK.test(r.input))list=P.flows.ask;else if(tokenType(r.input,P.tokens)||CID.test(r.input)||STH.test(r.input))list=P.flows.resolve}
+  if(!r.files?.length&&!r.input){steps.replaceChildren(h("li",{class:"bad"},P.one("blank")));box.focus();busy(false);return}
+  let i=0;r.tick=sub=>{if(my===seq)show(list,i,sub)};
+  go.disabled=true;busy(true);
   try{
-   for(;i<list.length;i++){show(list,i);await ops[list[i]](r)}
+   for(;i<list.length;i++){if(my!==seq)return;show(list,i);await ops[list[i]](r)}
+   if(my!==seq)return;
    show(list,i);run=r;tab=gives[0].arg;
    link.textContent=r.url;link.href=r.url;link.target="_blank";link.rel="noopener";grab.hidden=false;
    meta.className="meta"+(r.bad?" bad":"");
-   const secs=r.token?0:r.notes?.length??(r.checked.length>1?r.checked.length-1:1),size=r.token?r.shape.replace(/^It is /,"").replace(/\.$/,""):secs>1?`${secs} sections, ${tokens(r.text.length)}`:tokens(r.text.length);
+   const secs=r.token?0:r.notes?.length??(r.checked.length>1?r.checked.length-1:1),size=r.token?r.shape.split(/\.\s/)[0].replace(/^It is /,"").replace(/\.$/,""):secs>1?`${secs} sections, ${tokens(r.text.length)}`:tokens(r.text.length);
    meta.textContent=[r.proof,secs>1?`${size}; the index is ${tokens(r.body.length)}`:size,r.skipped?.length?`${r.skipped.length} not included`:"",expect&&r.cid===expect?"same file names as the gallery copy":""].filter(Boolean).join("  ·  ");
    if(!r.bad){history.replaceState(null,"","?s="+encodeURIComponent(r.token||r.url));
     store("emem.recent",[{url:r.token||r.url,title:r.title||r.url,shape:size},...(store("emem.recent")||[]).filter(x=>x.url!==(r.token||r.url))].slice(0,8));drawRecent()}
+   pics.replaceChildren(...(r.face?.canvases||[]).map(c=>{const d=c.cloneNode();d.getContext("2d").drawImage(c,0,0);return d}));
    draw();
    if(out.getBoundingClientRect().top>innerHeight*.7||out.getBoundingClientRect().top<0)out.scrollIntoView({behavior:"smooth",block:"start"});
-  }catch(e){show(list,i,"",true);if(!run){out.hidden=true}steps.append(h("li",{class:"bad err"},e.message||String(e)))}
-  finally{go.disabled=false}
+  }catch(e){if(my!==seq)return;show(list,i,"",true);run=null;out.hidden=true;steps.append(h("li",{class:"bad err"},e.message||String(e)))}
+  finally{if(my===seq){go.disabled=false;busy(false)}}
  };
 
  // ---------- gallery: real inputs and the links they became, each re-checked as it loads ----------
- const shows=P.shows;let filter="all";
+ // the first eight show at once; a chip shows every card of its kind
+ const shows=P.shows,FIRST=8;let filter="all",expanded=false;
  const kinds=["all",...new Set(shows.map(s=>s.kind))];
- const drawChips=()=>chips.replaceChildren(...kinds.map(k=>h("button",{"aria-pressed":String(k===filter),onclick:()=>{filter=k;drawChips();for(const c of cards.children)c.hidden=filter!=="all"&&c.dataset.kind!==filter}},k)));
+ const apply=()=>{[...cards.children].forEach((c,i)=>c.hidden=filter!=="all"?c.dataset.kind!==filter:!expanded&&i>=FIRST);more.hidden=filter!=="all"||expanded||shows.length<=FIRST;more.textContent=`show all ${shows.length}`};
+ const drawChips=()=>chips.replaceChildren(...kinds.map(k=>h("button",{"aria-pressed":String(k===filter),onclick:()=>{filter=k;drawChips();apply()}},k)));
+ more.onclick=()=>{expanded=true;apply()};
  drawChips();
  const openIt=s=>{box.value=s.emem;scrollTo({top:0,behavior:"smooth"});start(s.emem)};
  const runIt=async s=>{
   scrollTo({top:0,behavior:"smooth"});
-  if(s.from.startsWith("./")){const x=await fetch(s.from);const f=new File([await x.blob()],s.from.split("/").pop());box.value="";start([f],s.cid)}
+  if(s.from.startsWith("./")){const my=++seq;busy(true);const x=await fetch(s.from);const f=new File([await x.blob()],s.from.split("/").pop());if(my!==seq)return;box.value="";start([f],s.cid,my)}
   else{box.value=s.from;start(s.from,s.cid)}
  };
  tries.replaceChildren(...(shows.some(s=>s.pin)?[h("span",{},"try")]:[]),...shows.filter(s=>s.pin).map(s=>h("button",{onclick:()=>openIt(s)},s.pin)));
@@ -228,9 +244,15 @@ const boot=async()=>{
   card.onclick=e=>{if(live)return;if(e.target.closest(".acts span:nth-child(2)"))runIt(s);else openIt(s)};
   card.onkeydown=e=>{if(e.key==="Enter"&&!live)openIt(s)};
   cards.append(card);
-  (live?feed(body,state,openIt):summarize(s,P.tokens)).then(x=>{if(!x)return;state.className="state "+(x.ok?"ok":"bad");state.textContent=x.state;body.replaceChildren(...x.nodes.map(([cls,t])=>h(cls==="big"?"p":cls==="peek"?"pre":"p",{class:cls},t)))})
+  if(live){const list=h("ol",{class:"feed"});body.replaceChildren(list);state.className="state ok";state.textContent="● live";
+   feed(rows=>list.replaceChildren(...rows.map(e=>h("li",{onclick:ev=>{ev.stopPropagation();openIt({emem:`${EMEM}${e.path}`})},title:e.path},h("b",{},String(e.signed_at||"").slice(11,19)),h("b",{},(e.attester_pubkey_b32||"").slice(0,8)),h("span",{},e.path.split("/").slice(4).join("/")))))).catch(()=>{state.className="state bad";state.textContent="offline"});
+   continue}
+  summarize(s,spec).then(x=>{state.className="state "+(x.ok?"ok":"bad");state.textContent=x.state;
+   body.replaceChildren(...x.nodes.map(([cls,t])=>cls==="canvas"?h("div",{class:"thumbs"},...t):h(cls==="peek"?"pre":"p",{class:cls},t)))})
    .catch(e=>{state.className="state bad";state.textContent="unreachable";body.replaceChildren(h("p",{class:"stat"},e.message))});
  }
+
+ apply();
 
  go.onclick=()=>start(box.value);
  box.onkeydown=e=>{if(e.key==="Enter"&&(e.metaKey||e.ctrlKey))start(box.value)};
