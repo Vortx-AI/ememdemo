@@ -1,6 +1,6 @@
 # ememdemo
 
-**Turn any file into a link your AI agent can read.**
+**Tokenise huge files for agents to use.**
 
 The top half is one box. The bottom half is a gallery of real inputs and what they became, each re-checked live as the page loads.
 
@@ -13,9 +13,80 @@ The box takes anything:
 | an emem link | the link re-checked: every file is re-hashed against its name |
 | any emem token: `emem:fact`, `bundle`, `cell`, `entity`, `raster`, `cube`, `rasterset`, `state` | the record it names, resolved and its signature checked in the browser |
 | a bare file name (26 characters) | the file, read by name over **A2A**, with its author's signature checked |
+| a link to large data: model weights (safetensors, GGUF), GeoTIFF/COG/BigTIFF, OME-Zarr, HLS video, DICOM, or any file with byte ranges | a **pointer**: the data stays at its source; emem holds its address, chunk hashes and statistics |
+| a Hugging Face repository or an S3 folder ending in `/` | a **listing** of every file with its publisher's content hash; nothing downloaded |
+| several links, one per line | one index over all of them |
+| `cameras: London` | 12 street cameras: each clip hashed again, the sun recomputed, the counts labelled as a detector's reading |
+| `world: Cubbon Park, Bengaluru` | every layer emem measures there (satellites, radar, terrain, weather, air, buildings, a composite, algorithms), cross-checked, one handle |
+| `more:`, `witness:`, `compare: A B` on pointers | a pointer extended, independently re-read and signed, or diffed against another |
 | `ask: flood risk in Chennai` | a signed answer about a place, every fact it used, and one `emem:bundle` handle for all of it |
 
 Every result comes with tabs an agent can use directly: **preview · AGENTS.md · chat · curl · MCP · A2A · check**. The `check` tab marks each "quote" in an AI's answer as found in the source or not.
+
+## Every layer at a place
+
+`world: <place>` (for example `world: Cubbon Park, Bengaluru`) asks emem.dev for everything it measures at one cell about 10 m across. The calls run at once, and each answer's receipt is checked in the page against the pinned key:
+
+| layer | what | from |
+|---|---|---|
+| satellite, optical | red and near-infrared reflectance, NDVI | Sentinel-2 |
+| satellite, radar | VV backscatter (through cloud, day or night) | Sentinel-1 |
+| terrain | elevation (two independent models); slope, ruggedness, landform from the 3×3 neighbourhood | Copernicus DEM, GMRT; Horn 1981, Riley 1999, Weiss 2001 |
+| weather, climate | air temperature, rain, wind now; reanalysis; land surface temperature day and night | met.no, ERA5, MODIS |
+| air | PM2.5 | CAMS |
+| the built world | buildings, named places, road length | Overture |
+| composite | a cloud-masked median of every Sentinel-2 scene over the last 120 days, as an `emem:raster:` token anyone can rebuild pixel for pixel | emem `band_composite` |
+| algorithms | every published formula whose inputs are present (water likelihood from radar, vegetation class, heat index, wind power…), with its value | emem's algorithm registry |
+
+**Cross-checks.** Independent sources for the same quantity are set side by side:
+- Copernicus DEM against GMRT elevation;
+- NDVI recomputed in the page from red and near-infrared against emem's stored index and against MODIS;
+- air temperature now against reanalysis and ground temperature.
+
+Agreement is evidence; a gap is a finding. At Marina Beach, the NDVI recomputed from bands equals the stored index (0.0315).
+
+Every fact is then bound into one `emem:bundle:` token. The reading is stored as a hash-named note (`emem: world.v1`), with one line per measurement and its `emem:fact:` token. Reopening it resolves the bundle again, checks its signature, and redraws the composite from pixels that hash to their name.
+
+## Street cameras
+
+`cameras: London` reads the cameras geo.qa keeps and emem.dev fronts (`/v1/perception/*`). For each live place, the page:
+- reads the `geoqa.postcard.v2` record inside the card's SVG: camera, cell, capture time, clip url and sha256, detector fn id, counts, sun position;
+- downloads the clip, hashes it with SHA-256 (it must equal the stated name) and with BLAKE3 (emem's hash);
+- recomputes the sun's elevation and azimuth from latitude, longitude and UTC (low-precision almanac), which must agree within 0.1°.
+
+Tested: 12 of 12 clips match and 12 of 12 skies agree (Aldgate, 14:43 UTC: stated 27.04°/229.50°, recomputed 27.04°/229.50°).
+
+Counts are a detector's reading under a named fn id, reproducible from the clip and signed by no one. The survey says so. geo.qa signs the clip itself; its receipt route answered 500 during testing, and the survey records that rather than claiming a signature. Reopening the survey fetches and hashes every clip again.
+
+## Watching the work: ememification
+
+Every step declares its verbs in `emem.eio` (`step probe : remote -> hashes | probing probed`), and `rule verbs step` refuses a step without them. While a flow runs, the page shows:
+- one line of verbs (done steps in the past tense with their time, the current one with a bar);
+- a **map** with one square per chunk, section, file or camera, filled as each is finished;
+- a head line: "ememifying 6.0 s", then "ememified 24.5 s", or "stopped" with the reason.
+
+The page itself boots the same way: before any of its code runs, the loader shows "ememifying this page" and fills one square per file as it matches the seal.
+
+In every result, each `emem:` token and emem link is a button: one click resolves it in place, checked like any input.
+
+## Folders: whole repositories and buckets
+
+Paste a Hugging Face repository or an S3 folder (a URL ending in `/`). The page reads the **listing**, never the files, and stores `emem: directory.v1`:
+- one row per file: path, url, size, and the **publisher's own content hash** (sha256 for Hugging Face LFS files, the git blob id for small ones, the S3 ETag);
+- a Merkle root over `blake3(path, size, hash)`.
+
+Opening it lists the folder again. Tested: with one ETag altered and one file removed from the listing, it reports "1 changed, 0 new, 1 gone, 19 unchanged". Any download can be checked against the kept hash; the curl tab shows how, and `config.json`'s git blob id was checked this way. A large file in the folder can be pointed at chunk by chunk.
+
+## emem, tokenised
+
+The gallery holds emem itself as links an agent can read:
+- the whole emem.dev site: the whitepaper, 11 docs pages and llms.txt, 23 sections;
+- the Vortx-AI/emem repository: 139 sections, about 641k tokens;
+- the whitepaper alone;
+- emem's registries (algorithms, sensors, sources, functions, topics);
+- agent setup (agent card, quickstart, quick reference, limits).
+
+Several links pasted one per line become one index. A repository over jsDelivr's 50 MB cap is listed through GitHub's own tree API and read from raw.githubusercontent.com, pinned to the commit.
 
 ## Large data, named where it lives
 
@@ -147,9 +218,9 @@ A signature proves who wrote the bytes, not that the claim is true.
 
 | principle | rule |
 |---|---|
-| The hero says what goes in, what comes out, and who uses it. Short. | `rule words say 6..12` |
+| The hero says what goes in, what comes out, and who uses it. Short. | `rule words say 6..12`, `rule words sub 12..32` |
 | No insider words before there is a result | `rule plain say in note blank : cid blake3 ed25519 hash signed token …` |
-| Every step is declared, implemented, and its types connect | `rule typed make open resolve ask point extend witness compare` |
+| Every step is declared, implemented, and its types connect | `rule typed make open resolve ask point extend witness compare world cameras`, `rule verbs step` |
 | Every output carries the result | `rule carry give : {link} {index} {curl} {mcp} {a2a}` |
 | Every gallery card opens something the page can open, and runs only files it can read | `rule gallery show` |
 
@@ -177,6 +248,8 @@ rule   gallery show
 | `src/eio.mjs` | rules, page, flows, gallery, checks |
 | `tools/seal.mjs` | seals the site on emem and compiles `llms.txt` and the agent card |
 | `src/read.mjs` | any input becomes markdown with headings, then sections and an index |
+| `src/camera.mjs` | street cameras: geo.qa postcards, clips re-hashed, sun recomputed |
+| `src/world.mjs` | every layer at a place: recall, terrain, composite, algorithms, cross-checks, one bundle |
 | `src/point.mjs` | large data named where it lives: structure readers (COG/BigTIFF, Zarr, HLS, safetensors, GGUF, DICOM), chunk hashes and statistics, Merkle root or chain, place, extend, re-check, compare |
 | `src/emem.mjs` | the wire: names, keys, signed writes, reads, the token family, proofs, ask, the channel feed |
 | `src/vendor/` | emem's verifier, pinned (Apache-2.0) |

@@ -236,7 +236,10 @@ const file=async(url,tick,n)=>{
 };
 
 const pick=u=>/\.safetensors(\?|$)/i.test(u)?safetensors:/\.gguf(\?|$)/i.test(u)?gguf:/\.m3u8(\?|$)/i.test(u)?hls:/\.zarr(\/|$)/i.test(u)?zarr:/\.dcm(\?|$)/i.test(u)?dicom:/\.tiff?(\?|$)/i.test(u)?tiff:null;
-export const POINTABLE=/^(point:\s*)?https?:\/\/\S+?(\.m3u8|\.zarr\/?|\.dcm|\.safetensors|\.gguf|\.tiff?|\.nc|\.h5|\.hdf5|\.las|\.laz|\.parquet|\.mp4|\.mov|\.bin|\.zip)(\?\S*)?$|^point:\s*https?:\/\/\S+$/i;
+const FILEISH=/^(point:\s*)?https?:\/\/\S+?(\.m3u8|\.zarr\/?|\.dcm|\.safetensors|\.gguf|\.tiff?|\.nc|\.h5|\.hdf5|\.las|\.laz|\.parquet|\.mp4|\.mov|\.bin|\.zip)(\?\S*)?$|^point:\s*https?:\/\/\S+$/i;
+// a folder: a Hugging Face repository (or a folder in it), or an S3 prefix ending in /
+export const DIR=/^https:\/\/huggingface\.co\/(datasets\/|spaces\/)?[\w.-]+\/[\w.-]+(\/tree\/[^/\s]+(\/\S*)?)?\/?$|^https:\/\/[a-z0-9.-]+\.s3(\.[a-z0-9-]+)?\.amazonaws\.com\/\S*\/$/i;
+export const POINTABLE={test:s=>FILEISH.test(s)||DIR.test(s)};
 
 // the rows of a pointer's table, with the optional stats column
 export const parseRows=body=>[...body.matchAll(/^\| ([^|]+) \| (\S+) \| (\d+) \| (\d+) \| ([^|]+) \|(?: ([^|]*) \|)?$/gm)].filter(m=>m[1]!=="what"&&!/^-+$/.test(m[1])).map(m=>{const h=m[5].trim();return{label:m[1].trim(),url:m[2]==="·"?"":m[2],offset:+m[3],length:+m[4],hash:/^[a-z2-7]{52}$/.test(h)?h:ZERO,absent:!/^[a-z2-7]{52}$/.test(h),stats:(m[6]||"").trim()}});
@@ -247,6 +250,7 @@ const field=(body,k)=>(body.match(new RegExp(`^${k}: (.+)$`,"m"))||[])[1];
 //  opts.more        how many more chunks to hash beyond the defaults, in H(label) order
 //  opts.placeAbout  async ({lat,lng,bbox}) -> lines, to say where a raster is in emem's own terms
 export const probe=async(raw,tick,opts={})=>{
+ if(DIR.test(raw.trim()))return folder(raw.trim(),tick);
  const url=raw.replace(/^point:\s*/i,"").trim(),host=new URL(url).host;
  tick("reading structure");
  const {bytes,etag}=await size(url).catch(()=>({}));
@@ -301,3 +305,48 @@ export const compare=(a,b)=>{
 
 // one row re-read from its source, hashed the same way
 export const reread=async(src,c)=>H(c.url?await whole(c.url):await range(src,c.offset,c.length));
+
+// ---------- a folder: the listing is read, never the files; each entry keeps the publisher's own content hash ----------
+// Hugging Face gives sha256 for large (LFS) files and the git blob id for small ones; S3 gives the ETag (MD5 of a
+// single-part upload; "-N" marks a multipart one). A row binds path, size and that hash; the root binds every row.
+const list=async(url,tick)=>{
+ const out=[];
+ const hf=url.match(/^https:\/\/huggingface\.co\/(datasets\/|spaces\/)?([\w.-]+\/[\w.-]+)(?:\/tree\/([^/\s]+)(?:\/(\S*?))?)?\/?$/i);
+ if(hf){const kind=hf[1]==="datasets/"?"datasets":hf[1]==="spaces/"?"spaces":"models",rev=hf[3]||"main",sub=(hf[4]||"").replace(/\/$/,"");
+  let next=`https://huggingface.co/api/${kind}/${hf[2]}/tree/${rev}${sub?"/"+sub:""}?recursive=true&expand=false`;
+  for(let page=0;next&&page<10;page++){const x=await net(next);if(!x.ok)throw new Error(`Hugging Face answered ${x.status} for ${hf[2]}.`);
+   for(const e of await x.json())if(e.type==="file")out.push({path:e.path,size:e.size,hash:e.lfs?.oid?`sha256:${e.lfs.oid}`:`git-sha1:${e.oid}`,url:`https://huggingface.co/${hf[1]||""}${hf[2]}/resolve/${rev}/${e.path.split("/").map(encodeURIComponent).join("/")}`});
+   next=((x.headers.get("link")||"").match(/<([^>]+)>;\s*rel="next"/)||[])[1];tick(`${out.length} files listed`)}
+  return{out,host:"huggingface.co",name:`${hf[2]}${sub?"/"+sub:""} @ ${rev}`,kind:`Hugging Face ${kind.replace(/s$/,"")} repository`}}
+ const u=new URL(url),prefix=decodeURIComponent(u.pathname.slice(1)),base=`${u.origin}/`;let token="";
+ for(let page=0;page<10;page++){const x=await net(`${base}?list-type=2&prefix=${encodeURIComponent(prefix)}${token?`&continuation-token=${encodeURIComponent(token)}`:""}`);
+  if(!x.ok)throw new Error(`${u.host} answered ${x.status} to a listing; the bucket may not allow public listing.`);
+  const t=await x.text();
+  for(const m of t.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)){const g=k=>(m[1].match(new RegExp(`<${k}>([^<]*)</${k}>`))||[])[1]||"";const key=g("Key").replace(/&amp;/g,"&");
+   if(!key.endsWith("/"))out.push({path:key.slice(prefix.length),size:+g("Size"),hash:`etag:${g("ETag").replace(/&quot;|"/g,"")}`,url:base+key.split("/").map(encodeURIComponent).join("/")})}
+  tick(`${out.length} files listed`);token=/<IsTruncated>true/.test(t)?(t.match(/<NextContinuationToken>([^<]+)</)||[])[1]:"";if(!token)break}
+ return{out,host:u.host,name:prefix||u.host,kind:"S3 folder"};
+};
+const rowOf=f=>({url:f.url,offset:0,length:f.size,hash:H(U(`${f.path}\n${f.size}\n${f.hash}`))});
+const folder=async(url,tick)=>{
+ tick("reading the listing");
+ const{out,host,name,kind}=await list(url,tick);if(!out.length)throw new Error("That folder lists no files.");
+ out.sort((a,b)=>a.path<b.path?-1:1);
+ const total=out.reduce((a,f)=>a+f.size,0),r=root(out.map(rowOf)),big=out.filter(f=>f.size>=64e6).length,pointable=out.filter(f=>FILEISH.test(f.url)).length;
+ const exts=Object.entries(out.reduce((m,f)=>{const e=(f.path.match(/\.([a-z0-9]{1,12})$/i)||[,"(none)"])[1].toLowerCase();m[e]=(m[e]||0)+f.size;return m},{})).sort((a,b)=>b[1]-a[1]).slice(0,6);
+ const about=[`${out.length} files, ${mb(total)} in all${big?`; ${big} of them over 64 MB`:""}`,`by size: ${exts.map(([e,n])=>`${e} ${mb(n)}`).join(", ")}`,
+  `publisher hashes kept: ${[...new Set(out.map(f=>f.hash.split(":")[0]))].join(", ")}`,pointable?`${pointable} files can be pointed at chunk by chunk: paste a file's url`:""].filter(Boolean);
+ const body=`---\nemem: directory.v1\nsource: ${url}\nfiles: ${out.length}\nbytes: ${total}\nkind: ${kind}\nroot: ${r}\nhash: each row is blake3(path, size, publisher hash); the root is a Merkle tree over (url, 0, size, row hash) in path order\n---\n\n# ${name}\n\n> A ${kind} at ${host}: ${out.length} files, ${mb(total)}. Only the listing was read; no file was downloaded. Each row keeps the publisher's own content hash, so any download can be checked against it, and the root commits to the whole listing: add, drop or change one file and it changes.\n\n${about.map(a=>"- "+a).join("\n")}\n\n## Files\n\n| path | url | bytes | publisher hash |\n|---|---|---|---|\n${out.map(f=>`| ${f.path.replace(/\|/g,"%7C")} | ${f.url} | ${f.size} | ${f.hash} |`).join("\n")}\n`;
+ return{body,url,name,kind,bytes:total,est:null,read:0,chunks:out,units:out.length,rootHash:r,chained:false,about,folder:true};
+};
+// list the folder again and compare: which files are unchanged, changed, new or gone
+export const relist=async(body,tick)=>{
+ const src=field(body,"source"),want=field(body,"root");
+ const was=new Map([...body.matchAll(/^\| (.+?) \| (https:\S+) \| (\d+) \| (\S+:\S+) \|$/gm)].map(m=>[m[1].replace(/%7C/g,"|"),{path:m[1].replace(/%7C/g,"|"),url:m[2],size:+m[3],hash:m[4]}]));
+ const table=root([...was.values()].map(rowOf))===want;
+ const{out}=await list(src,tick),now=new Map(out.map(f=>[f.path,f]));
+ let same=0;const changed=[],added=[],gone=[];
+ for(const[p,f]of was){const g=now.get(p);if(!g)gone.push(p);else if(g.size===f.size&&g.hash===f.hash)same++;else changed.push(p)}
+ for(const p of now.keys())if(!was.has(p))added.push(p);
+ return{src,table,same,changed,added,gone,n:was.size};
+};

@@ -1,4 +1,4 @@
-# ememdemo: Turn any file into a link your AI agent can read.
+# ememdemo: Tokenise huge files for agents to use.
 
 > A website with no server. Everything it does is a call to emem.dev that an agent can make itself, listed below. This file is compiled from emem.eio by tools/seal.mjs and sealed with the site: its sha256 is in the manifest that index.html pins.
 
@@ -11,6 +11,10 @@
 - **Witness a pointer.** Re-read a spread of its chunks from the source, then store a note addressed to its author at `/memories/by_attester/<you8>/arcade/witness-<YYYYMMDD-HHMMSS>-to-<author8>.md`, titled `# <you8> -> <author8>: witness <pointer name> ok|changed k/n`, with `pointer: <url>` in its body. Find witnesses with `GET https://emem.dev/v1/inbox?to=<author8>`; check each one's bytes and signature before counting it.
 - **Compare two pointers.** Match rows by label (without type, shape or wrapper prefix). The same hash means the same bytes at both sources; nothing needs to be downloaded to decide it. Stats columns (mean, sd, min, max of a tensor, tile or pixel block) say how much a changed unit differs.
 - **Tie a raster to a place.** The GeoTIFF tie point and pixel size give its projected centre; invert the projection (UTM or Web Mercator) to latitude and longitude, then `GET https://emem.dev/v1/locate?lat=&lng=` for its cell and `POST https://emem.dev/v1/recall` for signed facts there.
+- **Name a whole folder.** A Hugging Face repository (`GET https://huggingface.co/api/models/<repo>/tree/main?recursive=true`) or an S3 prefix (`GET https://<bucket>.s3.<region>.amazonaws.com/?list-type=2&prefix=<prefix>`) is listed, never downloaded. Store `emem: directory.v1`: one row per file (path, url, size, the publisher's own hash: sha256 for LFS files, git blob sha1, or the S3 ETag) and a Merkle root over blake3(path, size, hash). List again to see what changed.
+- **Read every layer at a place.** `GET https://emem.dev/v1/locate?q=<place>` gives the cell. `POST https://emem.dev/v1/recall {"cell","bands":[…]}` with optical (s2.B04, s2.B08, indices.ndvi), radar (sentinel1_raw), terrain (copdem30m.elevation_mean, gmrt.topobathy_mean), weather (weather.*), climate (era5.t2m, modis.lst_*), air (cams.pm25) and built (overture.*) bands returns signed facts plus the published algorithms that apply. `POST https://emem.dev/v1/terrain` adds slope, ruggedness and position; `POST https://emem.dev/v1/band_composite` a cloud-masked median raster token; `POST https://emem.dev/v1/memory_bundle` binds every fact into one emem:bundle token. Check every receipt.
+- **Read street cameras.** `GET https://emem.dev/v1/perception/cards` lists geo.qa's live places. Each card's `latest.svg` carries a `geoqa.postcard.v2` record in `<metadata><observation>`: camera, cell, capture time, clip url and sha256, detector fn id, counts, and the sun's position. Download the clip and sha256 it; recompute the sun from lat, lon and UTC. geo.qa signs the clip (`/verify/key`, `/verify/clip/<cid>`), never the counts: counts reproduce by re-running the named detector on the clip.
+- **Several links, one index.** Read each page, split into sections, store each, and store one index that names them all: a whole website or a paper with its code becomes one link.
 - **Check an answer's citations.** `POST https://emem.dev/a2a/tasks {"skill":"emem_guard_verdict","args":{"texts":["<answer>"]}}` returns a signed allow or deny with a reason code.
 - **Ask about a place.** `POST https://emem.dev/v1/ask {"q":"flood risk in Chennai"}`; add `Accept: text/event-stream` for stages.
 
@@ -31,15 +35,26 @@ Every receipt must verify against the key 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6
 
 ## Worked examples (each re-checked by the page as it loads)
 
-- RFC 9110, HTTP Semantics: https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.md (from https://www.rfc-editor.org/rfc/rfc9110.pdf)
 - GPT-2's weights, tensor by tensor, with statistics: https://emem.dev/memories/by_attester/ddzmyzhn/amii4tnpkfoofsyzrbbs2vxsj4.md (from https://huggingface.co/openai-community/gpt2/resolve/main/model.safetensors)
+- Cubbon Park, Bengaluru: every layer at once: https://emem.dev/memories/by_attester/ddzmyzhn/5xwwg22drabkcqk4pew364y7ia.md (from world: Cubbon Park, Bengaluru)
+- The whole emem.dev site, as one link: https://emem.dev/memories/by_attester/ddzmyzhn/elcqkssuxj6qy2ajfjra7eihqu.md
 - A Sentinel-2 band, 238 MB, tied to its place on Earth: https://emem.dev/memories/by_attester/ddzmyzhn/tm3nwiorldoo7v4uryp65gsonu.md (from https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/43/P/GQ/2026/5/S2B_43PGQ_20260512_0_L2A/B08.tif)
+- London's street cameras, every clip hashed again: https://emem.dev/memories/by_attester/ddzmyzhn/6icr7gozbbzh7jstvbuecvglnq.md (from cameras: London)
+- A whole Sentinel-2 scene: 21 files, 1.76 GB, one link: https://emem.dev/memories/by_attester/ddzmyzhn/ytrbmovcooav45okmof7pxt3bi.md (from https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/43/P/GQ/2026/5/S2B_43PGQ_20260512_0_L2A/)
 - Two models compared, tensor by tensor: https://emem.dev/memories/by_attester/ddzmyzhn/zld2kdiy5nw5dghcjo3whbwona.md
+- RFC 9110, HTTP Semantics: https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.md (from https://www.rfc-editor.org/rfc/rfc9110.pdf)
+- Flood risk in Chennai, asked live: ask: flood risk in Chennai
+- Marina Beach, Chennai: every layer at once: https://emem.dev/memories/by_attester/ddzmyzhn/cpoqzy7ic6mbpx65o7y4aqstpe.md (from world: Marina Beach, Chennai)
+- The emem repository, all 139 parts: https://emem.dev/memories/by_attester/ddzmyzhn/lhtghurgjug5ukdwpzatsl76ra.md (from https://github.com/Vortx-AI/emem)
+- The emem whitepaper: https://emem.dev/memories/by_attester/ddzmyzhn/csdud43x6i6nl6aroqvode4lsu.md (from https://emem.dev/whitepaper)
+- emem's algorithms, sensors and sources: https://emem.dev/memories/by_attester/ddzmyzhn/fuj7spcgodcjedmpudfgeoh3sm.md
+- Setting an agent up: card, quickstart, limits: https://emem.dev/memories/by_attester/ddzmyzhn/w2b7venmj4ltqf6ewegvfx4l5a.md
+- GPT-2's whole repository: 26 files, 5.63 GB: https://emem.dev/memories/by_attester/ddzmyzhn/lo2r67wc6j3nsibudljr7lhrmi.md (from https://huggingface.co/openai-community/gpt2)
 - TinyLlama, 483 MB of GGUF, without downloading it: https://emem.dev/memories/by_attester/ddzmyzhn/iqkrgor7sbtgigivc3fd726icy.md (from https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q2_K.gguf)
+- The Port of Rotterdam: every layer at once: https://emem.dev/memories/by_attester/ddzmyzhn/tyifoi4xotipon4essdfxrw7we.md (from world: Port of Rotterdam)
 - expressjs/express at v5.2.1: https://emem.dev/memories/by_attester/ddzmyzhn/5otn33skohjocfbhychddlovme.md (from https://github.com/expressjs/express/tree/v5.2.1)
 - A build error, as a screenshot: https://emem.dev/memories/by_attester/ddzmyzhn/3n4cwt4dighrfgrxdwv6hv3fe4.md (from ./samples/build-error.png)
 - Bengaluru, ground elevation: emem:fact:defi.zb493.xuqA.zcb5f:tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq
-- Flood risk in Chennai, asked live: ask: flood risk in Chennai
 - A microscope image, chunk by chunk: https://emem.dev/memories/by_attester/ddzmyzhn/54t6krywa6eeklzpapklpuhqau.md (from https://uk1s3.embassy.ebi.ac.uk/idr/zarr/v0.4/idr0062A/6001240.zarr)
 - A video feed, segment by segment, chained: https://emem.dev/memories/by_attester/ddzmyzhn/2q7e5sh7wxal6u5lfsjatmzeiu.md (from https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8)
 - A CT slice, technical tags only, in Hounsfield units: https://emem.dev/memories/by_attester/ddzmyzhn/elk3oajsbjlws4ad4up7ha7rey.md (from https://raw.githubusercontent.com/pydicom/pydicom/main/src/pydicom/data/test_files/CT_small.dcm)

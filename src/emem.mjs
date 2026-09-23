@@ -88,17 +88,17 @@ export const readVia=r=>r.token?r.via:{
 // ---------- proof: emem's own verifier, vendored; the expected signer is pinned in emem.eio ----------
 let VERIFY;
 const verifier=()=>VERIFY??=Promise.resolve().then(()=>{const v=globalThis.ememVerify;if(!v?.selfTest())throw new Error("the verifier failed its self-test; nothing is reported as checked");return v});
-const receiptOk=async(receipt,signer)=>{if(!receipt)return false;const v=(await verifier()).verifyReceipt(receipt);return v.ok&&v.signer_b32===signer};
+export const receiptOk=async(receipt,signer)=>{if(!receipt)return false;const v=(await verifier()).verifyReceipt(receipt);return v.ok&&v.signer_b32===signer};
 const unhex=h=>Uint8Array.from(h.match(/../g)||[],x=>parseInt(x,16));
 const b32full=u=>b32(u);
-const post=(url,body,headers={})=>net(url,{method:"POST",headers:{"content-type":"application/json",accept:"application/json",...headers},body:JSON.stringify(body)});
-const json=async x=>{const j=await x.json().catch(()=>({}));if(!x.ok)throw new Error(`emem.dev said ${x.status}: ${j.message||j.error||j.code||"no detail"}`);return j};
-const fmt=v=>{const n=Number(v);return v==null||v===""?"—":Number.isFinite(n)?(Math.abs(n)>=100?n.toFixed(1):String(+n.toPrecision(3))):String(v)};
-const day=t=>String(t||"").slice(0,10);
-const short=k=>k?k.slice(0,8)+"…":"";
+export const post=(url,body,headers={})=>net(url,{method:"POST",headers:{"content-type":"application/json",accept:"application/json",...headers},body:JSON.stringify(body)});
+export const json=async x=>{const j=await x.json().catch(()=>({}));if(!x.ok)throw new Error(`emem.dev said ${x.status}: ${j.message||j.error||j.code||"no detail"}`);return j};
+export const fmt=v=>{const n=Number(v);return v==null||v===""?"—":Number.isFinite(n)?(Math.abs(n)>=100?n.toFixed(1):String(+n.toPrecision(3))):String(v)};
+export const day=t=>String(t||"").slice(0,10);
+export const short=k=>k?k.slice(0,8)+"…":"";
 
 // a raster artifact is a small grid of floats; its name is the hash of its bytes, and it draws as a picture
-const grid=async cid=>{
+export const grid=async cid=>{
  const x=await net(`${EMEM}/v1/artifacts/${cid}`);if(!x.ok)return null;
  const buf=await x.arrayBuffer(),{blake3:b3}=globalThis.ememVerifyInternals||{};
  const ok=b3?b32full(b3(new Uint8Array(buf)))===cid:null,dv=new DataView(buf),w=dv.getUint32(8,true),hgt=dv.getUint32(12,true);
@@ -258,6 +258,14 @@ export const summarize=async(s,S)=>{
   if(/^emem: pointer\.v1$/m.test(n.body)){
    const sz=v=>v>=1e9?(v/1e9).toFixed(2)+" GB":v>=1e6?(v/1e6).toFixed(1)+" MB":(v/1e3).toFixed(1)+" KB",b=n.body.match(/^bytes: (about )?(\d+)/m),c=(n.body.match(/^chunks: (.+)$/m)||[])[1];
    return{ok:n.ok!==false,state:n.ok?"✓ matches its name":"✗ name does not match",nodes:[["big",b?`${b[1]?"~":""}${sz(+b[2])}`:"at the source"],["stat",`stays at the source · ${sz(n.body.length)} on emem · ${c}`],["peek",n.body.split("\n").filter(l=>/^- /.test(l)).map(l=>l.slice(2)).slice(0,3).join("\n")]]};
+  }
+  // a place, every layer: how many signed measurements, and the handle that cites them all
+  if(/^emem: world\.v1$/m.test(n.body)){const facts=(n.body.match(/ · emem:fact:/g)||[]).length,secs=(n.body.match(/^## (satellite|terrain|weather|climate|vegetation|air|the built)/gm)||[]).length;
+   return{ok:n.ok!==false,state:n.ok?"✓ matches its name":"✗ name does not match",nodes:[["big",`${facts} measurements`],["stat",`${secs} layers · cross-checked · one handle`],["peek",n.body.split("\n").filter(l=>/^- /.test(l)).map(l=>l.slice(2).replace(/ · emem:\S+$/,"")).slice(0,4).join("\n")]]};
+  }
+  // a camera survey: how many cameras, how many clips re-hashed
+  if(/^emem: camera\.v1$/m.test(n.body)){const k=x=>(n.body.match(new RegExp(`^${x}: (.+)$`,"m"))||[])[1]||"";
+   return{ok:n.ok!==false,state:n.ok?"✓ matches its name":"✗ name does not match",nodes:[["big",`${k("cameras")} cameras`],["stat",`clips ${k("clips").split(" re-")[0]} re-hashed · sun ${k("sun").split(" positions")[0]} recomputed`],["peek",[...n.body.matchAll(/^\| ([a-z ]+) \| defi[^|]+\| [^|]+ \| [^|]+ \| ([^|]+) \|/gm)].filter(m=>/\d/.test(m[2])).slice(0,4).map(m=>`${m[1]}: ${m[2].trim()}`).join("\n")]]};
   }
   // a comparison of two pointers: how many units are byte-identical, how many differ
   if(/^emem: compare\.v1$/m.test(n.body)){const f=k=>+(n.body.match(new RegExp(`^${k}: (\\d+)`,"m"))||[])[1]||0;

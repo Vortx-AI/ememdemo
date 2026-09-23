@@ -11,7 +11,8 @@ export const compile=src=>{
  }
  const one=v=>st.find(s=>s.verb===v)?.arg??"",all=v=>st.filter(s=>s.verb===v);
  const steps={},flows={},kinds={};
- for(const s of all("step")){const m=s.arg.match(/^(\w+)\s*:\s*(\w+)\s*->\s*(\w+)$/);if(!m)throw new Error(`line ${s.line}: step needs "name : A -> B"`);steps[m[1]]={in:m[2],out:m[3]}}
+ // a step may carry its verbs, "| doing done", which is how the page and agents name what is happening
+ for(const s of all("step")){const m=s.arg.match(/^(\w+)\s*:\s*(\w+)\s*->\s*(\w+)(?:\s*\|\s*(\S+)\s+(\S+))?$/);if(!m)throw new Error(`line ${s.line}: step needs "name : A -> B" or "name : A -> B | doing done"`);steps[m[1]]={in:m[2],out:m[3],doing:m[4]||m[1],done:m[5]||m[1]}}
  for(const s of all("flow")){const m=s.arg.match(/^(\w+)\s*:\s*(.+)$/);if(!m)throw new Error(`line ${s.line}: flow needs "name : a b c"`);flows[m[1]]=m[2].split(/\s+/)}
  for(const s of all("kind")){const m=s.arg.match(/^(\w+)\s*:\s*(.+)$/);if(!m)throw new Error(`line ${s.line}: kind needs "name : ext ext"`);for(const e of m[2].split(/\s+/))kinds[e]=m[1]}
  // a token row: name : what it is | how to read it over HTTP | the MCP tool that resolves it
