@@ -41,6 +41,11 @@ await test("nothing is published before Create public link; keeping it here is a
  await o.pg.click(".draft .publish");await o.pg.waitForSelector(".consent:not([hidden])");assert.match(await o.pg.textContent(".consent .peek"),/publish gate test/);assert.equal(writes,0);
  await o.pg.click(".consent #enc");assert.match(await o.pg.textContent(".consent .note"),/ciphertext/);await o.pg.fill(".consent .grant","not-a-key");await o.pg.click(".consent .publish");
  assert.match(await o.pg.textContent(".consent .note"),/not a share key/);assert.equal(writes,0);await o.pg.click(".consent .halt");await idle(o.pg);await o.pg.click(".draft .halt");assert.ok(await o.pg.$(".draft[hidden]"));assert.equal(writes,0)});
+await test("the examples can be searched, and a search with no match says so and clears",async keep=>{const o=await open("?boot=local");keep(o);await o.pg.waitForSelector(".card");
+ const shown=()=>o.pg.$$eval(".card",l=>l.filter(c=>!c.hidden).length);assert.match(await o.pg.textContent(".gallery .count"),/^12 of \d+ examples$/);
+ await o.pg.fill(".find","parquet");const n=await shown();assert.ok(n>=1);assert.match(await o.pg.textContent(".gallery .count"),new RegExp(`^${n} of `));
+ await o.pg.fill(".find","zzqx nothing");assert.equal(await shown(),0);assert.ok(await o.pg.isVisible(".gallery .none"));
+ await o.pg.click(".gallery .clear");assert.equal(await shown(),12);assert.equal(await o.pg.inputValue(".find"),"")});
 await test("a big index opens by sampling, and check all reads every section",async keep=>{const o=await open("?boot=local&s="+encodeURIComponent("https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.md"));keep(o);
  await o.pg.waitForFunction(()=>document.querySelector(".r1")?.textContent,null,{timeout:60000});assert.match(await o.pg.textContent(".out .scope"),/sections [\d, ]+ of 23 read and match/);
  await o.pg.click(".verbs button");await o.pg.waitForTimeout(400);await idle(o.pg);assert.match(await o.pg.textContent(".out .scope"),/24 of 24 files match/)});
