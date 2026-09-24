@@ -7,7 +7,7 @@ signer 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
 source wyrwncqsn7znf6gjpls7y4jv7a
 
 file emem.eio ef097f4635cd77cc46cbe2fa26a1ee022372d9e61292aa57bf61c72cfb835703 https://emem.dev/memories/by_attester/ddzmyzhn/wyrwncqsn7znf6gjpls7y4jv7a.md
-file src/emem.css 9f6c5a550eeaa97b8712d12ab8b8fc80f551407a98cbe300a77eeeabe35f1cda https://emem.dev/memories/by_attester/ddzmyzhn/ygee5uxjrbyge5bznv5idrfwpe.md
+file src/emem.css c2972b2b34bb22c024654a03bd9c268c9652bc47f1012744513f9bcc161ce737 https://emem.dev/memories/by_attester/ddzmyzhn/ie3im6oji2lweqsgwzozuyuznq.md
 file src/vendor/emem-verify-core.js 2ac594ac0798b67b5495fbf7de5613d4979b06712589501223201f02ef7d5b91 https://emem.dev/memories/by_attester/ddzmyzhn/eaeu46adggghbznladunkc4aie.md
 file src/lang.mjs 96772bbbf7d77ab516e32027f59cedf54a39d7c05baaffb9d3c4fdc0bc33c49e https://emem.dev/memories/by_attester/ddzmyzhn/sl7idemtvyzwvcwphjul54j3ua.md
 file src/line.mjs a8b3196b995d3553b9b1980197855380bf84268db367f56644f425a6943fa776 https://emem.dev/memories/by_attester/ddzmyzhn/irozsjo7hkkdeboydprvt2rq5i.md
@@ -20,7 +20,7 @@ file src/time.mjs 50312af45f1615f9b46b0fb8644fb3044888e750d5a2de2314b8c12fb41ade
 file src/reel.mjs a7792a7c6647d8168582d4e6912de097b3c68b25caf5faef49bd05c1e40c3c3a https://emem.dev/memories/by_attester/ddzmyzhn/bkc7nxejeg6yanbzuait6sofca.md
 file src/grid.mjs c27e66a15ce971c1c07e8ed5783ef13e12b4e2abee86f164a6db1dd70adc8296 https://emem.dev/memories/by_attester/ddzmyzhn/rjwal5hr6jnb6gfsv2bgiovgra.md
 file src/hand.mjs ec0eeed3bbaa6691aeafaf61d7b1608d138452ad32e98cd4f39f2016083bb02f https://emem.dev/memories/by_attester/ddzmyzhn/reukq442ez42bqrhhv7yfdm32u.md
-file src/eio.mjs eeb8a2bffb58263b748ae39d1e8d901967ae18b4c80d0951f0ff103efec03cfc https://emem.dev/memories/by_attester/ddzmyzhn/5yusukkaih2wiu3ygqxjsmluba.md
+file src/eio.mjs 5b2f604bc10adf04f1f313559ad9c22650c949106eba0894522658a25592bbb7 https://emem.dev/memories/by_attester/ddzmyzhn/hz47vxy2agm4ncdvpvzeinitdm.md
 file llms.txt dda3789dc4068f719b470d8e225912cc43c302ef48ee7e3920c78fe090515e77 https://emem.dev/memories/by_attester/ddzmyzhn/5qtdfqslafwoeqonvrwrk2ju3u.md
 file llms-full.txt 661466445bf1c5d740300f9047170b83ecdeef73433f45ea8ee59b837ac1e055 https://emem.dev/memories/by_attester/ddzmyzhn/afrcnzlsrc26iem5zm24cshvy4.md
 file .well-known/agent-card.json 0f2bd6d7f13147e4193a6410889a93d8d8a6be1f8164564a087a841b9fa5f689 https://emem.dev/memories/by_attester/ddzmyzhn/xq3c2ql6r77dcaaywro3vwiwu4.md
