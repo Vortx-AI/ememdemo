@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' blob: 'sha256-gbv8Tr86rs1xRxlpQudazJbKfBwdinjwEkbM7+Tghms=' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' blob: 'unsafe-inline'; img-src * data: blob:; media-src * blob:; font-src 'self' data:; connect-src * blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' blob: 'sha256-u3jloTlEgvdHgrbu+wXg+SmJMu+SDuUj3UfgBhjy47c=' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; worker-src 'self' blob: https://cdn.jsdelivr.net; style-src 'self' blob: 'unsafe-inline'; img-src * data: blob:; media-src * blob:; font-src 'self' data:; connect-src * blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="description" content="Turn any file into a link your AI agent can read.">
   <meta name="color-scheme" content="light dark">
@@ -32,7 +32,7 @@
     @media(prefers-reduced-motion:reduce){#boot img{animation:none}}
   </style>
   <script type="module">
-    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/ustftkdxgzuivgbxwzdnl456zy.md",sha256:"4bd2ac2e76f2e95aa28fe8baf741d67fbfd6884b89a07846c5d87cae682df836",site:"ddzmyzhn7wy55qemazk3vqawzulzrzrt457xr7qgjvqr7mvanolq"};
+    const SEAL={url:"https://emem.dev/memories/by_attester/ddzmyzhn/tdlndnrrrd27zp3aj7i3hbvety.md",sha256:"5e9995d3c70405d242a9526d8b13e728ac1a4b5a7b76f7c1acb1a392bc71d79b",site:"ddzmyzhn7wy55qemazk3vqawzulzrzrt457xr7qgjvqr7mvanolq"};
     const mode=new URLSearchParams(location.search).get("boot");
     const hex=async b=>[...new Uint8Array(await crypto.subtle.digest("SHA-256",b))].map(x=>x.toString(16).padStart(2,"0")).join("");
     const get=async u=>{const x=await fetch(u,{cache:"no-cache"});if(!x.ok)throw new Error(`${u} answered ${x.status}`);return x.arrayBuffer()};

@@ -191,3 +191,13 @@ footer .link:hover{color:var(--fg)}
 .filters{margin:0 0 var(--u)}.filters summary{cursor:pointer;font-size:14px;min-height:32px;display:flex;align-items:center}
 .gallery .none{font-size:16px;padding:var(--u) 0}
 .card .acts button{min-height:36px;font-size:13px}
+/* type and target scale (#51): reading text 16px, necessary supporting text 14px, optional code 12px; primary targets 44px */
+:root{--t-read:16px;--t-support:14px;--t-code:12px;--target:44px;--target-s:36px}
+.rtitle{font-size:clamp(20px,3vw,26px);line-height:1.25;margin:0 0 calc(1.5*var(--u));overflow-wrap:anywhere}
+.rtitle:focus{outline:none}
+.out .what,.tokrow,.draft p,.consent .what{font-size:var(--t-read);line-height:1.5}
+.note,.work-head,.steps,.meta,.scope,.verbs,.tries,.consent .note,.consent .enc,.recent .sum,.recent span,.guard,.sealed{font-size:var(--t-support)}
+.tasks button,.go,.halt,.grab,.consent button,.draft button,.draft a.go,.seal{min-height:var(--target)}
+.tries button,.verbs button,.chips button,.tabs button,.card .acts button,.copy{min-height:var(--target-s);font-size:13px}
+.card .head,.card .by,.chiprow.by button{font-size:12px}
+.r1{font-size:var(--t-code)}

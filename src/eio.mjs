@@ -354,7 +354,7 @@ const ops={
    Object.assign(r,{url:top.url,cid:top.cid},pointerVia({...r,body:top.body}));return r;
   }
   if(/^emem: compare\.v1$/m.test(top.body)){r.text=top.body;r.shape="It is a row-by-row comparison of two pointers; each row says whether a unit's bytes are identical at both sources.";r.proof+=" · the comparison names both pointers by hash";Object.assign(r,readVia({...r,first:null}));return r}
-  r.shape=n>1?`It is an index of ${n-1} sections (${tokens(r.text)} in all); each entry says what its section covers.`:`It is one file (${tokens(r.text)}).`;
+  r.shape=r.sampled?`It is an index of ${r.sampled.of} sections; ${n-1} were read and checked here (${tokens(r.text)}), the rest are one click away.`:n>1?`It is an index of ${n-1} sections (${tokens(r.text)} in all); each entry says what its section covers.`:`It is one file (${tokens(r.text)}).`;
   Object.assign(r,readVia(r));
   return r;
  }
@@ -495,7 +495,7 @@ const boot=async()=>{
  const gives=P.all("give"),tabs=h("div",{class:"tabs",role:"tablist"}),pane=h("div",{class:"pane"});
  const code=h("pre",{class:"code",tabindex:"0"}),copy=h("button",{class:"copy"},"copy");
  const ans=h("textarea",{rows:"5",placeholder:T("check"),"aria-label":"answer to check"}),verdict=h("ol",{class:"verdict"}),guarded=h("p",{class:"guard"}),seal=h("button",{class:"seal",hidden:""},"seal this check"),sealed=h("p",{class:"sealed"});
- const pics=h("div",{class:"thumbs"}),what=h("p",{class:"what"}),tokRow=h("p",{class:"tokrow"}),scope=h("ul",{class:"scope"}),more2=h("details",{class:"raw"},h("summary",{},"details: preview, AGENTS.md, chat, curl, MCP, A2A, check"),tabs,pane),out=h("section",{class:"out",hidden:""},lineRow,what,tokRow,h("div",{class:"row"},link,grab),scope,meta,verbs,pics,more2),recent=h("ol",{class:"recent"}),who=h("span");
+ const pics=h("div",{class:"thumbs"}),what=h("p",{class:"what"}),tokRow=h("p",{class:"tokrow"}),scope=h("ul",{class:"scope"}),more2=h("details",{class:"raw"},h("summary",{},"details: preview, AGENTS.md, chat, curl, MCP, A2A, check"),tabs,pane),rtitle=h("h2",{class:"rtitle",tabindex:"-1"}),out=h("section",{class:"out",hidden:""},rtitle,what,tokRow,verbs,h("div",{class:"row"},link,grab),scope,meta,lineRow,pics,more2),recent=h("ol",{class:"recent"}),who=h("span");
  const chips=h("div",{class:"chips",role:"toolbar"}),cards=h("div",{class:"cards"}),more=h("button",{class:"more",hidden:""});
  const find=h("input",{type:"search",class:"find",placeholder:"search examples: pdf, parquet, forest, mismatch…","aria-label":"search the examples"}),
   tally=h("p",{class:"count","aria-live":"polite"}),clear=h("button",{class:"clear",hidden:""},"Clear filters"),none=h("p",{class:"none",hidden:""}),
@@ -661,6 +661,8 @@ ${last.answer.trim()}
    const parts=String(r.proof||"").split(" · ").filter(Boolean),SRC=/source|listed again|sampled chunk|witness|re-hash|recomputed|still hold|log has grown|CHANGED|pixels|frames|re-read|read now/i,at=new Date().toISOString().slice(11,19)+"Z";
    const saved=parts.filter(x=>!SRC.test(x)),now=parts.filter(x=>SRC.test(x));
    scope.replaceChildren(h("li",{},h("b",{},r.token?"signed record":"stored note"),` ${saved.join(" · ")||"—"}`),...(now.length?[h("li",{},h("b",{},"checked now"),` ${now.join(" · ")}`)]:[]),...(()=>{const w=writerOf(r.url,S.sealed_by?.slice(0,8)||"ddzmyzhn");return w?[h("li",{},h("b",{},"written by"),` ${w.key} · ${w.tier} · ${w.says}`)]:[]})(),h("li",{class:"at"},`checked at ${at} by this browser`));
+   // a human heading first: what this is, before any protocol line, link or proof
+   rtitle.textContent=String(r.title||r.token||"result").replace(/^https?:\/\//,"").slice(0,140);
    meta.textContent=[secs>1?`${size}; the index is ${tokens(r.body)}`:size,r.skipped?.length?`${r.skipped.length} not included`:"",expect&&r.cid===expect?"same file names as the gallery copy":""].filter(Boolean).join("  ·  ");
    if(!r.bad){const next="?s="+encodeURIComponent(r.token||r.url)+(r.secret?`#k=${r.secret}`:"");
     // each result is a place in history: Back reopens the previous reference (a read, never a write or a rerun of a query)
