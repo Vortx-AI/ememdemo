@@ -179,3 +179,25 @@ footer .link:hover{color:var(--fg)}
 .consent .grant{width:100%;font:12px var(--mono);padding:6px 8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);margin:0 0 .8em}
 .out .tokrow{margin:.2em 0 .6em;font-size:14px}.out .tokrow b{font-weight:600}.out .tokrow .x{color:var(--ok)}
 .card .tok{font:12px var(--mono);color:var(--mute,#777);margin:.2em 0}
+.draft{border:1px solid var(--line);background:var(--field);padding:calc(2*var(--u));margin:var(--u) 0}
+.draft h2{font-size:18px;margin:0 0 .4em}
+.draft .bar,.consent .bar{display:flex;justify-content:flex-end;gap:var(--u);flex-wrap:wrap}
+.draft a.go{display:inline-flex;align-items:center;text-decoration:none}
+.inv{font-size:14px;margin:.4em 0 .8em}.inv ol{max-height:14em;overflow:auto;margin:.4em 0;padding-left:1.6em}
+.findrow{display:flex;flex-wrap:wrap;align-items:center;gap:var(--u);margin:0 0 var(--u)}
+.findrow .find{flex:1 1 260px;min-height:44px;font:16px var(--sans,inherit);padding:0 12px;border:1px solid var(--line);background:var(--field);color:var(--fg)}
+.findrow .count{margin:0;font-size:14px;opacity:.8}
+.findrow .clear,.gallery .more{min-height:44px;padding:0 14px;font-size:14px}
+.filters{margin:0 0 var(--u)}.filters summary{cursor:pointer;font-size:14px;min-height:32px;display:flex;align-items:center}
+.gallery .none{font-size:16px;padding:var(--u) 0}
+.card .acts button{min-height:36px;font-size:13px}
+/* type and target scale (#51): reading text 16px, necessary supporting text 14px, optional code 12px; primary targets 44px */
+:root{--t-read:16px;--t-support:14px;--t-code:12px;--target:44px;--target-s:36px}
+.rtitle{font-size:clamp(20px,3vw,26px);line-height:1.25;margin:0 0 calc(1.5*var(--u));overflow-wrap:anywhere}
+.rtitle:focus{outline:none}
+.out .what,.tokrow,.draft p,.consent .what{font-size:var(--t-read);line-height:1.5}
+.note,.work-head,.steps,.meta,.scope,.verbs,.tries,.consent .note,.consent .enc,.recent .sum,.recent span,.guard,.sealed{font-size:var(--t-support)}
+.tasks button,.go,.halt,.grab,.consent button,.draft button,.draft a.go,.seal{min-height:var(--target)}
+.tries button,.verbs button,.chips button,.tabs button,.card .acts button,.copy{min-height:var(--target-s);font-size:13px}
+.card .head,.card .by,.chiprow.by button{font-size:12px}
+.r1{font-size:var(--t-code)}

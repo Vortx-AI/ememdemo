@@ -17,8 +17,10 @@ t("r1 line for a pointer",()=>assert.equal(line(ptr,url),"r1 pointed cog ddzmyzh
 t("brief line drops hashes and keeps the host",()=>assert.equal(line(ptr,url,true),"r1 pointed cog ddzmyzhn/wkxa7tcmw2orf7ujjf5yi66dhe src=esawebb.org size=143.7MB hashed=97/1690"));
 t("a line is far smaller than its note",()=>assert.ok(line(ptr,url).length<ptr.length));
 t("refs and tokens",()=>{assert.equal(refOf(url),"ddzmyzhn/wkxa7tcmw2orf7ujjf5yi66dhe");assert.match(tokenLine("emem:fact:abc:def"),/^r1 resolve fact /)});
-const req=`# aaaaaaaa -> bbbbbbbb: request witness wkxa7tcm\n\n---\nemem: request.v1\nfrom: ${"a".repeat(52)}\nto: ${"b".repeat(52)}\nwant: witness\nof: ${url}\n---\n`;
+const req=`---\nemem: request.v1\nfrom: ${"a".repeat(52)}\nto: ${"b".repeat(52)}\nwant: witness\nof: ${url}\nexpires: sth 900\nline: request - wkxa7tcm -\n---\n\n# aaaaaaaa -> bbbbbbbb: request witness wkxa7tcm\n`;
 t("r1 line for a request",()=>assert.match(line(req,"https://emem.dev/memories/by_attester/aaaaaaaa/arcade/request-x-to-bbbbbbbb.md"),/^r1 requested witness aaaaaaaa\/arcade\/request-x-to-bbbbbbbb of=ddzmyzhn\/wkxa7tcmw2orf7ujjf5yi66dhe to=bbbbbbbb from=aaaaaaaa$/));
 t("no regex lookbehind in page code (older Safari can't parse it, so the whole page would fail to load)",()=>{for(const f of fs.readdirSync(ROOT+"src").filter(f=>f.endsWith(".mjs")))assert.ok(!/\(\?<[=!]/.test(fs.readFileSync(ROOT+"src/"+f,"utf8")),f)});
 t("the manifest has a copy next to the page, so the site boots when emem.dev is unreachable",()=>{const html=fs.readFileSync(ROOT+"index.html","utf8");assert.match(html,/\.\/seal\.md/);assert.ok(fs.existsSync(ROOT+"seal.md"))});
+const{expired}=await import("../src/hand.mjs").catch(()=>({}));
+if(expired)t("expiry is a log head: void once the log is longer, still read for old wall-clock requests",()=>{assert.ok(!expired("sth 900",900));assert.ok(expired("sth 900",901));assert.ok(expired("2000-01-01T00:00:00Z",0))});
 console.log(`${n} passed`);

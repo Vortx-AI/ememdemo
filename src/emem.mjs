@@ -163,7 +163,7 @@ export const readVia=r=>r.token?r.via:{
 
 // ---------- proof: emem's own verifier, vendored; the expected signer is pinned in emem.eio ----------
 let VERIFY;
-const verifier=()=>VERIFY??=Promise.resolve().then(()=>{const v=globalThis.ememVerify;if(!v?.selfTest())throw new Error("the verifier failed its self-test; nothing is reported as checked");return v});
+export const verifier=()=>VERIFY??=Promise.resolve().then(()=>{const v=globalThis.ememVerify;if(!v?.selfTest())throw new Error("the verifier failed its self-test; nothing is reported as checked");return v});
 export const receiptOk=async(receipt,signer)=>{if(!receipt)return false;const v=(await verifier()).verifyReceipt(receipt);return v.ok&&v.signer_b32===signer};
 const unhex=h=>Uint8Array.from(h.match(/../g)||[],x=>parseInt(x,16));
 const b32full=u=>b32(u);

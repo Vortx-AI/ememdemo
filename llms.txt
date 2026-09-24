@@ -13,10 +13,10 @@ spec camera.v1 an5nnuvuvu23xlchntfeul5zby
 spec track.v1 b5lmdatbymxjtttsobn2p7qshy
 spec compare.v1 lkmzfmx6h6k35ucblwm7q5crzq
 spec witness.v1 venbqbe5rsbbhjzc6j4xwrui7y
-spec request.v1 6gtkni2ajmhmaqpzkuqeprhy2e
-spec claim.v1 hvsr7rs7ofvzwuvhlxpix2qevy
-spec deliver.v1 srqfuov7xfalwbku3c3mtz6y2u
-spec verify.v1 2ws3xbqiklrnhf7ucuzmccth5y
+spec request.v1 exzo2hqv2cpcjdjfkjobhvdjf4
+spec claim.v1 plnwkss3ud5wpuz2sgf6wvvc3q
+spec deliver.v1 ribj5rbghx3ap3wbpaljfroo5q
+spec verify.v1 f3iyosskppxs37yyanuickfy34
 spec grant.v1 oepay4mucuvv37itotpf55noiu
 spec drift.v1 hc4zwfwlgeia4bvpmfmbtbjxkm
 spec sealed.v1 5c7q2lumilniezwjcferedq7ii
