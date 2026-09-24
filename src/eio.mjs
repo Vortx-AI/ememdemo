@@ -523,7 +523,10 @@ const boot=async()=>{
   if(bad){headBad=true;live.classList.add("bad")}
   // who else watches the log: emem's own count of independent operators (distinct organisations), not a count of keys
   const w=await net(`${EMEM}/v1/log/witnesses`).then(json).catch(()=>null);
-  if(w)live.title+=` · outside oversight: ${w.independent_operator_count} independent operator${w.independent_operator_count===1?"":"s"} (distinct organisations) ha${w.independent_operator_count===1?"s":"ve"} co-signed this log; the current head is ${w.head_is_independently_witnessed?"":"not yet "}independently witnessed${w.freshest_independent_operator_entries_behind?` (the freshest operator co-signature is ${w.freshest_independent_operator_entries_behind.toLocaleString("en")} entries behind)`:""}`};
+  // an operator counts only while it is still co-signing: one whose last co-signature is far behind the head watches
+  // nothing today (geo.qa asked to be counted as 0 until its current witness key is published under its domain)
+  const STALE=10000,behind=w?.freshest_independent_operator_entries_behind,ops=w?.independent_operator_count||0,cur=behind!=null&&behind<=STALE?ops:0;
+  if(w)live.title+=` · outside oversight: ${cur} independent operator${cur===1?"":"s"} currently co-signing${ops>cur?` (${ops} on record${w.independent_operator_domains?.length?`: ${w.independent_operator_domains.join(", ")}`:""}, last co-signed ${behind.toLocaleString("en")} entries ago, so not counted)`:""}; the current head is ${w.head_is_independently_witnessed?"":"not yet "}independently witnessed. Witness keys are keys, not organisations.`};
  let pinned=false,headBad=false;
  const beat=async()=>{try{const t=await logHead(spec.signer);if(!pinned){pinned=true;pinHeads(t).catch(()=>{})}live.className="live"+(headBad?" bad":"")+(lastSize&&t.tree_size>lastSize?" up":"");live.replaceChildren("log ",h("b",{},t.tree_size.toLocaleString("en")),lastSize&&t.tree_size>lastSize?` +${t.tree_size-lastSize}`:"");lastSize=t.tree_size}catch(e){console.warn("live:",e.message)}setTimeout(beat,61e3)};
  document.body.replaceChildren(

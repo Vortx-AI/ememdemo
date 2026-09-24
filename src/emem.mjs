@@ -267,10 +267,12 @@ const viewChecked=async cid=>{
  await verifier();const{blake3:b3,ed,b32decode,hex}=globalThis.ememVerifyInternals,bytes=U(n.content),full=b3(bytes);
  const same=b32full(full.slice(0,16))===cid&&(!n.authorship||hex(full)===n.authorship.body_hash_hex);
  let author=null;
- // emem accepts two signing formats (v1, and v2 which also binds the prior version); its authorship block always describes v1, so try both
+ // emem accepts two signing formats (v1, and v2 which also binds the prior version, "base")
  if(n.authorship?.sig_b32){try{const a=n.authorship,sig=b32decode(a.sig_b32),key=b32decode(a.attester_pubkey_b32);
-  const v1=new Uint8Array([...U(`emem.memory_write|${a.verb}|${a.signed_path}|`),...full]),v2=new Uint8Array([...U(`emem.memory_write.v2|${a.verb}|${a.signed_path}|`),...full,...U("|absent")]);
-  author=(ed.verify(sig,b3(v1),key)||ed.verify(sig,b3(v2),key))&&a.signed_path===n.path}catch{author=false}}
+  const v1=new Uint8Array([...U(`emem.memory_write|${a.verb}|${a.signed_path}|`),...full]),v2=new Uint8Array([...U(`emem.memory_write.v2|${a.verb}|${a.signed_path}|`),...full,...U(`|${a.base||"absent"}`)]);
+  // emem names the version it verified (preimage_version); only a response that doesn't name one gets both tried
+  const ok=a.preimage_version===2?ed.verify(sig,b3(v2),key):a.preimage_version===1?ed.verify(sig,b3(v1),key):ed.verify(sig,b3(v1),key)||ed.verify(sig,b3(v2),key);
+  author=ok&&a.signed_path===n.path}catch{author=false}}
  return{n,same,author};
 };
 // a note at any path, with who wrote it proved offline: bytes re-hashed, and the author's signature over its path checked

@@ -35,7 +35,7 @@ const unb64=t=>Uint8Array.from(atob(t),c=>c.charCodeAt(0));
 // asked by the receipt id the postcard names, then by the clip's own sha256 (the route answers to either)
 export const clipReceipt=async(id,got,pub)=>{
  let x=await net(`${P}/verify/clip/${id}`);if(x.status===404&&got&&got!==id){id=got;x=await net(`${P}/verify/clip/${id}`)}
- if(!x.ok)return{ok:false,why:`status ${x.status}`};
+ if(!x.ok){const e=await x.json().catch(()=>null);return{ok:false,why:`status ${x.status}${e?.code?` ${e.code}${e.retryable?", retryable":""}`:""}`}}
  const j=await x.json(),b=new TextEncoder().encode(canon(j.payload||{}));
  if(await sha256(b)!==j.payload_sha256||(id!==j.payload_sha256&&id!==j.payload?.clip_sha256))return{ok:false,why:"payload hash differs"};
  if(pub&&j.pubkey_b64!==pub)return{ok:false,why:"key differs from /verify/key"};
