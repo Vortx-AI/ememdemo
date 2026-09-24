@@ -232,7 +232,7 @@ const ops={
   Object.assign(r,readVia(r));return r},
  // agents together: each hop is a signed note addressed to the other key; the task's state is read back, never stored
  async request(r){const n=await askAgent(r.input,b=>stampNow(b,r)),to=r.input.match(REQUEST)[1];
-  Object.assign(r,{url:n.url,cid:n.cid,body:n.body,text:n.body,title:`request to ${to.slice(0,8)}`,proof:`request signed by ${n.path.split("/")[3]} · addressed to ${to.slice(0,8)} by its full key · expires in 7 days`+await witnessHead(r),
+  Object.assign(r,{url:n.url,cid:n.cid,body:n.body,text:n.body,title:`request to ${to.slice(0,8)}`,proof:`request signed by ${n.path.split("/")[3]} · addressed to ${to.slice(0,8)} by its full key · expires when the log passes ${(n.body.match(/^expires: sth (\d+)$/m)||[])[1]||"its stated head"} entries`+await witnessHead(r),
    shape:"It is a signed request to another agent. Follow it with tasks: <this link>; the other key answers with deliver: <this link> <result>.",size:"one request",notes:[{}]});Object.assign(r,readVia(r));return r},
  async stake(r){const u=r.input.match(CLAIM)[1],n=await claimTask(u,b=>stampNow(b,r));
   Object.assign(r,{url:n.url,cid:n.cid,body:n.body,text:n.body,title:"claim",proof:`claim signed, addressed to the requester`+await witnessHead(r),shape:"It is a signed claim: this key is on the request.",size:"one claim",notes:[{}]});Object.assign(r,readVia(r));return r},

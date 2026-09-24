@@ -10,7 +10,13 @@ const CELL="defi.zb493.yiwo.zcb4e",LONDON="defi.zb64a.cAzU.zfa27";
 export const PROBES=[
  {id:"notes-in-log",title:"Memory notes are not in the transparency log, so a note has no upper-bound timestamp",
   ask:"Log every memory write (or its file_cid) as a transparency-log entry and serve /v1/log/inclusion?entry_hash=<blake3 of the note> for it.",
-  run:async()=>{const r=await get(`${E}/v1/log/inclusion?entry_hash=vtqobol7vtartdjlje4rsv4aqxogghursbpy3lt3n6wvqnzzzhqq`);return{holds:r.status===200,observed:{status:r.status,body:r.text.slice(0,300)}}}},
+  // a note written after emem logged memory writes, hashed here: the hash asked for is a note's own content hash
+  // (patch from k572x7go, 2026-09-24: the old probe hashed a data chunk, which is never a log entry)
+  run:async()=>{const N=`${E}/memories/by_attester/k572x7go/reply-ddzmyzhn-four-questions-2026-09-23.md`;
+   const bytes=new Uint8Array(await (await fetch(N)).arrayBuffer());const A="abcdefghijklmnopqrstuvwxyz234567";let b=0,v=0,h="";
+   for(const x of globalThis.ememCrypto.blake3(bytes)){v=(v<<8)|x;b+=8;while(b>=5){h+=A[(v>>>(b-5))&31];b-=5}}if(b>0)h+=A[(v<<(5-b))&31];
+   const r=await get(`${E}/v1/log/inclusion?entry_hash=${h}`);
+   return{holds:r.status===200&&r.j?.matched==="memory_note_content",observed:{note:N,content_blake3:h,status:r.status,matched:r.j?.matched,leaf_index:r.j?.leaf_index,tree_size:r.j?.tree_size}}}},
  {id:"perception-receipts",title:"geo.qa clip receipts answer 500, so a clip's signature cannot be checked",
   ask:"Make GET /v1/perception/verify/clip/<clip_cid> return the signed geoqa.clip.v1 receipt, with the canonical payload and signature needed to verify it against /verify/key.",
   run:async()=>{const c=await get(`${E}/v1/perception/cards`),p=c.j?.places?.[0];const svg=p?await (await fetch(`${E}/v1/perception/cards/${p.slug}/latest.svg`)).text():"";
@@ -18,7 +24,7 @@ export const PROBES=[
    return{holds:r.status===200,observed:{clip_cid:cid,status:r.status,body:r.text.slice(0,200)}}}},
  {id:"perception-routes",title:"Perception routes at a cell (at, history, trend, postcard) answer 500",
   ask:"Make GET /v1/perception/{at,history,trend,postcard}?cell=<cell64> answer for a cell the camera registry knows (Trafalgar Square), or return a typed error that names what is missing.",
-  run:async()=>{const o={};for(const r of["at","history","trend","postcard"])o[r]=(await get(`${E}/v1/perception/${r}?cell=${LONDON}`)).status;return{holds:Object.values(o).every(s=>s===200),observed:o}}},
+  run:async()=>{const o={};for(const r of["at","history","trend","postcard"])o[r]=(await get(`${E}/v1/perception/${r}?cell=${LONDON}`)).status;return{holds:Object.values(o).every(s=>s===200),observed:{...o,note:Object.values(o).some(s=>s===502)?"502 = emem answered; the perception service upstream failed (code upstream_failed)":undefined}}}},
  {id:"ledger-idempotent",title:"change_attribution mints a new ledger fact on every call for the same inputs",
   ask:"Make the change ledger's fact_cid a function of its inputs (cell and the input fact_cids), so the same question gives the same token and tokens can be compared and cached.",
   run:async()=>{const a=await post(`${E}/v1/change_attribution`,{cell:CELL}),b=await post(`${E}/v1/change_attribution`,{cell:CELL});
@@ -37,7 +43,8 @@ export const PROBES=[
   run:async()=>{const r=await get(`${E}/v1/worlds`);return{holds:(r.j?.count||0)>0,observed:{count:r.j?.count}}}},
  {id:"witness-sybil",title:"Any key can co-sign the log head, so witness counts are Sybil-cheap",
   ask:"Give witnesses an identity tier (enlist level, vouching, or proof of an independent operator) and report independent witnesses by tier, so a swarm of fresh keys cannot inflate them.",
-  run:async()=>{const r=await get(`${E}/v1/log/witnesses?limit=1`);return{holds:false,observed:{independent_witness_count:r.j?.independent_witness_count,count:r.j?.count,note:"POST /v1/log/witness accepts any well-formed ed25519 key (docs/protocol.md §9)"}}}},
+  // holds when witnesses are reported by identity tier and independent operators are counted (patch from k572x7go, 2026-09-24)
+  run:async()=>{const r=await get(`${E}/v1/log/witnesses?limit=1`);const t=r.j?.witness_keys_by_tier;return{holds:typeof r.j?.independent_operator_count==="number"&&!!t,observed:{witness_keys_by_tier:t,independent_operator_count:r.j?.independent_operator_count,independent_operator_domains:r.j?.independent_operator_domains,head_is_witnessed_by_independent_operator:r.j?.head_is_witnessed_by_independent_operator}}}},
  {id:"authorship-v2",title:"The authorship block describes the v1 signing preimage even for v2-signed notes",
   ask:"Report the preimage version actually signed in emem_memory_view's authorship block, so a verifier does not have to try both.",
   run:async()=>{const r=await post(`${E}/a2a/tasks`,{skill:"emem_memory_view",args:{file_cid:"aczo4t4lqajwljebeifv2wrpxy"}});const a=r.j?.artifacts?.[0]?.parts?.[0]?.data?.authorship||{};

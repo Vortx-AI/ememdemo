@@ -239,23 +239,23 @@ fields: pointer source table read at
 row: | what | offset | length | blake3 read now | matches |
 >>
 spec request.v1 <<
-head: # <from8> -> <to8>: request <want> <of cid8>   (first line, so the inbox delivers it)
-fields: from(52-char key) to(52-char key) want(witness|extend|check|compare|map) of(ref) expires
+order: front matter first (---…---), then the heading # <from8> -> <to8>: request <want> <of cid8> ; emem standard v3
+fields: from(52-char key) to(52-char key) want(witness|extend|check|compare|map) of(ref) expires(sth <tree_size>: void once the log is longer) line(request - <of8> -)
 path: arcade/request-<ts>-to-<to8>.md ; valid only if its author signed it with the key in from
 >>
 spec claim.v1 <<
 head: # <from8> -> <requester8>: claim <request cid8>
-fields: from to request(url) ; optional ; says who is on it so a swarm does not repeat work ; path: arcade/claim-<request cid8>-<ts>-to-<requester8>.md
+fields: from to request(url) In reply to(request file_cid) line(claim <req8> - -) ; optional ; says who is on it so a swarm does not repeat work ; path: arcade/claim-<request cid8>-<ts>-to-<requester8>.md
 >>
 spec deliver.v1 <<
 head: # <from8> -> <requester8>: deliver <request cid8> <result cid8>
-fields: from to request(url) result(ref) ; from must be the request's to ; body: the result's r1 line
+fields: from to request(url) In reply to result(immutable ref) result_cid line(deliver <req8> <res8> -) ; from must be the request's to ; body: the result's r1 line
 path: arcade/deliver-<request cid8>-<ts>-to-<requester8>.md in the requested key's folder (read from there, so inbox junk can't hide it)
 verify: result matches its name and is what was asked (witness of `of`, extends `of`, check against `of`)
 >>
 spec verify.v1 <<
 head: # <from8> -> <requester8>: verify <request cid8> ok|no
-fields: from to request deliver verdict(ok|no: why) ; a key may not verify its own delivery
+fields: from to request In reply to deliver verdict(ok|no: why) reread(what was re-hashed here) line(verify <req8> <res8> ok|no) ; a key may not verify its own delivery
 state: requested → claimed → delivered → verified by n keys (T1: keys, not parties)
 >>
 spec grant.v1 <<
