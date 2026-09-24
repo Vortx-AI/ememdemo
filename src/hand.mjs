@@ -71,7 +71,8 @@ const vv=all.filter(m=>new RegExp(`: verify ${cid.slice(0,8)} `).test(m.title||"
  const seenP=new Set(),mine=[...fromTo,...all.filter(m=>new RegExp(`: (claim|deliver) ${cid.slice(0,8)} `).test(m.title||"")),...vv].filter(m=>!seenP.has(m.path)&&seenP.add(m.path));
  const rows=[];let i=0;
  for(const m of mine){tick?.(`${++i}/${mine.length}`);try{const n=await signedNote(EMEM+m.path),kind=(n.body.match(/^emem: (\w+)\.v1$/m)||[])[1];
-  if(!n.ok||n.key!==f(n.body,"from")||f(n.body,"request")!==url){rows.push({kind:kind||"?",url:n.url,from:n.key?.slice(0,8)||m.from,ok:false,why:"author or request doesn't check"});continue}
+  // "request:" may name the request by its url or by its file_cid (the immutable name; preferred)
+  if(!n.ok||n.key!==f(n.body,"from")||![url,cid].includes(f(n.body,"request"))){rows.push({kind:kind||"?",url:n.url,from:n.key?.slice(0,8)||m.from,ok:false,why:"author or request doesn't check"});continue}
   const row={kind,url:n.url,from:n.key.slice(0,8),key:n.key,at:n.at,result:f(n.body,"result")||f(n.body,"deliver"),verdict:f(n.body,"verdict")};
   if(kind==="deliver"&&n.key!==q.to)Object.assign(row,{ok:false,why:`delivered by ${row.from}, but the request named ${q.to.slice(0,8)}`});
   else if(kind==="deliver"){const d=await rederive(q,row);Object.assign(row,d)}else if(kind==="verify")Object.assign(row,{ok:/^ok/.test(row.verdict),why:row.verdict});else row.ok=true;

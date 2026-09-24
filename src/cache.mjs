@@ -56,6 +56,8 @@ export const cached=async(url,init,go)=>{
  if(e&&(p.forever||e.until>now))return respond(e,"hit");
  if(p.forever){const s=await fromStore(k,p,url);if(s){put(k,{...s,until:Infinity});return respond(s,"hit")}}
  const host=new URL(url).host,old=e||(!p.forever?await fromStore(k,p,url):null);
+ // a moving read kept by an earlier visit still answers while it is inside its interval (a reload costs nothing)
+ if(!e&&old&&now-old.at<p.ttl*1000){put(k,{...old,until:old.at+p.ttl*1000});return respond(old,"hit")}
  if(cool[host]>now&&old)return respond(old,"stale");
  if(flight.has(k)){const f=await flight.get(k).catch(()=>null);if(f)return respond(f,"coalesced");return go()}
  let mine;

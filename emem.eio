@@ -75,6 +75,10 @@ cache forever GET ^https://emem\.dev/v1/tree/[a-z2-7]{26}\?row=
 cache forever GET ^https://emem\.dev/v1/log/(inclusion|consistency)\?.*(tree_size|second)=\d+
 cache forever GET ^https://emem\.dev/v1/perception/verify/clip/[0-9a-f]{64}$
 cache forever POST ^https://emem\.dev/v1/memory_token/resolve_many$
+cache forever POST ^https://emem\.dev/v1/(memory_token|cube)/resolve$
+cache forever GET ^https://emem\.dev/v1/artifacts/[a-z2-7]+$
+cache forever GET ^https://emem\.dev/v1/facts/[a-z2-7]+$
+cache live 3600 GET ^https://emem\.dev/v1/entity/
 cache live 3600 POST ^https://emem\.dev/a2a/tasks$ skill=emem_memory_view
 cache live 20 POST ^https://emem\.dev/a2a/tasks$ skill=emem_memory_list_by_kind
 cache live 30 GET ^https://emem\.dev/v1/log/sth$
@@ -212,7 +216,8 @@ spec pointer.v1 <<
 fields: source bytes etag kind chunks=read of total root|chain hash=blake3-256 order after(sth) place bbox extends
 row: | what | url(·=source) | offset | length | blake3 | stats? |
 use: GET source Range bytes=offset..offset+length-1 ; blake3(bytes)==row hash
-root: merkle over leaf=blake3(url ‖ u64 offset ‖ u64 length ‖ hash) in row order ; chain (video): link=blake3(prev ‖ hash)
+root: leaf=blake3(utf8 url ‖ u64be offset ‖ u64be length ‖ 32 raw hash bytes), url "" when the row reads · ; node=blake3(left ‖ right) ; odd last node carried up unchanged ; rows in order ; lowercase base32 no padding ; no leaf/node domain separation ; recompute: tools/root.mjs
+chain (video): link=blake3(prev ‖ hash)
 data stays at source ; note = address + proofs
 >>
 spec directory.v1 <<
@@ -267,7 +272,7 @@ fields: from to request(url) In reply to(request file_cid) line(claim <req8> - -
 >>
 spec deliver.v1 <<
 head: # <from8> -> <requester8>: deliver <request cid8> <result cid8>
-fields: from to request(url) In reply to result(immutable ref) result_cid line(deliver <req8> <res8> -) ; from must be the request's to ; body: the result's r1 line
+fields: from to request(file_cid, or url) In reply to result(immutable ref) result_cid line(deliver <req8> <res8> -) ; from must be the request's to ; body: the result's r1 line
 path: arcade/deliver-<request cid8>-<ts>-to-<requester8>.md in the requested key's folder (read from there, so inbox junk can't hide it)
 verify: result matches its name and is what was asked (witness of `of`, extends `of`, check against `of`)
 >>
