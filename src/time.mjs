@@ -68,3 +68,18 @@ export const cosign=async(s,k)=>{
  const x=await post(`${EMEM}/v1/log/witness`,{tree_size:s.tree_size,root_b32:s.root_b32,witness_pubkey_b32:k.pub,signature_b32:sig}).catch(()=>null);
  return!!x?.ok;
 };
+
+// the upper bound: emem logs every memory write, so a note's bytes lead to a log entry. The inclusion proof is checked
+// here (RFC 9162: leaf = blake3(0x00 ‖ entry_hash), node = blake3(0x01 ‖ l ‖ r)) against the signed head fetched above,
+// so the note was written no later than that entry. With its "after: sth N" stamp it was written between N and the entry.
+export const included=async(bytes,signer)=>{
+ const h=await head(signer),{b32decode}=I(),eh=b32(blake3(bytes));
+ const x=await net(`${EMEM}/v1/log/inclusion?entry_hash=${eh}&tree_size=${h.tree_size}`);
+ if(x.status===404)return{ok:false,missing:true}; // no entry for these bytes: notes written before emem logged memory writes have none
+ const j=await json(x);
+ const leaf=blake3(cat(new Uint8Array([0]),b32decode(j.entry_hash_b32)));if(b32(leaf)!==j.leaf_hash_b32)return{ok:false,why:"leaf does not match its entry"};
+ let fn=j.leaf_index,sn=h.tree_size-1,r=leaf;
+ for(const x of j.audit_path_b32||[]){const p=b32decode(x);if(sn===0)return{ok:false,why:"audit path too long"};if(fn%2===1||fn===sn){r=node(p,r);if(fn%2===0)while(fn%2===0&&fn!==0){fn=Math.floor(fn/2);sn=Math.floor(sn/2)}}else r=node(r,p);fn=Math.floor(fn/2);sn=Math.floor(sn/2)}
+ const ok=sn===0&&b32(r)===h.root_b32;
+ return{ok,index:j.leaf_index,size:h.tree_size,at:h.signed_at,matched:j.matched,why:ok?"":"audit path does not reach the signed root"};
+};

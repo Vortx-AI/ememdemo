@@ -177,3 +177,5 @@ footer .link:hover{color:var(--fg)}
 /* motion only for people who have not asked for less */
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 .consent .grant{width:100%;font:12px var(--mono);padding:6px 8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);margin:0 0 .8em}
+.out .tokrow{margin:.2em 0 .6em;font-size:14px}.out .tokrow b{font-weight:600}.out .tokrow .x{color:var(--ok)}
+.card .tok{font:12px var(--mono);color:var(--mute,#777);margin:.2em 0}

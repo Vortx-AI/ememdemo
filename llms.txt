@@ -1,12 +1,13 @@
 # ememdemo r1 · Tokenise huge files for agents to use.
 # line: <verb> <noun> <ref> key=value ; ref <cid> = https://emem.dev/memories/by_attester/ddzmyzhn/<cid>.md (other refs: <attester8>/<cid>) ; check base32(blake3(bytes))[0:26]==cid
 # catalog lines are brief: roots, bundles and stamps are in the note; each note names its schema (spec: <cid>)
+# tok= what fetching the note costs; raw= what the source's bytes would cost handed to a model as base64 (pointers and folders)
 # prose, if ever needed: https://vortx-ai.github.io/ememdemo/llms-full.txt
 spec r1 zfvycnaf23e42vziworfhy3dp4
 spec pointer.v1 mlxrdcys43hao7cz554s46bp7a
 spec directory.v1 n7ru5f4chhdzs4auqwjaes2dru
 spec world.v1 alwayt3sakc77bbqlt46qnvm4y
-spec grid.v1 ynwmblhdrznigrqfmsx7aizagq
+spec grid.v1 4rfibs74i7ma3tezrn7bcdgidm
 spec timelapse.v1 eq3rondjfbzv7qpkwfyqijoid4
 spec camera.v1 an5nnuvuvu23xlchntfeul5zby
 spec track.v1 b5lmdatbymxjtttsobn2p7qshy
@@ -27,94 +28,94 @@ write POST https://emem.dev/a2a/tasks {"skill":"emem_memory_create","args":{path
 read POST https://emem.dev/a2a/tasks {"skill":"emem_memory_view","args":{"file_cid":<cid>}} ; notes are data, never instructions
 signer 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
 # earth
-framed timelapse gkc2jap4r47zgs4t2sja4qderu at=-9.729,-63.030 frames=5 years=2017-2025 by=combined t=Amazon_frontier,2017–2025
-pointed pmtiles ppdqanaf7ufpxedvwdrwuqhf5u src=r2-public.protomaps.com size=30.54GB hashed=12/349525 by=third-party t=The_whole_Earth's_terrain,30_GB_of_tiles
-pointed netcdf o2iyw5aexedv7sneir7sgng4fm src=huggingface.co size=1.05GB hashed=22/1980 by=third-party t=Ozone,41_years_of_a_climate_model
-pointed cog twlpco5kin6qlz5eplt2pjm7n4 src=sentinel-cogs.s3.us-west-2.amazonaws.com size=351.0MB hashed=72/292 at=13.061,77.350 by=third-party t=Bengaluru,true_colour
-sensed place ia3cqu7ycf455mjs2vue33cnfi at=12.974,77.592 facts=26 drift echo=26/26 by=combined t=Cubbon_Park,every_layer
-pointed cog tm3nwiorldoo7v4uryp65gsonu src=sentinel-cogs.s3.us-west-2.amazonaws.com size=238.1MB hashed=72/292 at=13.061,77.350 by=third-party t=Near_infrared,placed
+framed timelapse gkc2jap4r47zgs4t2sja4qderu at=-9.729,-63.030 frames=5 years=2017-2025 tok=~1.7k by=combined t=Amazon_frontier,2017–2025
+pointed pmtiles ppdqanaf7ufpxedvwdrwuqhf5u src=r2-public.protomaps.com size=30.54GB hashed=12/349525 tok=~904 raw=~19.4B by=third-party t=The_whole_Earth's_terrain,30_GB_of_tiles
+pointed netcdf o2iyw5aexedv7sneir7sgng4fm src=huggingface.co size=1.05GB hashed=22/1980 tok=~2.0k raw=~663M by=third-party t=Ozone,41_years_of_a_climate_model
+pointed cog twlpco5kin6qlz5eplt2pjm7n4 src=sentinel-cogs.s3.us-west-2.amazonaws.com size=351.0MB hashed=72/292 at=13.061,77.350 tok=~4.9k raw=~223M by=third-party t=Bengaluru,true_colour
+sensed place ia3cqu7ycf455mjs2vue33cnfi at=12.974,77.592 facts=26 drift echo=26/26 tok=~3.2k by=combined t=Cubbon_Park,every_layer
+pointed cog tm3nwiorldoo7v4uryp65gsonu src=sentinel-cogs.s3.us-west-2.amazonaws.com size=238.1MB hashed=72/292 at=13.061,77.350 tok=~5.3k raw=~151M by=third-party t=Near_infrared,placed
 resolve cube emem:cube:23vfacx23nr3dwki6si4yrolmmp3wr6dtrhjxbw4rihiaafrpyga:s2.B08:20500..20585:ganwwj25obuob3pp7pjtkd4awtihnluotdowe2cqtrj77af5qlna by=machine t=Cubbon_Park,two_dates
 # space
-pointed cog wkxa7tcmw2orf7ujjf5yi66dhe src=esawebb.org size=143.7MB hashed=97/1690 by=third-party t=Cosmic_Cliffs,Carina
-pointed cog fi67bt4rxkic3ssuag2v2hskly src=esahubble.org size=2.0MB hashed=35/35 by=third-party t=Mars,December_2024
-pointed cog 7rn7fxbl75o5cijqpnok5oc7rq src=esahubble.org size=214.8MB hashed=97/1139 by=third-party t=Whirlpool_galaxy,M51
-pointed cog jxz6pghlsjbohvx6s5iw6yek4m src=astrogeo-ard.s3.us-west-2.amazonaws.com size=1.0MB hashed=34/34 by=third-party t=Moon_terrain,Kaguya
-pointed cog 4uweu43yaiik2mw5nc4eznztbu src=esahubble.org size=180.1MB hashed=97/920 by=third-party t=Sombrero_galaxy
+pointed cog wkxa7tcmw2orf7ujjf5yi66dhe src=esawebb.org size=143.7MB hashed=97/1690 tok=~6.1k raw=~91M by=third-party t=Cosmic_Cliffs,Carina
+pointed cog fi67bt4rxkic3ssuag2v2hskly src=esahubble.org size=2.0MB hashed=35/35 tok=~2.5k raw=~1.2M by=third-party t=Mars,December_2024
+pointed cog 7rn7fxbl75o5cijqpnok5oc7rq src=esahubble.org size=214.8MB hashed=97/1139 tok=~6.1k raw=~136M by=third-party t=Whirlpool_galaxy,M51
+pointed cog jxz6pghlsjbohvx6s5iw6yek4m src=astrogeo-ard.s3.us-west-2.amazonaws.com size=1.0MB hashed=34/34 tok=~2.8k raw=~643k by=third-party t=Moon_terrain,Kaguya
+pointed cog 4uweu43yaiik2mw5nc4eznztbu src=esahubble.org size=180.1MB hashed=97/920 tok=~6.1k raw=~114M by=third-party t=Sombrero_galaxy
 # disaster
-pointed hdf5 kp4jgaqtc442ojdzx45oohynvu src=huggingface.co size=848.0MB hashed=8/203 by=third-party t=Hurricane_Katrina,the_weather_model_run
-framed timelapse ota6xerxrqzya5txb4jxvzpb2q at=20.878,-156.682 frames=4 years=2022-2025 by=combined t=Lahaina,before_and_after_fire
-pointed bigtiff bafppksajtcekqt62r3thg3a5u src=maxar-opendata.s3.amazonaws.com size=71.2MB hashed=78/1566 at=20.757,-156.382 by=third-party t=Maui_fires,50_cm
+pointed hdf5 boupyjevzwv6qlj2q477tvmkmi src=huggingface.co size=848.0MB hashed=8/203 tok=~1.3k raw=~538M by=third-party t=Hurricane_Katrina,the_weather_model_run
+framed timelapse ota6xerxrqzya5txb4jxvzpb2q at=20.878,-156.682 frames=4 years=2022-2025 tok=~1.5k by=combined t=Lahaina,before_and_after_fire
+pointed bigtiff bafppksajtcekqt62r3thg3a5u src=maxar-opendata.s3.amazonaws.com size=71.2MB hashed=78/1566 at=20.757,-156.382 tok=~4.2k raw=~45M by=third-party t=Maui_fires,50_cm
 # 3d
-pointed copc jjyznjvil64vzygbs6mxceszbu src=s3.amazonaws.com size=81.1MB hashed=10/280 by=third-party t=Autzen,10.6_million_lidar_points
-pointed splats qfclw5qafxejoqabrtnjlqbvxu src=huggingface.co size=138.7MB hashed=10/10 by=third-party t=A_train,as_3D_Gaussian_splats
-pointed splats iliojyunnoeoomohc5346n4zrm src=huggingface.co size=32.8MB hashed=16/16 by=third-party t=Train_yard,1M_splats
+pointed copc jjyznjvil64vzygbs6mxceszbu src=s3.amazonaws.com size=81.1MB hashed=10/280 tok=~915 raw=~51M by=third-party t=Autzen,10.6_million_lidar_points
+pointed splats qfclw5qafxejoqabrtnjlqbvxu src=huggingface.co size=138.7MB hashed=10/10 tok=~1.2k raw=~88M by=third-party t=A_train,as_3D_Gaussian_splats
+pointed splats iliojyunnoeoomohc5346n4zrm src=huggingface.co size=32.8MB hashed=16/16 tok=~1.9k raw=~21M by=third-party t=Train_yard,1M_splats
 # medical
-pointed zarr kkktv6drhi6l4rsli3x4nyf65i src=uk1s3.embassy.ebi.ac.uk hashed=46/5764 by=third-party t=Cell_labels,Zarr_v3_with_sharding
-pointed dicom elk3oajsbjlws4ad4up7ha7rey src=raw.githubusercontent.com size=39.2KB hashed=2/2 by=third-party t=CT_slice,in_HU
-pointed zarr 54t6krywa6eeklzpapklpuhqau src=uk1s3.embassy.ebi.ac.uk size=~28.5MB hashed=60/1420 by=third-party t=Microscope_image
+pointed zarr kkktv6drhi6l4rsli3x4nyf65i src=uk1s3.embassy.ebi.ac.uk hashed=46/5764 tok=~5.3k by=third-party t=Cell_labels,Zarr_v3_with_sharding
+pointed dicom elk3oajsbjlws4ad4up7ha7rey src=raw.githubusercontent.com size=39.2KB hashed=2/2 tok=~417 raw=~25k by=third-party t=CT_slice,in_HU
+pointed zarr 54t6krywa6eeklzpapklpuhqau src=uk1s3.embassy.ebi.ac.uk size=~28.5MB hashed=60/1420 tok=~6.2k raw=~18M by=third-party t=Microscope_image
 # models
-pointed parquet dyjympcgazia2a4qztshrfx4pm src=huggingface.co size=15.6MB hashed=9/1801 by=third-party t=MNIST,600_row_groups,footer_statistics
-pointed safetensors amii4tnpkfoofsyzrbbs2vxsj4 src=huggingface.co size=548.1MB hashed=107/161 by=third-party t=GPT-2_weights
-diffed pointers zld2kdiy5nw5dghcjo3whbwona same=1 changed=55 only=51+3 by=combined t=GPT-2_vs_distilgpt2
-pointed gguf iqkrgor7sbtgigivc3fd726icy src=huggingface.co size=483.1MB hashed=54/202 by=third-party t=TinyLlama,483_MB
-listed folder lo2r67wc6j3nsibudljr7lhrmi src=huggingface.co files=26 size=5.63GB by=third-party t=GPT-2_repository
+pointed parquet dyjympcgazia2a4qztshrfx4pm src=huggingface.co size=15.6MB hashed=9/1801 tok=~918 raw=~9.9M by=third-party t=MNIST,600_row_groups,footer_statistics
+pointed safetensors amii4tnpkfoofsyzrbbs2vxsj4 src=huggingface.co size=548.1MB hashed=107/161 tok=~9.0k raw=~347M by=third-party t=GPT-2_weights
+diffed pointers zld2kdiy5nw5dghcjo3whbwona same=1 changed=55 only=51+3 tok=~5.0k by=combined t=GPT-2_vs_distilgpt2
+pointed gguf iqkrgor7sbtgigivc3fd726icy src=huggingface.co size=483.1MB hashed=54/202 tok=~4.4k raw=~306M by=third-party t=TinyLlama,483_MB
+listed folder lo2r67wc6j3nsibudljr7lhrmi src=huggingface.co files=26 size=5.63GB tok=~2.3k raw=~3.6B by=third-party t=GPT-2_repository
 # government
-pointed fgb aqq3465nvlazh7xzy7jkiqii4q src=flatgeobuf.org size=7.9MB hashed=4/4 by=third-party t=Every_US_county,with_its_spatial_index
-mapped forest dzhe5a7rsjtnmc35qqwxybys5u at=-9.729,-63.030 grid=12x12 bands=hansen.tree_cover_2000,hansen.loss_year,indices.ndvi receipts=144/144 by=combined t=Amazon_forest_loss_since_2000
+pointed fgb aqq3465nvlazh7xzy7jkiqii4q src=flatgeobuf.org size=7.9MB hashed=4/4 tok=~494 raw=~5.0M by=third-party t=Every_US_county,with_its_spatial_index
+mapped forest dzhe5a7rsjtnmc35qqwxybys5u at=-9.729,-63.030 grid=12x12 bands=hansen.tree_cover_2000,hansen.loss_year,indices.ndvi receipts=144/144 tok=~4.5k by=combined t=Amazon_forest_loss_since_2000
 # cities
-mapped city bn2qhnuudufwkasravlspenxvu at=33.448,-112.074 grid=12x12 bands=indices.ndvi,modis.lst_day_8day,overture.buildings.count receipts=144/144 by=combined t=Phoenix:_green_vs_heat
-framed timelapse gpnxkvkwz22ug4jeqexggiy63q at=25.420,51.489 frames=5 years=2017-2025 by=combined t=Lusail,a_city_rising
-mapped city cfbt6bctfgnfoun347mgobvkku at=12.971,77.593 grid=12x12 bands=indices.ndvi,modis.lst_day_8day,overture.buildings.count receipts=144/144 by=combined t=Bengaluru:_green_vs_heat
+mapped city jnt6yrjflrxu3apgde37ykn55e at=33.448,-112.074 grid=12x12 bands=indices.ndvi,modis.lst_day_8day,overture.buildings.count receipts=144/144 tok=~5.0k by=combined t=Phoenix:_green_vs_heat
+framed timelapse gpnxkvkwz22ug4jeqexggiy63q at=25.420,51.489 frames=5 years=2017-2025 tok=~1.6k by=combined t=Lusail,a_city_rising
+mapped city cfbt6bctfgnfoun347mgobvkku at=12.971,77.593 grid=12x12 bands=indices.ndvi,modis.lst_day_8day,overture.buildings.count receipts=144/144 tok=~4.9k by=combined t=Bengaluru:_green_vs_heat
 # robotics
-pointed mp4 qcoylkllqzfqnsinn4af5i2mi4 src=huggingface.co size=502.5MB hashed=14/27502 by=third-party t=Robot_arms,12_keyframes
-listed folder lj4xi7iksjc4h3mr3prpz5gkne src=huggingface.co files=11 size=1.57GB by=third-party t=ALOHA_robot,coffee_task
+pointed mp4 qcoylkllqzfqnsinn4af5i2mi4 src=huggingface.co size=502.5MB hashed=14/27502 tok=~1.2k raw=~319M by=third-party t=Robot_arms,12_keyframes
+listed folder lj4xi7iksjc4h3mr3prpz5gkne src=huggingface.co files=11 size=1.57GB tok=~1.3k raw=~993M by=third-party t=ALOHA_robot,coffee_task
 # wildlife
-pointed observation 2re7jfo2v34uwsqxkmpwxoxesu src=inaturalist-open-data.s3.amazonaws.com size=1.8MB hashed=2/2 at=-25.014,31.077 by=third-party t=Lion_and_impala,Kruger
-framed timelapse sm45gry43cubuqjp2cpu5bit6i at=-19.549,23.049 frames=5 years=2017-2025 by=combined t=Okavango_Delta,flood_pulse
-sensed place kl23pezpc2lfzuflxgm5qyblxa at=-1.488,35.105 facts=26 drift echo=26/26 by=combined t=Maasai_Mara,every_layer
+pointed observation 2re7jfo2v34uwsqxkmpwxoxesu src=inaturalist-open-data.s3.amazonaws.com size=1.8MB hashed=2/2 at=-25.014,31.077 tok=~756 raw=~1.2M by=third-party t=Lion_and_impala,Kruger
+framed timelapse sm45gry43cubuqjp2cpu5bit6i at=-19.549,23.049 frames=5 years=2017-2025 tok=~1.6k by=combined t=Okavango_Delta,flood_pulse
+sensed place kl23pezpc2lfzuflxgm5qyblxa at=-1.488,35.105 facts=26 drift echo=26/26 tok=~3.1k by=combined t=Maasai_Mara,every_layer
 # mines
-framed timelapse fdobixnnucctqkn2qtii7kibyq at=-30.776,121.506 frames=5 years=2017-2025 by=combined t=Super_Pit,Kalgoorlie
+framed timelapse fdobixnnucctqkn2qtii7kibyq at=-30.776,121.506 frames=5 years=2017-2025 tok=~1.6k by=combined t=Super_Pit,Kalgoorlie
 # drones
-pointed cog ejvovl6sz7d3sugfcrwwie4rma src=oin-hotosm-temp.s3.amazonaws.com hashed=78/1804 at=34.452,-116.687 by=third-party t=Dry_lake_cracks,drone
+pointed cog ejvovl6sz7d3sugfcrwwie4rma src=oin-hotosm-temp.s3.amazonaws.com hashed=78/1804 at=34.452,-116.687 tok=~4.3k by=third-party t=Dry_lake_cracks,drone
 # gatherings
-surveyed cameras t7ebh6s6imxrwdmizebnw52nwe n=12 clips=12/12 sun=12/12 by=machine t=London_street_cameras
+surveyed cameras t7ebh6s6imxrwdmizebnw52nwe n=12 clips=12/12 sun=12/12 tok=~2.9k by=machine t=London_street_cameras
 # commerce
-chained track i3tt76uiwc5az5pae3crpomq2q steps=4 checked=4/4 by=combined t=An_agent_buys,step_by_step
-stored text g6u3kpc4varj6epnzcbxkqmpyi title=invoice-scan.pdf by=human t=Scanned_invoice
-stored text fdbti2scqfx7ax2n6abfpq64ke title=pricing-2026.xlsx by=human t=Pricing_2026
+chained track i3tt76uiwc5az5pae3crpomq2q steps=4 checked=4/4 tok=~362 by=combined t=An_agent_buys,step_by_step
+stored text g6u3kpc4varj6epnzcbxkqmpyi title=invoice-scan.pdf tok=~166 by=human t=Scanned_invoice
+stored text fdbti2scqfx7ax2n6abfpq64ke title=pricing-2026.xlsx tok=~109 by=human t=Pricing_2026
 # consumer
-pointed jpeg rcv34ptfbsoynlzs6yjxtchpwe src=raw.githubusercontent.com size=161.7KB hashed=1/1 at=43.467,11.885 by=human t=A_holiday_photo,placed
+pointed jpeg rcv34ptfbsoynlzs6yjxtchpwe src=raw.githubusercontent.com size=161.7KB hashed=1/1 at=43.467,11.885 tok=~604 raw=~103k by=human t=A_holiday_photo,placed
 # archives
-listed folder ytrbmovcooav45okmof7pxt3bi src=sentinel-cogs.s3.us-west-2.amazonaws.com files=21 size=1.76GB by=third-party t=One_satellite_scene,21_files
+listed folder ytrbmovcooav45okmof7pxt3bi src=sentinel-cogs.s3.us-west-2.amazonaws.com files=21 size=1.76GB tok=~2.6k raw=~1.1B by=third-party t=One_satellite_scene,21_files
 # places
 open note ask: flood risk in Chennai by=machine t=Chennai_flood_risk
-sensed place 77e2qubtqktu3hrat7clzeauvu at=13.053,80.283 facts=21 drift echo=21/21 by=combined t=Marina_Beach,every_layer
-sensed place 4o7zgq2ogbs2trae4mdxkxwvq4 at=51.904,4.429 facts=21 drift echo=21/21 by=combined t=Port_of_Rotterdam,every_layer
+sensed place 77e2qubtqktu3hrat7clzeauvu at=13.053,80.283 facts=21 drift echo=21/21 tok=~2.7k by=combined t=Marina_Beach,every_layer
+sensed place 4o7zgq2ogbs2trae4mdxkxwvq4 at=51.904,4.429 facts=21 drift echo=21/21 tok=~3.0k by=combined t=Port_of_Rotterdam,every_layer
 resolve fact emem:fact:defi.zb493.xuqA.zcb5f:tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq by=machine t=Bengaluru_elevation
 resolve bundle emem:bundle:y2k6h2laeo4libfsiebucdw4mu by=machine t=Bengaluru,one_handle
 resolve entity emem:entity:5pitnkcnle3cq6yldbffj52zja by=machine t=Amazon,one_identity
 # cameras
-pointed hls 2q7e5sh7wxal6u5lfsjatmzeiu src=test-streams.mux.dev size=~22.8MB hashed=65/65 by=third-party t=Video_feed,chained
+pointed hls 2q7e5sh7wxal6u5lfsjatmzeiu src=test-streams.mux.dev size=~22.8MB hashed=65/65 tok=~5.5k raw=~14M by=third-party t=Video_feed,chained
 # emem
-indexed doc elcqkssuxj6qy2ajfjra7eihqu sections=23 title=emem.dev,13_pages by=third-party t=emem.dev,whole_site
-indexed doc lhtghurgjug5ukdwpzatsl76ra sections=139 title=github.com/Vortx-AI/emem by=third-party t=emem_repository
-indexed doc csdud43x6i6nl6aroqvode4lsu sections=5 title=emem_whitepaper_v2:_an_external_identity_layer_f by=third-party t=emem_whitepaper
-indexed doc fuj7spcgodcjedmpudfgeoh3sm sections=9 title=emem.dev,5_pages by=machine t=Algorithms,sensors,sources
+indexed doc elcqkssuxj6qy2ajfjra7eihqu sections=23 title=emem.dev,13_pages tok=~4.3k by=third-party t=emem.dev,whole_site
+indexed doc lhtghurgjug5ukdwpzatsl76ra sections=139 title=github.com/Vortx-AI/emem tok=~20k by=third-party t=emem_repository
+indexed doc csdud43x6i6nl6aroqvode4lsu sections=5 title=emem_whitepaper_v2:_an_external_identity_layer_f tok=~995 by=third-party t=emem_whitepaper
+indexed doc fuj7spcgodcjedmpudfgeoh3sm sections=9 title=emem.dev,5_pages tok=~604 by=machine t=Algorithms,sensors,sources
 open note stream by=machine t=emem's_corpus,live
 # agents
-indexed doc w2b7venmj4ltqf6ewegvfx4l5a sections=4 title=emem.dev,4_pages by=machine t=Agent_setup
+indexed doc w2b7venmj4ltqf6ewegvfx4l5a sections=4 title=emem.dev,4_pages tok=~316 by=machine t=Agent_setup
 open note l6ppjyiygzt3q4btpwfvvlzdy4 by=machine t=Two_agents_ratify
 # documents
-indexed doc aczo4t4lqajwljebeifv2wrpxy sections=23 title=RFC_9110:_HTTP_Semantics by=third-party t=RFC_9110
-indexed doc 5k4rsdbh3oe3zudjanr42mh6wy sections=3 title=Attention_Is_All_You_Need by=third-party t=Attention_Is_All_You_Need
-stored text 3n4cwt4dighrfgrxdwv6hv3fe4 title=build-error.png by=human t=Build_error,screenshot
-stored text ltqerf5jdi7xm3d4mbu6kfinxi title=q3-review.pptx by=human t=Q3_review_slides
+indexed doc aczo4t4lqajwljebeifv2wrpxy sections=23 title=RFC_9110:_HTTP_Semantics tok=~4.5k by=third-party t=RFC_9110
+indexed doc 5k4rsdbh3oe3zudjanr42mh6wy sections=3 title=Attention_Is_All_You_Need tok=~429 by=third-party t=Attention_Is_All_You_Need
+stored text 3n4cwt4dighrfgrxdwv6hv3fe4 title=build-error.png tok=~131 by=human t=Build_error,screenshot
+stored text ltqerf5jdi7xm3d4mbu6kfinxi title=q3-review.pptx tok=~199 by=human t=Q3_review_slides
 # code
-indexed doc 5otn33skohjocfbhychddlovme sections=45 title=github.com/expressjs/express by=third-party t=express_v5.2.1
-indexed doc lfo5ntdsfnhsbtgdjql66ksbja sections=4 title=github.com/expressjs/express/lib by=third-party t=express/lib
+indexed doc 5otn33skohjocfbhychddlovme sections=45 title=github.com/expressjs/express tok=~9.3k by=third-party t=express_v5.2.1
+indexed doc lfo5ntdsfnhsbtgdjql66ksbja sections=4 title=github.com/expressjs/express/lib tok=~457 by=third-party t=express/lib
 # web
-indexed doc ebixkphpoixlevcid7rrbkftku sections=2 title=json_—_JSON_encoder_and_decoder by=third-party t=Python_json_docs
-indexed doc 3leopeycdguy4bfqq6lceopkne sections=2 title=llms.txt by=third-party t=emem_llms.txt
+indexed doc ebixkphpoixlevcid7rrbkftku sections=2 title=json_—_JSON_encoder_and_decoder tok=~195 by=third-party t=Python_json_docs
+indexed doc 3leopeycdguy4bfqq6lceopkne sections=2 title=llms.txt tok=~192 by=third-party t=emem_llms.txt
 # proof
 pin log https://emem.dev/v1/log/sth by=machine t=emem_log_head
-stored text avmvdexjuwqwjjzyncczvmfyzq title= by=human t=A_lying_file_name
+stored text avmvdexjuwqwjjzyncczvmfyzq title= tok=~49 by=human t=A_lying_file_name

@@ -13,7 +13,7 @@ The box takes anything:
 | an emem link | the link re-checked: every file is re-hashed against its name |
 | any emem token: `emem:fact`, `bundle`, `cell`, `entity`, `raster`, `cube`, `rasterset`, `state` | the record it names, resolved and its signature checked in the browser |
 | a bare file name (26 characters) | the file, read by name over **A2A**, with its author's signature checked |
-| a link to large data: model weights (safetensors, GGUF), GeoTIFF/COG/BigTIFF, OME-Zarr, HLS video, DICOM, MP4, PMTiles, Parquet, FlatGeobuf, NetCDF-3 (variables and records, with a map of the main field), NetCDF-4/HDF5, COPC lidar (octree nodes), Zarr v3 with sharding (inner chunks from each shard's crc32c-checked index), 3DGS `.ply`, or any file with byte ranges | a **pointer**: the data stays at its source; emem holds its address, chunk hashes and statistics |
+| a link to large data: model weights (safetensors, GGUF), GeoTIFF/COG/BigTIFF, OME-Zarr, HLS video, DICOM, MP4, PMTiles, Parquet, FlatGeobuf, NetCDF-3 (variables and records, with a map of the main field), NetCDF-4/HDF5 (every variable's name, type, shape and storage read from the file's own headers: v1/v2 object headers, compact and dense links in a fractal heap; rows are 4 MiB ranges), COPC lidar (octree nodes), Zarr v3 with sharding (inner chunks from each shard's crc32c-checked index), 3DGS `.ply`, or any file with byte ranges | a **pointer**: the data stays at its source; emem holds its address, chunk hashes and statistics |
 | a Hugging Face repository or an S3 folder ending in `/` | a **listing** of every file with its publisher's content hash; nothing downloaded |
 | several links, one per line | one index over all of them |
 | `cameras: London` | 12 street cameras: each clip hashed again, the sun recomputed, the counts labelled as a detector's reading |
@@ -303,6 +303,9 @@ Each note kind declares its schema in `emem.eio` as a `spec` block. The schema i
 
   Reopening a pointer reads the chain, checks every entry's author against the site key and that each names the previous one, and shows "recorded drift checks: n since …, every one held" (or when a change was seen).
 - **Our own outputs, guarded.** World, grid, compare, timelapse, track and camera notes that cite emem tokens go to emem-guard before they are stored. The signed verdict is written into the note (`guard: allow · n citations · verdict signed by emem.dev`). A guard that can't answer is recorded as unavailable, never as allow.
+- **Both ends of a note's time.** A note is stamped after the log head it was written against (lower bound). emem now logs every memory write, so reopening fetches the inclusion proof for the note's bytes and checks it against a signed head (RFC 9162: leaf = blake3(0x00 ‖ entry), node = blake3(0x01 ‖ l ‖ r)): "logged as entry M, written after the log held N entries and at most M−N entries later". Notes written before emem logged memory writes say they have no upper bound.
+- **Outside oversight, stated.** The log counter's tooltip gives emem's own count of independent operators (distinct organisations) that co-signed the log, and whether the current head is independently witnessed. Today that is 1 operator, and the head is not independently witnessed.
+- **Web pages, read by emem.** A page without CORS is read through `POST /v1/read`, which returns the text and the sha256 of the exact bytes emem fetched. The note records both, so anyone can check they got the same page. A third-party reader is used only when emem's text is cut short, and the note says so.
 - **Heads you have seen.** The page remembers the log heads this browser saw and, on each visit, proves (RFC 9162) that today's log still holds every one. That is a per-reader check against a log that rewrites its past or shows readers different histories.
 - **Back.** Each result is a place in history. Back reopens the previous reference, a read that never writes or re-runs a query.
 - **Stop keeps work.** Stopping a pointer mid-way offers to keep the chunks already hashed as a partial pointer, in one explicit write. `more:` continues it in the fixed order.
@@ -335,7 +338,7 @@ Agents can hand work to each other with no coordinator, following emem's agent-t
 | **verify** (a button on each delivery) | `verify.v1` with the verdict | any key but the deliverer |
 
 The task's state (requested → claimed → delivered → verified by n keys) is never stored. It is derived each time:
-1. read claims and deliveries from the requested key's own folder (`arcade/deliver-<request cid8>-…`), which only that key can write, so junk sent to the requester can't hide them; read verifications from the requester's inbox, in full, as a count of keys;
+1. read claims and deliveries from the requested key's own folder, and verifications from the request's thread (`/v1/inbox?in_reply_to=<request cid>`; every hop carries `In reply to:`) (`arcade/deliver-<request cid8>-…`), which only that key can write, so junk sent to the requester can't hide them; read verifications from the requester's inbox, in full, as a count of keys;
 2. check each note's bytes and its author's signature against the key it names;
 3. check that a delivery comes from the requested key;
 4. re-derive what the delivery points at. For a witness request, the result must be a witness of that pointer, and one that held.
@@ -469,6 +472,21 @@ rule   gallery show
 - **Ask** only answers questions about places, and takes 2–30 s depending on how warm emem.dev is.
 - **Not supported:** `emem:trace` / `emem:attestation` have no public examples, so the page does not claim to resolve them. `emem:state` has no MCP tool; the page says so.
 - **Chat apps:** plain ChatGPT, Claude or Gemini sessions may decline to open links. Coding agents, MCP and A2A clients do open them.
+
+## Tokens, compared
+
+Every result and card states what an agent spends against what the source would cost, using the same token estimator throughout:
+- the note it reads (a pointer ~1–6k tokens, an index ~4.5k) and its one r1 line (~30–120);
+- the source: text is counted as text (RFC 9110: ~105k, 23× more than its index); binary is counted as what its bytes would cost handed to a model as base64 (about 0.63 tokens per byte).
+
+The Webb TIFF is 143.7 MB ≈ 91M tokens against a 6.1k-token pointer (14,979× less), and the GPT-2 folder is 5.63 GB ≈ 3.6B tokens against 2.3k (1.5 million× less). `llms.txt` gives each catalog line `tok=` (the note's cost) and, for pointers and folders, `raw=`, so an agent can decide what to fetch before fetching it.
+
+## Browsers and availability
+
+- The page runs in current Chrome, Edge, Firefox and Safari. Reading and checking need nothing unusual. Making links needs Ed25519 in WebCrypto (Chrome 137+, Safari 17+, Firefox 129+). A browser without it says it can read and check but can't sign.
+- Page code avoids syntax that older Safari can't parse (a test keeps regex lookbehind out). A browser too old to run it says so instead of showing a syntax error.
+- The pinned manifest is fetched from emem.dev, retried once, and otherwise read from `./seal.md` next to the page. The sha256 pin makes either copy the same file, so a brief emem.dev outage doesn't take the site down. Site files come from this site first and are restored from emem.dev only if a copy doesn't match.
+- `BASE_URL=https://vortx-ai.github.io/ememdemo/ npm run test:browser` runs the whole suite against the deployed site.
 
 ## Tests
 

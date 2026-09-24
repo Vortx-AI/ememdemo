@@ -18,6 +18,8 @@ const READER="https://r.jina.ai/";
 import {net} from "./emem.mjs";
 
 // ---------- plumbing ----------
+// the same parts as splitting on a zero-width lookbehind for d, without one (older Safari cannot parse lookbehind)
+export const splitAfter=(t,d)=>{const out=[];let s=0;for(let i=d.length;i<t.length;i++)if(t.startsWith(d,i-d.length)){out.push(t.slice(s,i));s=i}out.push(t.slice(s));return out};
 // a sealed page loads third-party readers only after checking their bytes against the seal; unsealed, it loads them as they are
 const pin=u=>globalThis.__seal?.lib?.(u)??u;
 const loaded={};
@@ -246,10 +248,15 @@ const webDoc=async(url,kinds,tick)=>{
    return{...d,what:`${d.what} from ${u.host}`};
   }
  }
+ // a page without CORS: emem.dev reads it (signed receipt, and the sha256 of the exact bytes it fetched), so anyone who
+ // fetches the same url can check they got the same page. A third-party reader is used only if emem's text is cut short.
+ const er=await net("https://emem.dev/v1/read",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({url})}).then(r=>r.ok?r.json():null).catch(()=>null);
+ const prov=er?` · bytes sha256 ${er.body_sha256_hex.slice(0,16)}… (${er.bytes} bytes${er.etag?`, etag ${er.etag}`:""}) read by emem.dev/v1/read at ${er.fetched_at}`:"";
+ if(er?.text&&!er.text_truncated)return{name:url,title:one(er.title||"")||url,md:tidy(er.text),kind:"prose",what:`web page ${url.replace(/^https?:\/\//,"")}${prov}`};
  const x=await net(READER+url);if(!x.ok)throw new Error(`Could not read ${url} (${x.status}).`);
  const t=await x.text(),at=t.indexOf("Markdown Content:");
  const title=one((t.match(/^Title:\s*(.+)$/m)||[])[1]);
- return{name:url,title,md:tidy(at>=0?t.slice(at+17):t),kind:"prose",what:`web page ${url.replace(/^https?:\/\//,"")}`};
+ return{name:url,title,md:tidy(at>=0?t.slice(at+17):t),kind:"prose",what:`web page ${url.replace(/^https?:\/\//,"")}${prov}; text via r.jina.ai${er?" (emem's reading was cut short)":""}`};
 };
 
 // ---------- GitHub repos, listed and served by jsDelivr (no rate limit), pinned to a commit when GitHub answers ----------
@@ -320,7 +327,7 @@ export const blocksOf=(doc,multi)=>{
 
 // ---------- sections: blocks packed in order, breaking at top-level headings and file boundaries ----------
 const chop=(b,max)=>{
- const parts=b.text.split(b.code?/(?<=\n)/:/(?<=\n\n)/),out=[];let buf="";
+ const parts=splitAfter(b.text,b.code?"\n":"\n\n"),out=[];let buf="";
  for(let p of parts){
   while(p.length>max){if(buf){out.push(buf);buf=""}out.push(p.slice(0,max));p=p.slice(max)}
   if(buf&&buf.length+p.length>max){out.push(buf);buf=""}

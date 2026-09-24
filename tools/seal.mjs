@@ -11,6 +11,7 @@ import {createHash} from "crypto";
 import "../src/vendor/emem-verify-core.js";
 import {compile} from "../src/lang.mjs";
 import {line,tokenLine} from "../src/line.mjs";
+import {count,tok,RAW} from "../src/emem.mjs";
 
 const EMEM="https://emem.dev",ROOT=new URL("..",import.meta.url).pathname;
 const blake3=globalThis.ememCrypto.blake3,U=s=>new TextEncoder().encode(s);
@@ -95,12 +96,13 @@ const specs=[];for(const sp of P.all("spec")){const s=await store(sp.body+"\n");
 
 // ---------- llms.txt: the whole site for an agent, one line per thing, verbs first ----------
 const me=pub.slice(0,8),groups={};
-for(const s of shows){try{let l="";if(/^https:\/\/emem\.dev\/memories\//.test(s.emem)){const t=await (await fetch(s.emem)).text();l=line(t,s.emem,true).replace(` ${me}/`," ")}else if(s.emem!=="self")l=tokenLine(s.emem);
+for(const s of shows){try{let l="";if(/^https:\/\/emem\.dev\/memories\//.test(s.emem)){const t=await (await fetch(s.emem)).text();l=line(t,s.emem,true).replace(` ${me}/`," ")+` tok=${tok(count(t))}`+((b=>b?` raw=${tok(b*RAW)}`:"")(/^emem: (pointer|directory)\.v1$/m.test(t)&&+(t.match(/^bytes: (?:about )?(\d+)/m)||[])[1]))}else if(s.emem!=="self")l=tokenLine(s.emem);
  if(l)(groups[s.kind]??=[]).push(`${l.replace(/^r1 /,"")} by=${s.by.replace(" ","-")} t=${s.title.trim().replace(/,\s+/g,",").replace(/\s+/g,"_")}`)}catch{}}
 const r1s=Object.entries(groups).flatMap(([k,ls])=>[`# ${k}`,...ls]);
 fs.writeFileSync(ROOT+"llms.txt",`# ememdemo r1 · ${P.one("say")}
 # line: <verb> <noun> <ref> key=value ; ref <cid> = ${EMEM}/memories/by_attester/${me}/<cid>.md (other refs: <attester8>/<cid>) ; check base32(blake3(bytes))[0:26]==cid
 # catalog lines are brief: roots, bundles and stamps are in the note; each note names its schema (spec: <cid>)
+# tok= what fetching the note costs; raw= what the source's bytes would cost handed to a model as base64 (pointers and folders)
 # prose, if ever needed: https://vortx-ai.github.io/ememdemo/llms-full.txt
 ${specs.map(([k,c])=>`spec ${k} ${c}`).join("\n")}
 in <url|file|repo|folder> → pointed|listed|indexed ; world: <place> → sensed ; timelapse: <place> [| yyyy-yyyy mm] → framed ; city:|forest: <place> → mapped ; cameras: <place> → surveyed
@@ -132,6 +134,8 @@ source ${b32(blake3(U(src)).slice(0,16))}
 ${lines.join("\n")}
 `;
 const m=await store(manifest);
+// a copy next to the page, so the site still boots when emem.dev is briefly unreachable; the sha256 pin makes either copy equal
+fs.writeFileSync(ROOT+"seal.md",manifest);
 console.log("manifest",m.url);
 
 // ---------- 4. pin it ----------

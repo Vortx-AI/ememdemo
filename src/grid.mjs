@@ -17,18 +17,21 @@ export const sample=async(kind,p,S,tick)=>{
  const cells=new Array(pts.length);let done=0;tick(`0/${pts.length}`);
  await pool(pts.map((q,i)=>[q,i]),16,async([q,i])=>{const l=await net(`${EMEM}/v1/locate?lat=${q[0].toFixed(6)}&lng=${q[1].toFixed(6)}`).then(json).catch(()=>null);cells[i]=l?.cell64||null;tick(`${++done}/${pts.length}`)});
  // two passes: the first materialises what it can within its budget, the second collects what was still pending
- const by={},todo=()=>cells.filter(c=>c&&!(by[c]?.facts||[]).length);
+ const by={},ub={},todo=()=>cells.filter(c=>c&&!(by[c]?.facts||[]).length);
  for(const budget of[15000,12000]){const want=todo();if(!want.length)break;tick(`recalling ${want.length} squares`);
-  const r=await post(`${EMEM}/v1/recall_many`,{cells:want,bands,budget_ms:budget}).then(json).catch(()=>({}));Object.assign(by,r.by_cell||{})}
+  const r=await post(`${EMEM}/v1/recall_many`,{cells:want,bands,budget_ms:budget}).then(json).catch(()=>({}));Object.assign(by,r.by_cell||{});Object.assign(ub,r.units_by_band||{})}
  tick("checking every square's receipt");
  const signed=await Promise.all(cells.map(c=>c&&by[c]?.receipt?receiptOk(by[c].receipt,S.signer):null));
  const vals={},toks={};for(const b of bands){vals[b]=cells.map(c=>{const f=(by[c]?.facts||[]).filter(x=>x.band===b&&x.value!=null).pop();return f?Number(f.value):null});toks[b]=cells.map(c=>(by[c]?.facts||[]).filter(x=>x.band===b).pop()?.memory_token||null)}
+ const fcid={};for(const b of bands)fcid[b]=cells.map(c=>(by[c]?.facts||[]).filter(x=>x.band===b&&x.value!=null).pop()?.fact_cid||null);
  // each band's unit, as the facts state it (never guessed from the numbers)
- const units={};for(const b of bands){const u=cells.map(c=>(by[c]?.facts||[]).find(x=>x.band===b&&x.unit)?.unit).find(Boolean);if(u)units[b]=u}
+ // units as emem states them per band (units_by_band: from the facts, or the band registry), else from the facts themselves
+ const units={};for(const b of bands){const u=ub[b]?.unit||cells.map(c=>(by[c]?.facts||[]).find(x=>x.band===b&&x.unit)?.unit).find(Boolean);if(u)units[b]=u}
  // one handle per map: every square's fact for that band, bound into one signed bundle
  tick("one handle per map");
  const bundles=await Promise.all(bands.map(b=>{const tr=cells.map((c,i)=>vals[b][i]!=null?{cell:c,band:b}:null).filter(Boolean).slice(0,256);
-  return tr.length?post(`${EMEM}/v1/memory_bundle`,{triples:tr,purpose:`${kind} grid: ${b} at ${p.label}`}).then(json).then(j=>j.bundle_token||null).catch(()=>null):null}));
+  const ids=[...new Set(fcid[b].filter(Boolean))].slice(0,256);
+  return tr.length?post(`${EMEM}/v1/memory_bundle`,ids.length?{fact_cids:ids,purpose:`${kind} grid: ${b} at ${p.label}`}:{triples:tr,purpose:`${kind} grid: ${b} at ${p.label}`}).then(json).then(j=>j.bundle_token||null).catch(()=>null):null}));
  const extra={};
  if(kind==="city"){const d=.0035;extra.buildings=await post(`${EMEM}/v1/building_footprints`,{polygon_bbox:{min_lat:p.lat-d,max_lat:p.lat+d,min_lng:p.lng-d/k,max_lng:p.lng+d/k},max_features:4000}).then(json).catch(()=>null);extra.box=d}
  if(kind==="forest")extra.alert=await post(`${EMEM}/v1/deforestation_alert`,{cell:p.cell}).then(json).catch(()=>null);
@@ -47,7 +50,7 @@ export const findings=g=>{const f=[];
  if(g.kind==="city"){const u=g.units?.["modis.lst_day_8day"],t=g.vals["modis.lst_day_8day"].map(v=>celsius(v,u)),r=pearson(g.vals["indices.ndvi"],t);
   if(r)f.push(`at these sample locations, greener ones read ${r.r<0?"cooler":"warmer"}: Pearson r = ${r.r.toFixed(2)} (vegetation vs ground heat, ${r.n} locations with both${r.skipped?`, ${r.skipped} excluded`:""}); a correlation, not a cause`);
   else f.push("no correlation stated: too few sample locations have both values, or one of them does not vary");
-  const hot=t.filter(Number.isFinite),cu=/^(k|kelvin)$/i.test(u||"")?"°C":u||"(unit not stated)";if(hot.length)f.push(`ground heat by day spans ${Math.min(...hot).toFixed(1)}–${Math.max(...hot).toFixed(1)} ${cu} across ${hot.length} sample locations`);
+  const hot=t.filter(Number.isFinite),cu=/^(k|kelvin)$/i.test(u||"")?"°C":u||"(unit not stated by emem)";if(hot.length)f.push(`ground heat by day spans ${Math.min(...hot).toFixed(1)}–${Math.max(...hot).toFixed(1)} ${cu} across ${hot.length} sample locations`);
   const B=g.extra.buildings;if(B)f.push(`${B.count} building footprints in the central ${Math.round(g.extra.box*2*111)} km square (Overture ${B.release||"release not stated"}, read ${g.at||"when made"})${B.truncated?", truncated":""}`)}
  if(g.kind==="forest"){const c=g.vals["hansen.tree_cover_2000"],l=g.vals["hansen.loss_year"].map(lossYear),forest=c.map(v=>v!=null&&v>=10);
   const nf=forest.filter(Boolean).length,after=l.filter((y,i)=>forest[i]&&y&&y>=2021).length,before=l.filter((y,i)=>forest[i]&&y&&y<2021).length;
@@ -78,14 +81,14 @@ export const paintGrid=g=>{
 export const gridNote=g=>{
  const F=findings(g),P=PRESETS[g.kind],okS=g.signed.filter(x=>x===true).length,have=g.cells.filter(Boolean).length;
  const rows=g.cells.map((c,i)=>c?`| ${Math.floor(i/g.n)},${i%g.n} | ${c} | ${g.bands.map(b=>g.vals[b][i]==null?"—":String(g.vals[b][i])).join(" | ")} |`:null).filter(Boolean);
- return`---\nemem: grid.v1\nkind: ${g.kind}\nplace: ${g.p.label}\nat: ${g.p.lat.toFixed(5)}, ${g.p.lng.toFixed(5)}\ngrid: ${g.n}×${g.n} squares, ${Math.round(P.span*2*111)} km across\nbands: ${g.bands.join(" ")}\n${g.units&&Object.keys(g.units).length?`units: ${Object.entries(g.units).map(([b,u])=>`${b}=${u}`).join(" ")}\n`:""}${g.at?`read: ${g.at}\n`:""}${g.bundles.map((t,i)=>t?`bundle ${g.bands[i]}: ${t}\n`:"").join("")}receipts: ${okS} of ${have} sample locations checked against the pinned key\n---\n\n# ${g.p.label}, ${g.kind==="city"?"as a city":"its forest"}, square by square\n\n${F.map(x=>"- "+x).join("\n")}\n\n## Squares\n\n| row,col | cell | ${g.bands.join(" | ")} |\n|---|---|${g.bands.map(()=>"---").join("|")}|\n${rows.join("\n")}\n`;
+ return`---\nemem: grid.v1\nkind: ${g.kind}\nplace: ${g.p.label}\nat: ${g.p.lat.toFixed(5)}, ${g.p.lng.toFixed(5)}\ngrid: ${g.n}×${g.n} squares, ${Math.round(P.span*2*111)} km across\nbands: ${g.bands.join(" ")}\n${g.units&&Object.keys(g.units).length?`units: ${Object.entries(g.units).map(([b,u])=>`${b}=${String(u).replace(/[;\n]+/g,",").trim()}`).join("; ")}\n`:""}${g.at?`read: ${g.at}\n`:""}${g.bundles.map((t,i)=>t?`bundle ${g.bands[i]}: ${t}\n`:"").join("")}receipts: ${okS} of ${have} sample locations checked against the pinned key\n---\n\n# ${g.p.label}, ${g.kind==="city"?"as a city":"its forest"}, square by square\n\n${F.map(x=>"- "+x).join("\n")}\n\n## Squares\n\n| row,col | cell | ${g.bands.join(" | ")} |\n|---|---|${g.bands.map(()=>"---").join("|")}|\n${rows.join("\n")}\n`;
 };
 
 // a grid reopened: its values from the note, its bundles resolved and their signatures checked
 export const gridFromNote=body=>{const k=(x)=>(body.match(new RegExp(`^${x}: (.+)$`,"m"))||[])[1]||"",kind=k("kind"),bands=k("bands").split(/\s+/),n=+(k("grid").match(/^(\d+)/)||[])[1]||12;
  const [lat,lng]=k("at").split(",").map(Number),cells=new Array(n*n).fill(null),vals=Object.fromEntries(bands.map(b=>[b,new Array(n*n).fill(null)]));
  for(const m of body.matchAll(/^\| (\d+),(\d+) \| (\S+) \| (.+) \|$/gm)){const i=+m[1]*n+ +m[2];cells[i]=m[3];m[4].split(" | ").forEach((v,j)=>{if(bands[j])vals[bands[j]][i]=v.trim()==="—"?null:Number(v)})}
- const units=Object.fromEntries(k("units").split(/\s+/).filter(Boolean).map(x=>x.split("=")));
+ const ul=k("units"),units=Object.fromEntries((ul.includes(";")?ul.split(/;\s*/):ul.split(/\s+/)).filter(Boolean).map(x=>{const i=x.indexOf("=");return[x.slice(0,i),x.slice(i+1)]}));
  return{kind,bands,n,cells,vals,units,at:k("read"),p:{lat,lng,label:k("place")},extra:{},bundles:bands.map(b=>k(`bundle ${b}`)||null)}};
 
 // a grid's rows, bound to its signed bundles: every row with a value must name a cell that is a member of that band's
