@@ -37,15 +37,23 @@ await test("nothing is published before Create public link; keeping it here is a
  await o.pg.click(".consent .halt");await idle(o.pg);assert.equal(writes,0);
  // keeping it is a finished local result: a readable draft with download, share and discard, no error, no writes
  assert.match(await o.pg.textContent(".draft h2"),/Kept in this tab/);assert.equal(await o.pg.$(".steps .err"),null);assert.match(await o.pg.textContent(".work-head"),/kept in this tab/);
- assert.ok(await o.pg.$(".draft a[download]"));assert.equal(await o.pg.$$eval(".draft .inv li",l=>l.length),1);
+ assert.equal(await o.pg.$$eval(".draft .inv li input:checked",l=>l.length),1);
+ await o.pg.click(".draft .bar .halt:nth-child(2)");assert.match(await o.pg.textContent(".draft .note"),/Saved in this browser/);assert.ok(await o.pg.isVisible(".recent .saved"));
+ assert.ok(await o.pg.evaluate(()=>JSON.parse(localStorage.getItem("emem.draft")).sections.length===1));
  await o.pg.click(".draft .publish");await o.pg.waitForSelector(".consent:not([hidden])");assert.match(await o.pg.textContent(".consent .peek"),/publish gate test/);assert.equal(writes,0);
  await o.pg.click(".consent #enc");assert.match(await o.pg.textContent(".consent .note"),/ciphertext/);await o.pg.fill(".consent .grant","not-a-key");await o.pg.click(".consent .publish");
- assert.match(await o.pg.textContent(".consent .note"),/not a share key/);assert.equal(writes,0);await o.pg.click(".consent .halt");await idle(o.pg);await o.pg.click(".draft .halt");assert.ok(await o.pg.$(".draft[hidden]"));assert.equal(writes,0)});
+ assert.match(await o.pg.textContent(".consent .note"),/not a share key/);assert.equal(writes,0);await o.pg.click(".consent .halt");await idle(o.pg);await o.pg.click(".draft .bar .halt:first-child");assert.ok(await o.pg.$(".draft[hidden]"));
+ await o.pg.click(".recent .saved .del");assert.equal(await o.pg.evaluate(()=>JSON.parse(localStorage.getItem("emem.draft"))),null);assert.equal(writes,0)});
 await test("the examples can be searched, and a search with no match says so and clears",async keep=>{const o=await open("?boot=local");keep(o);await o.pg.waitForSelector(".card");
- const shown=()=>o.pg.$$eval(".card",l=>l.filter(c=>!c.hidden).length);assert.match(await o.pg.textContent(".gallery .count"),/^12 of \d+ examples$/);
+ const shown=()=>o.pg.$$eval(".cards .card",l=>l.filter(c=>!c.hidden&&!c.closest("[hidden]")).length);assert.match(await o.pg.textContent(".gallery .count"),/^\d+ examples$/);
+ assert.ok(await o.pg.$$eval(".feat .card",l=>l.length)>=3);assert.equal(await shown(),0);
  await o.pg.fill(".find","parquet");const n=await shown();assert.ok(n>=1);assert.match(await o.pg.textContent(".gallery .count"),new RegExp(`^${n} of `));
  await o.pg.fill(".find","zzqx nothing");assert.equal(await shown(),0);assert.ok(await o.pg.isVisible(".gallery .none"));
- await o.pg.click(".gallery .clear");assert.equal(await shown(),12);assert.equal(await o.pg.inputValue(".find"),"")});
+ await o.pg.click(".gallery .clear");assert.equal(await shown(),0);assert.equal(await o.pg.inputValue(".find"),"");
+ await o.pg.click(".gallery .more");const all=+(await o.pg.textContent(".gallery .count")).match(/\d+/)[0];assert.equal(await shown(),all);
+ // an opened example offers the way back to it
+ await o.pg.click(".feat .card button");await o.pg.waitForFunction(()=>document.querySelector(".r1")?.textContent,null,{timeout:60000});assert.ok(await o.pg.isVisible(".out .back"));
+ assert.ok(await o.pg.evaluate(()=>document.body.classList.contains("working")))});
 await test("a big index opens by sampling, and check all reads every section",async keep=>{const o=await open("?boot=local&s="+encodeURIComponent("https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.md"));keep(o);
  await o.pg.waitForFunction(()=>document.querySelector(".r1")?.textContent,null,{timeout:60000});assert.match(await o.pg.textContent(".out .scope"),/sections [\d, ]+ of 23 read and match/);
  await o.pg.click(".verbs button");await o.pg.waitForTimeout(400);await idle(o.pg);assert.match(await o.pg.textContent(".out .scope"),/24 of 24 files match/)});

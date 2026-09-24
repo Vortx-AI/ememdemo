@@ -201,3 +201,30 @@ footer .link:hover{color:var(--fg)}
 .tries button,.verbs button,.chips button,.tabs button,.card .acts button,.copy{min-height:var(--target-s);font-size:13px}
 .card .head,.card .by,.chiprow.by button{font-size:12px}
 .r1{font-size:var(--t-code)}
+/* working: once a task starts, the hero steps back so progress and the result own the viewport (#51) */
+body.working main{padding-top:calc(3*var(--u))}
+body.working main>h1{font-size:clamp(22px,3vw,28px);margin-bottom:var(--u)}
+body.working main>.sub,body.working main>.note,body.working main>.tries{display:none}
+/* semantic run states, told by text first and colour second */
+.work-head.local b{color:var(--ok)}.work-head.local b::before{content:"● "}
+.work-head.now b::before{content:"◌ "}.work-head.ok b::before{content:"✓ "}.work-head.bad b::before{content:"✗ "}
+.card .state.gone{color:var(--mute)}.card .state.gone::before{content:"○ "}
+/* gallery: featured outcomes, then the catalog on request; picture space is reserved so actions don't move */
+.gallery .gh{font-size:20px;margin:0 0 calc(1.5*var(--u))}
+.feat{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:calc(2*var(--u));margin:0 0 calc(3*var(--u))}
+.card.feat .outcome{font-size:15px;line-height:1.45;margin:0 0 var(--u);flex:1}
+.card .pic.wait{background:var(--field)}.card .pic.none{background:var(--field);display:flex;align-items:center;justify-content:center;font:12px var(--mono);color:var(--mute)}
+.card .when{margin:0;font:12px var(--mono);color:var(--mute)}.card .when:empty{display:none}
+.card:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.gallery .more{display:block;margin:0 0 var(--u)}
+.backrow:empty{display:none}.back{border:0;background:none;color:var(--mute);font-size:14px;min-height:36px;padding:0;cursor:pointer;margin-bottom:var(--u)}
+.back:hover{color:var(--fg)}
+.inv.pick{border:1px solid var(--line);padding:var(--u) calc(1.5*var(--u));margin:.4em 0 .8em}.inv.pick legend{font-size:14px;padding:0 .3em}
+.inv.pick li{list-style:none;margin-left:-1.2em}.inv.pick label{display:flex;gap:.5em;align-items:center;min-height:32px}
+.recent .del{border:0;background:none;color:var(--mute);text-decoration:underline;cursor:pointer;font:inherit;margin-left:var(--u)}
+.recent .saved b{font-weight:600}
+.draft .bar .go,.consent .bar .go{width:auto;padding:0 calc(2*var(--u));font-size:15px;height:auto}
+.draft .bar .halt,.consent .bar .halt{margin-right:0;height:auto}
+.draft,.consent{overflow-wrap:anywhere}
+.card .pic.glyph{display:flex;align-items:flex-end;padding:calc(1.5*var(--u)) calc(2*var(--u));background:var(--bg);color:var(--fg);font:600 clamp(18px,2.2vw,24px)/1.15 var(--mono);letter-spacing:-.02em}
+.card .pic.glyph.bad{color:var(--no)}
