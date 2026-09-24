@@ -284,6 +284,7 @@ body: data:image/webp;base64 sprite, frames side by side ; show only if of == ca
 #   thumb its picture: a small note (emem: thumb.v1) drawn from checked bytes, shown only if it names this card's link
 
 show earth : Amazon frontier, 2017–2025 <<
+feature 2 | a place → eight years of satellite frames, each checked by its hash
 tag   timelapse
 by    combined
 from  timelapse: -9.73, -63.03
@@ -677,6 +678,7 @@ emem  https://emem.dev/memories/by_attester/ddzmyzhn/w2b7venmj4ltqf6ewegvfx4l5a.
 >>
 
 show documents : RFC 9110 <<
+feature 1 | a 194-page PDF → a section index an AI reads one part at a time
 tag   PDF · 194 pages
 by    third party
 from  https://www.rfc-editor.org/rfc/rfc9110.pdf
@@ -790,6 +792,7 @@ emem  https://emem.dev/v1/log/sth
 >>
 
 show proof : This site, sealed <<
+feature 4 | Inspect how this page works: this page → its pinned seal, its sources and assets
 tag   seal
 by    combined
 pin   this site
@@ -797,6 +800,7 @@ emem  self
 >>
 
 show proof : A lying file name <<
+feature 3 | a file whose name doesn't match its bytes → caught, and said plainly
 tag   mismatch
 by    human
 pin   a lying name

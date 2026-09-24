@@ -465,14 +465,23 @@ const boot=async()=>{
   h("ol",{},...(r.about||[]).map((a,i)=>h("li",{},`${a.title} · ${tokens(r.sections[i].text)}`))),
   ...(r.skipped?.length?[h("p",{class:"note"},"Left out: "+r.skipped.slice(0,20).join("; ")+(r.skipped.length>20?` and ${r.skipped.length-20} more`:""))]:[]));
  // a draft kept in this tab: a finished result, not a stop. It lives in memory only; Share publishes exactly this draft
- const drawDraft=r=>{const md=(r.about||[]).map((a,i)=>`## ${a.title}\n\n${r.sections[i].text.trim()}\n`).join("\n");
-  const dl=h("a",{class:"go",href:URL.createObjectURL(new Blob([`# ${r.title}\n\n${md}`],{type:"text/markdown"})),download:`${String(r.title||"draft").replace(/[^\w.-]+/g,"-").slice(0,60)}.md`},"Download prepared content");
-  const share=h("button",{class:"go publish",onclick:()=>{draft.hidden=true;preset={list:["store","link"],r:{...r,local:false,tick:undefined,askPublish:undefined}};start(r.input||"")}},"Share…");
-  const drop=h("button",{class:"halt",onclick:()=>{URL.revokeObjectURL(dl.href);draft.hidden=true;draft.replaceChildren();tickHead("draft discarded","");box.focus()}},"Discard");
+ const drawDraft=r=>{const pickBox=r.sections.map(()=>h("input",{type:"checkbox",checked:""})),chosen=()=>r.sections.map((x,i)=>i).filter(i=>pickBox[i].checked);
+  const mdOf=ix=>`# ${r.title}\n\n`+ix.map(i=>`## ${r.about[i].title}\n\n${r.sections[i].text.trim()}\n`).join("\n");
+  const status=h("p",{class:"note","aria-live":"polite"});
+  const dl=h("button",{class:"go",onclick:()=>{const ix=chosen();if(!ix.length)return status.textContent="Choose at least one section.";const a=h("a",{href:URL.createObjectURL(new Blob([mdOf(ix)],{type:"text/markdown"})),download:`${String(r.title||"draft").replace(/[^\w.-]+/g,"-").slice(0,60)}.md`});a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000)}},"Download prepared content");
+  // the draft narrowed to the chosen sections: a new selection is signed again, so the gate and the link name exactly it
+  const narrowed=()=>{const ix=chosen();if(ix.length===r.sections.length)return{r,list:r.restored?["sign","store","link"]:["store","link"]};
+   const sections=ix.map(i=>r.sections[i]),about=ix.map(i=>r.about[i]);
+   return{r:{...r,sections,about,text:sections.map(x=>x.text).join("\n"),flags:injections(sections),skipped:[...(r.skipped||[]),`${r.sections.length-ix.length} section${r.sections.length-ix.length>1?"s":""} left out by the writer`],notes:[],index:null},list:["sign","store","link"]}};
+  const share=h("button",{class:"go publish",onclick:()=>{if(!chosen().length)return status.textContent="Choose at least one section to share.";const{r:q,list}=narrowed();draft.hidden=true;preset={list,r:{...q,local:false,tick:undefined,askPublish:undefined}};start(r.input||"")}},"Share…");
+  const save=h("button",{class:"halt",onclick:()=>{const ok=store("emem.draft",{title:r.title,what:r.what,input:typeof r.input==="string"?r.input:"",sections:r.sections.map(x=>({text:x.text})),about:r.about,skipped:r.skipped||[],saved:new Date().toISOString()})!==null;
+   status.textContent=ok?"Saved in this browser only (not on emem.dev). It is offered again when you come back; delete it from the list below the result.":"This browser would not store it (private window, or too large). Download it instead.";drawRecent()}},"Save in this browser");
+  const drop=h("button",{class:"halt",onclick:()=>{draft.hidden=true;draft.replaceChildren();tickHead("draft discarded","");document.body.classList.remove("working");box.focus()}},"Discard");
   draft.replaceChildren(h("h2",{},`Kept in this tab: ${r.title}`),
-   h("p",{},`${r.sections?.length||1} section${r.sections?.length>1?"s":""} · ${tokens(r.text)}. Nothing was published. This draft is held in this tab's memory only: it is gone if you reload, close the tab or discard it.`),
-   inventory(r),h("div",{class:"bar"},drop,dl,share));draft.hidden=false;inventoryOpen(draft);share.focus()};
- const inventoryOpen=el=>{const d=el.querySelector("details.inv");if(d)d.open=true};
+   h("p",{},`${r.sections.length} section${r.sections.length>1?"s":""} · ${tokens(r.text)}. Nothing was published. This draft is held in this tab's memory: it is gone if you reload or close the tab, unless you save it in this browser.`),
+   h("fieldset",{class:"inv pick"},h("legend",{},"sections to include"),h("ol",{},...r.about.map((a,i)=>h("li",{},h("label",{},pickBox[i],` ${a.title} · ${tokens(r.sections[i].text)}`)))),
+    ...(r.skipped?.length?[h("p",{class:"note"},"Left out when prepared: "+r.skipped.slice(0,20).join("; "))]:[])),
+   status,h("div",{class:"bar"},drop,save,dl,share));draft.hidden=false;share.focus()};
  const askPublish=(my,signal)=>p=>new Promise((ok,no)=>{if(my!==seq)return no(new Error("superseded"));
   const yes=h("button",{class:"go publish"},"Create public link"),not=h("button",{class:"halt",title:"nothing is published; the prepared draft stays open in this tab"},"Keep in this tab"),enc=h("input",{type:"checkbox",id:"enc"});
   const to=h("input",{type:"text",class:"grant",placeholder:"optional: share keys that may open it (43 characters each, comma-separated)",hidden:"","aria-label":"share keys to grant"});
@@ -495,11 +504,13 @@ const boot=async()=>{
  const gives=P.all("give"),tabs=h("div",{class:"tabs",role:"tablist"}),pane=h("div",{class:"pane"});
  const code=h("pre",{class:"code",tabindex:"0"}),copy=h("button",{class:"copy"},"copy");
  const ans=h("textarea",{rows:"5",placeholder:T("check"),"aria-label":"answer to check"}),verdict=h("ol",{class:"verdict"}),guarded=h("p",{class:"guard"}),seal=h("button",{class:"seal",hidden:""},"seal this check"),sealed=h("p",{class:"sealed"});
- const pics=h("div",{class:"thumbs"}),what=h("p",{class:"what"}),tokRow=h("p",{class:"tokrow"}),scope=h("ul",{class:"scope"}),more2=h("details",{class:"raw"},h("summary",{},"details: preview, AGENTS.md, chat, curl, MCP, A2A, check"),tabs,pane),rtitle=h("h2",{class:"rtitle",tabindex:"-1"}),out=h("section",{class:"out",hidden:""},rtitle,what,tokRow,verbs,h("div",{class:"row"},link,grab),scope,meta,lineRow,pics,more2),recent=h("ol",{class:"recent"}),who=h("span");
+ const pics=h("div",{class:"thumbs"}),what=h("p",{class:"what"}),tokRow=h("p",{class:"tokrow"}),scope=h("ul",{class:"scope"}),more2=h("details",{class:"raw"},h("summary",{},"details: preview, AGENTS.md, chat, curl, MCP, A2A, check"),tabs,pane),rtitle=h("h2",{class:"rtitle",tabindex:"-1"}),backrow=h("div",{class:"backrow"}),out=h("section",{class:"out",hidden:""},backrow,rtitle,what,tokRow,verbs,h("div",{class:"row"},link,grab),scope,meta,lineRow,pics,more2),recent=h("ol",{class:"recent"}),who=h("span");
  const chips=h("div",{class:"chips",role:"toolbar"}),cards=h("div",{class:"cards"}),more=h("button",{class:"more",hidden:""});
  const find=h("input",{type:"search",class:"find",placeholder:"search examples: pdf, parquet, forest, mismatch…","aria-label":"search the examples"}),
   tally=h("p",{class:"count","aria-live":"polite"}),clear=h("button",{class:"clear",hidden:""},"Clear filters"),none=h("p",{class:"none",hidden:""}),
-  filters=h("details",{class:"filters"},h("summary",{},"Filters: subject and keeper"),chips);
+  filters=h("details",{class:"filters"},h("summary",{},"Filters: subject and keeper"),chips),
+  feat=h("div",{class:"feat"}),back=h("button",{class:"back",hidden:""},"← back to the examples");let lastCard=null;
+ backrow.append(back);back.onclick=()=>{if(!lastCard?.isConnected)return;lastCard.scrollIntoView({block:"center",behavior:"smooth"});lastCard.focus({preventScroll:true})};
  // live: emem's log, signed and growing; the number is the log head's size, checked against the pinned key
  const live=h("span",{class:"live",title:"entries in emem.dev's signed, append-only log"});let lastSize=0;
  // heads this browser has seen: on each visit today's log must still hold every one (RFC 9162 consistency), which is a
@@ -512,14 +523,17 @@ const boot=async()=>{
   if(bad){headBad=true;live.classList.add("bad")}
   // who else watches the log: emem's own count of independent operators (distinct organisations), not a count of keys
   const w=await net(`${EMEM}/v1/log/witnesses`).then(json).catch(()=>null);
-  if(w)live.title+=` · outside oversight: ${w.independent_operator_count} independent operator${w.independent_operator_count===1?"":"s"} (distinct organisations) ha${w.independent_operator_count===1?"s":"ve"} co-signed this log; the current head is ${w.head_is_independently_witnessed?"":"not yet "}independently witnessed${w.freshest_independent_operator_entries_behind?` (the freshest operator co-signature is ${w.freshest_independent_operator_entries_behind.toLocaleString("en")} entries behind)`:""}`};
+  // an operator counts only while it is still co-signing: one whose last co-signature is far behind the head watches
+  // nothing today (geo.qa asked to be counted as 0 until its current witness key is published under its domain)
+  const STALE=10000,behind=w?.freshest_independent_operator_entries_behind,ops=w?.independent_operator_count||0,cur=behind!=null&&behind<=STALE?ops:0;
+  if(w)live.title+=` · outside oversight: ${cur} independent operator${cur===1?"":"s"} currently co-signing${ops>cur?` (${ops} on record${w.independent_operator_domains?.length?`: ${w.independent_operator_domains.join(", ")}`:""}, last co-signed ${behind.toLocaleString("en")} entries ago, so not counted)`:""}; the current head is ${w.head_is_independently_witnessed?"":"not yet "}independently witnessed. Witness keys are keys, not organisations.`};
  let pinned=false,headBad=false;
  const beat=async()=>{try{const t=await logHead(spec.signer);if(!pinned){pinned=true;pinHeads(t).catch(()=>{})}live.className="live"+(headBad?" bad":"")+(lastSize&&t.tree_size>lastSize?" up":"");live.replaceChildren("log ",h("b",{},t.tree_size.toLocaleString("en")),lastSize&&t.tree_size>lastSize?` +${t.tree_size-lastSize}`:"");lastSize=t.tree_size}catch(e){console.warn("live:",e.message)}setTimeout(beat,61e3)};
  document.body.replaceChildren(
   h("header",{class:"top"},h("a",{class:"brand",href:"./"},h("img",{src:P.one("mark"),alt:"",width:"26",height:"26"}),h("span",{},"emem")),
    h("nav",{"aria-label":"emem"},live,...P.all("link").map(l=>{const[label,href]=l.arg.split(/\s{2,}/);return h("a",href.startsWith("#")?{href}:{href,target:"_blank",rel:"noopener"},label)}))),
   h("main",{},h("h1",{},T("say")),T("sub")?h("p",{class:"sub"},T("sub")):null,taskRow,drop,h("p",{class:"note"},T("note")),tries,work,consent,draft,out,recent),
-  h("section",{class:"gallery",id:"gallery"},h("div",{class:"findrow"},find,tally,clear),filters,none,cards,more),
+  h("section",{class:"gallery",id:"gallery"},h("h2",{class:"gh"},"Start with an example"),feat,h("div",{class:"findrow"},find,tally,clear),more,filters,none,cards),
   h("footer",{},who,sealState));
 
  let run=null,tab=gives[0].arg,drawTries=()=>{},popping=false,preset=null;
@@ -597,8 +611,12 @@ ${last.answer.trim()}
  };
  grab.onclick=async()=>{try{await navigator.clipboard.writeText(run.shareUrl||run.url);grab.textContent="copied"}catch{grab.textContent="select and copy"}setTimeout(()=>grab.textContent="copy link",1400)};
  copy.onclick=async()=>{try{await navigator.clipboard.writeText(code.textContent);copy.textContent="copied"}catch{copy.textContent="select and copy"}setTimeout(()=>copy.textContent="copy",1400)};
- const drawRecent=()=>{const list=store("emem.recent")||[];recent.hidden=!list.length;recent.replaceChildren(...(list.length?[h("li",{class:"sum"},"recent")]:[]),
-  ...list.map(x=>h("li",{},h("button",{onclick:()=>{box.value=x.url;start(x.url)}},x.title),h("span",{},x.shape))))};
+ const drawRecent=()=>{const list=store("emem.recent")||[],d=store("emem.draft");recent.hidden=!list.length&&!d;
+  recent.replaceChildren(...(d?[h("li",{class:"saved"},h("b",{},"saved draft "),h("button",{onclick:()=>{const q={spec,title:d.title,what:d.what,input:d.input,sections:d.sections,about:d.about,skipped:d.skipped,flags:injections(d.sections),text:d.sections.map(x=>x.text).join("\n"),notes:[],saved:d.saved};
+     document.body.classList.add("working");tickHead("saved draft, kept in this browser","local");drawDraft({...q,input:d.input,restored:true});draft.dataset.restored="1"}},d.title),h("span",{},`saved ${String(d.saved).slice(0,16).replace("T"," ")} UTC, in this browser only`),
+    h("button",{class:"del",onclick:()=>{store("emem.draft",null);drawRecent()},"aria-label":"delete the saved draft"},"delete")) ]:[]),
+   ...(list.length?[h("li",{class:"sum"},"recent ",h("button",{class:"del",onclick:()=>{store("emem.recent",[]);drawRecent()},title:"forget the results listed here (kept only in this browser)"},"clear"))]:[]),
+   ...list.map(x=>h("li",{},h("button",{onclick:()=>{box.value=x.url;start(x.url)}},x.title),h("span",{},x.shape))))};
  drawRecent();
  // the key is yours to carry: back it up to a file, restore it in another browser
  const restore=h("input",{type:"file",accept:".json",hidden:""});
@@ -635,11 +653,11 @@ ${last.answer.trim()}
    if(REQUEST.test(r.input))list=P.flows.request;else if(CLAIM.test(r.input))list=P.flows.claim;else if(DELIVER.test(r.input))list=P.flows.deliver;else if(TASKS.test(r.input))list=P.flows.tasks;else if(m=r.input.match(ALL)){list=P.flows.open;r.input=m[1];r.full=true}else if(m=r.input.match(MORE)){list=P.flows.extend;r.input=m[1]}else if(m=r.input.match(WITNESS)){list=P.flows.witness;r.input=m[1]}else if(COMPARE.test(r.input))list=P.flows.compare;else if(WORLD.test(r.input))list=P.flows.world;else if(REEL.test(r.input))list=P.flows.timelapse;else if(TRACK.test(r.input))list=P.flows.track;else if(GRID.test(r.input))list=P.flows[r.input.match(GRID)[1].toLowerCase()];else if(CAMERA.test(r.input))list=P.flows.cameras;
    else if(POINTABLE.test(r.input))list=P.flows.point;else if(NOTE.test(r.input))list=P.flows.open;else if(ASK.test(r.input))list=P.flows.ask;else if(tokenType(r.input,P.tokens)||CID.test(r.input)||STH.test(r.input))list=P.flows.resolve}
   if(preset){list=preset.list;Object.assign(r,preset.r);preset=null}
-  if(!r.files?.length&&!r.input){work.hidden=false;head.replaceChildren();map.replaceChildren();steps.replaceChildren(h("li",{class:"bad"},T("blank")));box.focus();busy(false);return}
+  if(!r.files?.length&&!r.input&&!r.sections){work.hidden=false;head.replaceChildren();map.replaceChildren();steps.replaceChildren(h("li",{class:"bad"},T("blank")));box.focus();busy(false);return}
   let i=0;r.tick=sub=>{if(my===seq){if(RUN.ctl?.signal.aborted)throw new Error(RUN.why||"Stopped. Nothing more was read or written.");show(list,i,sub)}};
   RUN.ctl?.abort();RUN.ctl=new AbortController();Object.assign(RUN,{req:0,bytes:0,wrote:[],at:Date.now(),why:"",cap:Object.fromEntries(P.all("budget").map(b=>b.arg.trim().split(/\s+/)).map(([k,v])=>[k,+v]))});halt.hidden=false;
   if(list===P.flows.make||list.includes("store"))r.askPublish=askPublish(my,RUN.ctl.signal);draft.hidden=true;
-  go.disabled=true;busy(true);t0=performance.now();ts=[];map.replaceChildren();delete map.dataset.step;clearInterval(clock);
+  document.body.classList.add("working");go.disabled=true;busy(true);t0=performance.now();ts=[];map.replaceChildren();delete map.dataset.step;clearInterval(clock);
   clock=setInterval(()=>{if(my===seq)tickHead("ememifying","now");else clearInterval(clock)},100);tickHead("ememifying","now");
   try{
    for(;i<list.length;i++){if(my!==seq)return;show(list,i);await ops[list[i]](r)}
@@ -662,6 +680,7 @@ ${last.answer.trim()}
    const saved=parts.filter(x=>!SRC.test(x)),now=parts.filter(x=>SRC.test(x));
    scope.replaceChildren(h("li",{},h("b",{},r.token?"signed record":"stored note"),` ${saved.join(" · ")||"—"}`),...(now.length?[h("li",{},h("b",{},"checked now"),` ${now.join(" · ")}`)]:[]),...(()=>{const w=writerOf(r.url,S.sealed_by?.slice(0,8)||"ddzmyzhn");return w?[h("li",{},h("b",{},"written by"),` ${w.key} · ${w.tier} · ${w.says}`)]:[]})(),h("li",{class:"at"},`checked at ${at} by this browser`));
    // a human heading first: what this is, before any protocol line, link or proof
+   back.hidden=!lastCard;if(!follow&&!popping)requestAnimationFrame(()=>rtitle.focus({preventScroll:true}));
    rtitle.textContent=String(r.title||r.token||"result").replace(/^https?:\/\//,"").slice(0,140);
    meta.textContent=[secs>1?`${size}; the index is ${tokens(r.body)}`:size,r.skipped?.length?`${r.skipped.length} not included`:"",expect&&r.cid===expect?"same file names as the gallery copy":""].filter(Boolean).join("  ·  ");
    if(!r.bad){const next="?s="+encodeURIComponent(r.token||r.url)+(r.secret?`#k=${r.secret}`:"");
@@ -686,6 +705,7 @@ ${last.answer.trim()}
   }catch(e){if(my!==seq)return;clearInterval(clock);show(list,i,"",true);tickHead("stopped","bad");const prev=run;out.classList.toggle("stale",!!prev);if(prev)out.dataset.stale="previous result, not this run";
    steps.append(h("li",{class:"bad err"},e.message||String(e)));
    // what was hashed before a Stop is kept only if the person asks: one explicit write, of exactly those rows
+   if(!/^(Stopped|superseded)/.test(e.message||"")&&i<list.length&&!r.local)steps.append(h("li",{},h("button",{class:"grab",onclick:()=>{preset={list:list.slice(i),r:{...r,tick:undefined,askPublish:undefined}};start(typeof r.input==="string"?r.input:"")}},`retry from "${(P.steps[list[i]]?.doing||list[i])}"`)," keeps what was already prepared"));
    if(e.partial)steps.append(h("li",{},h("button",{class:"grab",onclick:()=>{preset={list:["pin"],r:{p:e.partial}};start(r.input)}},`keep the ${e.partial.chunks.length} chunks hashed so far as a partial pointer`)));
    if(RUN.wrote.length)steps.append(h("li",{class:"bad"},`${RUN.wrote.length} file${RUN.wrote.length>1?"s were":" was"} already public before it stopped (a write that was accepted can't be undone): `,...RUN.wrote.slice(0,6).flatMap(u=>[h("a",{href:u,target:"_blank",rel:"noopener"},u.split("/").pop())," "])))}
   finally{if(my===seq){go.disabled=false;busy(false);halt.hidden=true;RUN.ctl=null}}
@@ -699,20 +719,21 @@ ${last.answer.trim()}
  // search reads what a card says (title, subject, source, format, keeper); every word must appear
  const apply=()=>{const words=find.value.toLowerCase().split(/\s+/).filter(Boolean),f=filter!=="all"||by!=="all"||words.length,all=[...cards.children];
   const hit=c=>(filter==="all"||c.dataset.kind===filter)&&(by==="all"||c.dataset.by===by)&&words.every(w=>c.dataset.q.includes(w));
-  let n=0;all.forEach((c,i)=>{const ok=hit(c);if(ok)n++;c.hidden=f?!ok:!expanded&&i>=FIRST});
-  more.hidden=f||expanded||all.length<=FIRST;more.textContent=`Browse all ${all.length} examples`;clear.hidden=!f;
-  tally.textContent=f?`${n} of ${all.length} examples`:`${Math.min(all.length,expanded?all.length:FIRST)} of ${all.length} examples`;
+  let n=0;all.forEach(c=>{const ok=hit(c);if(ok)n++;c.hidden=f?!ok:!expanded});cards.hidden=!f&&!expanded;
+  more.hidden=!!f;more.textContent=expanded?"Hide the examples":`Browse all ${all.length} examples`;more.setAttribute("aria-expanded",String(expanded));clear.hidden=!f;
+  tally.textContent=f?`${n} of ${all.length} examples`:expanded?`all ${all.length} examples`:`${all.length} examples`;
   none.hidden=!f||n>0;none.textContent=n?"":`No example matches${words.length?` "${find.value.trim()}"`:""}${filter!=="all"?` in ${filter.replace(/_/g," ")}`:""}${by!=="all"?` kept by ${by}`:""}. Try fewer words or clear the filters.`};
  find.oninput=apply;find.onkeydown=e=>{if(e.key==="Escape"){find.value="";apply()}};
  clear.onclick=()=>{find.value="";filter="all";by="all";drawChips();apply();find.focus()};
  const chip=(v,cur,set)=>h("button",{"aria-pressed":String(v===cur),onclick:()=>{set(v);drawChips();apply()}},v.replace(/_/g," "));
  const drawChips=()=>chips.replaceChildren(h("div",{class:"chiprow"},...kinds.map(k=>chip(k,filter,v=>filter=v))),h("div",{class:"chiprow by"},...bys.map(k=>chip(k,by,v=>by=v))));
  // a card's picture is a small note of its own (emem: thumb.v1), checked by its name and by the link it claims to show
- const thumbOf=async(s,pic)=>{try{const t=await getNote(s.thumb);if(!t.ok)return;const of=(t.body.match(/^of: (\S+)/m)||[])[1];if(of!==s.emem)return;
+ const thumbOf=async(s,pic)=>{const ok=await thumbIn(s,pic);if(!ok){pic.classList.add("none");pic.textContent="no saved picture"}pic.classList.remove("wait")};
+ const thumbIn=async(s,pic)=>{try{const t=await getNote(s.thumb);if(!t.ok)return;const of=(t.body.match(/^of: (\S+)/m)||[])[1];if(of!==s.emem)return;
   const data=(t.body.match(/^(data:image\/(?:webp|png|jpeg);base64,[A-Za-z0-9+/=]+)$/m)||[])[1],n=+(t.body.match(/^frames: (\d+)/m)||[])[1]||1;if(!data)return;
   pic.style.backgroundImage=`url("${data}")`;pic.style.backgroundSize=`${n*100}% 100%`;pic.hidden=false;
-  if(n>1&&!matchMedia("(prefers-reduced-motion: reduce)").matches){let i=0;const tick=()=>{if(!pic.isConnected)return;pic.style.backgroundPosition=`${(i%n)*100/(n-1)}% 0`;i++;setTimeout(tick,i%n?600:1300)};tick()}}catch{}};
- more.onclick=()=>{expanded=true;apply()};
+  if(n>1&&!matchMedia("(prefers-reduced-motion: reduce)").matches){let i=0;const tick=()=>{if(!pic.isConnected)return;pic.style.backgroundPosition=`${(i%n)*100/(n-1)}% 0`;i++;setTimeout(tick,i%n?600:1300)};tick()}return true}catch{}};
+ more.onclick=()=>{expanded=!expanded;apply();if(expanded)cards.querySelector(".card:not([hidden])")?.focus({preventScroll:true})};
  drawChips();
  const openIt=s=>{box.value=s.emem;scrollTo({top:0,behavior:"smooth"});start(s.emem)};
  const runIt=async s=>{
@@ -730,19 +751,19 @@ ${last.answer.trim()}
  const gate=limiter(4),picGate=limiter(4);
  const seen=new Map();if("IntersectionObserver"in globalThis)seen.io=new IntersectionObserver(es=>{for(const e of es)if(e.isIntersecting){seen.io.unobserve(e.target);const f=seen.get(e.target);seen.delete(e.target);f?.()}},{rootMargin:"300px"});
  for(const s of shows.filter(s=>s.emem!=="self")){
-  const state=h("span",{class:"state"},"checking…"),body=h("div",{class:"body"}),live=s.emem==="live"||s.emem==="stream",pic=h("div",{class:"pic",hidden:"","aria-hidden":"true"});
+  const state=h("span",{class:"state"},"not checked yet"),body=h("div",{class:"body"}),when=h("p",{class:"when"}),live=s.emem==="live"||s.emem==="stream",pic=s.thumb?h("div",{class:"pic wait","aria-hidden":"true"}):h("div",{class:"pic",hidden:"","aria-hidden":"true"});
   s.cid=(s.emem.match(/([a-z2-7]{26})\.md$/)||[])[1];
-  const card=h("article",{class:"card","data-kind":s.kind,"data-by":s.by||"","data-q":[s.title,s.tag,s.kind,s.by,s.from,s.pin].filter(Boolean).join(" ").toLowerCase().replace(/_/g," "),"aria-label":s.title},pic,
+  const card=h("article",{class:"card","data-kind":s.kind,"data-by":s.by||"","data-q":[s.title,s.tag,s.kind,s.by,s.from,s.pin].filter(Boolean).join(" ").toLowerCase().replace(/_/g," "),"aria-label":s.title,tabindex:"0"},pic,
    h("div",{class:"head"},h("span",{class:"tag"},s.tag||s.kind),s.by?h("span",{class:"by"},s.by):null,state),
-   h("h3",{},s.title),s.from?h("p",{class:"src"},s.from.replace(/^https?:\/\/([^/]+).*$/,"$1").replace(/^\.\/samples\//,"sample · ").replace(/\s*\|.*$/,"")):null,body,
+   h("h3",{},s.title),when,s.from?h("p",{class:"src"},s.from.replace(/^https?:\/\/([^/]+).*$/,"$1").replace(/^\.\/samples\//,"sample · ").replace(/\s*\|.*$/,"")):null,body,
    h("div",{class:"acts"},h("button",{type:"button","aria-label":`${live?"watch":"open"} ${s.title}`},live?"watch":"open"),s.from?h("button",{type:"button",title:TASKOF(s)==="point"&&!/^\.\//.test(s.from)||TASKOF(s)==="sense"?"reads the original source again now and stores the new result as a public signed note under this browser's key":"reads the original source again now; you choose whether to publish before anything is written","aria-label":`make a new result for ${s.title} from its source`},"make it again"):null,h("button",{type:"button",class:"cp",title:"copy this card as one line for an agent","aria-label":`copy ${s.title} as one line for an agent`},"copy agent line")));
   // checked when it comes into view, four checks and four pictures at a time: the gallery never costs more than what is looked at
-  const check=()=>{if(s.thumb)picGate(()=>thumbOf(s,pic));if(!live)gate(()=>summarize(s,spec).then(x=>{state.className="state "+(x.ok?"ok":"bad");state.textContent=x.state;if(x.scope)state.title=x.scope;s.line=x.line;
+  const check=()=>{if(s.thumb)picGate(()=>thumbOf(s,pic));if(!live)gate(()=>(state.textContent="checking…",summarize(s,spec)).then(x=>{state.className="state "+(x.ok?"ok":"bad");if(x.saved)when.textContent=`saved ${x.saved}`;state.textContent=x.state;if(x.scope)state.title=x.scope;s.line=x.line;
    body.replaceChildren(...x.nodes.filter(([cls])=>!(s.thumb&&(cls==="peek"||cls==="canvas"))).map(([cls,t])=>cls==="canvas"?h("div",{class:"thumbs"},...t):h(cls==="peek"?"pre":"p",{class:cls},t)))})
    .catch(e=>{if(/^Stopped/.test(e.message))return setTimeout(check,400);state.className="state gone";state.textContent="unreachable";state.title="not checked: the source could not be reached, which is not a failed check";body.replaceChildren(h("p",{class:"stat"},e.message))}))};
   seen.set(card,check);if(seen.io)seen.io.observe(card);else check();
-  card.onclick=e=>{if(e.target.closest(".acts .cp")){const b=e.target;Promise.resolve(navigator.clipboard?.writeText(s.line||tokenLine(s.emem))).then(()=>navigator.clipboard?"copied":Promise.reject()).catch(()=>"copy failed: select the line in the result").then(t=>{b.textContent=t;setTimeout(()=>b.textContent="copy agent line",1600)});return}if(live)return;if(e.target.closest(".acts button:nth-child(2)")&&s.from)runIt(s);else openIt(s)};
-  card.onkeydown=e=>{if(e.key==="Enter"&&!live)openIt(s)};
+  card.onclick=e=>{if(e.target.closest(".acts .cp")){const b=e.target;Promise.resolve(navigator.clipboard?.writeText(s.line||tokenLine(s.emem))).then(()=>navigator.clipboard?"copied":Promise.reject()).catch(()=>"copy failed: select the line in the result").then(t=>{b.textContent=t;setTimeout(()=>b.textContent="copy agent line",1600)});return}if(live)return;lastCard=card;if(e.target.closest(".acts button:nth-child(2)")&&s.from)runIt(s);else openIt(s)};
+  card.onkeydown=e=>{if(e.key==="Enter"&&e.target===card&&!live){lastCard=card;openIt(s)}};
   cards.append(card);
   // emem's corpus, live: each signed tick verified here; the numbers move only when a verified tick says so
   if(s.emem==="stream"){state.textContent="connecting…";let es=null;const on=()=>{if(es)return;es=corpusStream(spec,t=>{state.className="state "+(t.ok?"ok":"bad");state.textContent=t.ok?"● live · tick verified":"✗ tick signature";
@@ -753,9 +774,17 @@ ${last.answer.trim()}
    continue}
  }
 
+ // featured: a few outcomes, each an input → what it became, opened read-only (the catalog holds the rest)
+ for(const s of shows.filter(s=>s.feature&&s.emem&&s.emem!=="self").sort((a,b)=>parseInt(a.feature)-parseInt(b.feature))){
+  const[,line=""]=s.feature.split("|").map(x=>x.trim()),[head,rest]=line.includes(": ")?line.split(": "):[s.title,line],pic=h("div",{class:"pic wait","aria-hidden":"true"});
+  // no saved picture: the card shows what the example is (its tag), in type, never an invented image
+  const glyph=h("div",{class:`pic glyph${s.tag==="mismatch"?" bad":""}`,"aria-hidden":"true"},s.tag==="mismatch"?"✗ name ≠ bytes":s.tag==="seal"?"sealed · pinned":s.tag||s.kind);
+  const c=h("article",{class:"card feat","aria-label":head},s.thumb?pic:glyph,h("h3",{},head),h("p",{class:"outcome"},rest),
+   h("div",{class:"acts"},h("button",{type:"button",onclick:()=>{lastCard=c;openIt(s)}},"Open example")));
+  if(s.thumb)picGate(()=>thumbOf(s,pic));feat.append(c)}
  apply();beat();
 
- go.onclick=()=>start(box.value);
+ go.onclick=()=>{lastCard=null;start(box.value)};
  box.onkeydown=e=>{if(e.key==="Enter"&&(e.metaKey||e.ctrlKey))start(box.value)};
  box.onpaste=e=>{const f=[...(e.clipboardData?.files||[])];if(f.length){e.preventDefault();start(f)}};
  file.onchange=()=>{start([...file.files]);file.value=""};
@@ -764,7 +793,7 @@ ${last.answer.trim()}
  addEventListener("dragleave",e=>{if(!e.relatedTarget)delete drop.dataset.over});
  addEventListener("drop",e=>{e.preventDefault();delete drop.dataset.over;const f=[...(e.dataTransfer?.files||[])];if(f.length)start(f)});
  halt.onclick=()=>{RUN.ctl?.abort();if(follow){clearTimeout(follow.timer);follow=null}};
- addEventListener("popstate",()=>{const k=(location.hash.match(/#k=([A-Za-z0-9_-]{43})$/)||[])[1],v=new URLSearchParams(location.search).get("s");if(!v)return;
+ addEventListener("popstate",()=>{const k=(location.hash.match(/#k=([A-Za-z0-9_-]{43})$/)||[])[1],v=new URLSearchParams(location.search).get("s");if(!v){document.body.classList.remove("working");return};
   const ref=v.trim();if(!(NOTE.test(ref)||tokenType(ref,P.tokens)||CID.test(ref)||STH.test(ref)))return;popping=true;box.value=k?`${ref}#k=${k}`:ref;start(box.value)});
  addEventListener("keydown",e=>{if(e.key==="Escape"&&RUN.ctl)RUN.ctl.abort()});
  // a shared link only opens references (a note, a token, a file name, a log head); anything that would read a source or write is left in the box for you to run

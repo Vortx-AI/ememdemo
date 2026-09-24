@@ -267,10 +267,12 @@ const viewChecked=async cid=>{
  await verifier();const{blake3:b3,ed,b32decode,hex}=globalThis.ememVerifyInternals,bytes=U(n.content),full=b3(bytes);
  const same=b32full(full.slice(0,16))===cid&&(!n.authorship||hex(full)===n.authorship.body_hash_hex);
  let author=null;
- // emem accepts two signing formats (v1, and v2 which also binds the prior version); its authorship block always describes v1, so try both
+ // emem accepts two signing formats (v1, and v2 which also binds the prior version, "base")
  if(n.authorship?.sig_b32){try{const a=n.authorship,sig=b32decode(a.sig_b32),key=b32decode(a.attester_pubkey_b32);
-  const v1=new Uint8Array([...U(`emem.memory_write|${a.verb}|${a.signed_path}|`),...full]),v2=new Uint8Array([...U(`emem.memory_write.v2|${a.verb}|${a.signed_path}|`),...full,...U("|absent")]);
-  author=(ed.verify(sig,b3(v1),key)||ed.verify(sig,b3(v2),key))&&a.signed_path===n.path}catch{author=false}}
+  const v1=new Uint8Array([...U(`emem.memory_write|${a.verb}|${a.signed_path}|`),...full]),v2=new Uint8Array([...U(`emem.memory_write.v2|${a.verb}|${a.signed_path}|`),...full,...U(`|${a.base||"absent"}`)]);
+  // emem names the version it verified (preimage_version); only a response that doesn't name one gets both tried
+  const ok=a.preimage_version===2?ed.verify(sig,b3(v2),key):a.preimage_version===1?ed.verify(sig,b3(v1),key):ed.verify(sig,b3(v1),key)||ed.verify(sig,b3(v2),key);
+  author=ok&&a.signed_path===n.path}catch{author=false}}
  return{n,same,author};
 };
 // a note at any path, with who wrote it proved offline: bytes re-hashed, and the author's signature over its path checked
@@ -378,7 +380,7 @@ export const summarize=async(s,S)=>{
   const toTok=x=>x?+x.replace("~","").replace(/k$/,"e3").replace(/M$/,"e6").replace(/B$/,"e9"):null;
   const tc=tokenCompare({note:b,line:lineOf(b,s.emem),srcTok:toTok(claimed),srcBytes:kind==="pointer.v1"||kind==="directory.v1"?bytesSrc:0});
   const tline=["tok",`agent reads ${tok(tc.note)} tokens${tc.line?` (its line ${tok(tc.line)})`:""}${tc.src?` · source ${tok(tc.src)}${tc.base64?" as raw bytes":""} · ${tc.x.toLocaleString("en")}× less`:""}`];
-  const out=(big,verbs,peek)=>({ok:n.ok!==false,state,tc,scope:n.ok?`checked ${new Date().toISOString().slice(11,19)}Z: this note's bytes hash to its name. The source it describes is re-read only when you open it.`:n.ok===false?"this note's bytes do not hash to its name":"this name makes no hash claim",line:lineOf(b,s.emem),nodes:[...(big?[["big",big]]:[]),tline,["verbs",verbs],...(peek?[["peek",peek]]:[])]});
+  const out=(big,verbs,peek)=>({ok:n.ok!==false,state,tc,saved:(b.match(/^after: sth \d+ \S+ (\d{4}-\d\d-\d\d)/m)||[])[1]||"",scope:n.ok?`checked ${new Date().toISOString().slice(11,19)}Z: this note's bytes hash to its name. The source it describes is re-read only when you open it.`:n.ok===false?"this note's bytes do not hash to its name":"this name makes no hash claim",line:lineOf(b,s.emem),nodes:[...(big?[["big",big]]:[]),tline,["verbs",verbs],...(peek?[["peek",peek]]:[])]});
   if(kind==="pointer.v1"){const m=b.match(/^bytes: (about )?(\d+)/m);return out(m?`${m[1]?"~":""}${sz(+m[2])}`:"at source",V(`hashed ${k("chunks").replace(/ hashed$/,"")}`,"rooted",k("place")?"placed":"",st),"")}
   if(kind==="directory.v1")return out(sz(+k("bytes")),V(`listed ${k("files")} files`,"publisher hashes kept","rooted",st));
   if(kind==="world.v1"){const f=(b.match(/ · emem:fact:/g)||[]).length;return out(`${f} facts`,V("sensed","cross-checked",/^## drift/m.test(b)?"drift measured":"",/echo-verified/.test(b)?"echo-verified":"","bundled",st))}
