@@ -1,5 +1,6 @@
 // eio runtime: compiles emem.eio, enforces its rules, draws the page, runs its flows against emem.dev.
 import {EMEM,NOTE,LINKS,CID,STH,ASK,U,cidOf,tokens,pool,store,net,key,note,put,getNote,tokenType,resolveToken,ask,summarize,feed,readVia,guard,exportKey,importKey,keyState,newSecret,sealText,openText,SEALED,SECRET_LINK,driftOf,corpusStream,shareKey,grantBody,openGrant,rangeHash,treeRow,witnesses,placeFacts,post,SPECS,specify,RUN,json,tok,count,tokenCompare,who as writerOf} from "./emem.mjs";
+import {setPolicy,stats as cacheStats,servedAs,sharedStream,whenVisible,every} from "./cache.mjs";
 import {toDoc,REPO,repoItems,blocksOf,pack,describe,injections} from "./read.mjs";
 import {compile} from "./lang.mjs";
 import {line as lineOf,tokenLine} from "./line.mjs";
@@ -121,7 +122,7 @@ const ops={
   const top=r.index||r.notes[0],n=r.notes.length+(r.index?1:0);if(r.secret)r.shareUrl=`${top.url}#k=${r.secret}`;
   // each grant is a public note that only the named share key can open; its link carries no key at all
   if(r.secret&&r.grants?.length){const k=await key();r.grantLinks=[];for(const g of r.grants){const gn=await note(await grantBody(r.secret,g,top.url),k);await put(gn,k.pub);r.grantLinks.push({to:g.slice(0,8),url:`${top.url}#g=${k.pub.slice(0,8)}/${gn.cid}`})}}
-  Object.assign(r,{url:top.url,cid:top.cid,body:r.secret&&r.clearTop?r.clearTop:top.body,first:r.notes[0].url,bad:r.bad,proof:(r.flags?.length?`⚠ ${r.flags.length} passage${r.flags.length>1?"s":""} address an AI; kept as data and listed in the link · `:"")+`${n} of ${n} files stored`+(r.index?` · one name commits to all ${r.notes.length} sections`:"")+await witnessHead(r)});
+  Object.assign(r,{url:top.url,cid:top.cid,body:r.secret&&r.clearTop?r.clearTop:top.body,first:r.notes[0].url,bad:r.bad,proof:(r.flags?.length?`⚠ ${r.flags.length} passage${r.flags.length>1?"s":""} address an AI; kept as data and listed in the link · `:"")+`stored ${n}/${n} files`+(r.index?` · committed all ${r.notes.length} sections to one name`:"")+await witnessHead(r)});
   Object.assign(r,readVia(r));
   return r;
  },
@@ -151,10 +152,10 @@ const ops={
   const k=await key(),n=await note(await stampNow(r.p.body,r),k);r.tick("storing the pointer");await put(n,k.pub);r.p.body=n.body;
   const host=new URL(r.p.url).host;
   Object.assign(r,{url:n.url,cid:n.cid,body:n.body,text:n.body,title:r.p.name,pointer:true,
-   proof:`${r.p.chunks.length} of ${r.p.units} chunks hashed at ${host} · ${mb(r.p.read)} read${r.extends?` · extends ${r.extends.split("/").pop().slice(0,8)}…`:""} · ${mb(n.bytes.length)} stored on emem`,
+   proof:`hashed ${r.p.chunks.length}/${r.p.units} chunks at ${host} · read ${mb(r.p.read)}${r.extends?` · extends ${r.extends.split("/").pop().slice(0,8)}…`:""} · stored ${mb(n.bytes.length)} on emem`,
    size:r.p.bytes?`${mb(r.p.bytes)} at the source`:r.p.est?`about ${mb(r.p.est)} at the source (estimated)`:"size unknown at the source",
    shape:`It is a pointer to ${r.p.kind} at ${host}${r.p.bytes?` (${mb(r.p.bytes)})`:""}; the data stays there. Read any chunk from the source by URL and byte range and check its hash in the table.`});
-  if(r.p.folder)Object.assign(r,{folder:true,proof:`${r.p.units} files listed at ${host} · nothing downloaded · ${mb(n.bytes.length)} stored on emem`,size:`${mb(r.p.bytes)} in the folder`,
+  if(r.p.folder)Object.assign(r,{folder:true,proof:`listed ${r.p.units} files at ${host} · downloaded nothing · stored ${mb(n.bytes.length)} on emem`,size:`${mb(r.p.bytes)} in the folder`,
    shape:`It is a listing of ${r.p.units} files at ${host} (${mb(r.p.bytes)}), each with its publisher's content hash; the files stay there.`});
   r.proof+=await witnessHead(r);
   // what it looks like, drawn only from bytes that were hashed a moment ago
@@ -170,7 +171,7 @@ const ops={
  async map(r){const g=r.grid,body=await stampNow(gridNote(g),r),k=await key(),n=await note(body,k);r.tick("storing the maps");await put(n,k.pub);
   const okS=g.signed.filter(x=>x===true).length,have=g.cells.filter(Boolean).length,F=findings(g);
   Object.assign(r,{url:n.url,cid:n.cid,body,text:body,title:(body.match(/^# (.+)$/m)||[])[1],world:true,bad:g.signed.some(x=>x===false),face:{canvases:paintGrid(g)},
-   proof:`${have} squares · ${okS} receipts checked · ${g.bundles.filter(Boolean).length} maps bound${await witnessHead(r)}`,size:F[0]||`${g.n}×${g.n} squares`,
+   proof:`gridded ${have} squares · checked ${okS} receipts · bound ${g.bundles.filter(Boolean).length} maps${await witnessHead(r)}`,size:F[0]||`${g.n}×${g.n} squares`,
    shape:`It is ${g.p.label} as a grid of ${have} signed squares, drawn as maps.`});
   Object.assign(r,readVia({...r,first:null}));return r},
  // a timelapse: red, green and blue cubes over one square, frames checked by their names, played in order
@@ -178,14 +179,14 @@ const ops={
  async unreel(r){const p=r.place,rs=await reelBind(r.reel,p.label),body=await stampNow(reelNote(p,r.reel,rs),r),k=await key(),n=await note(body,k);r.tick("storing the reel");await put(n,k.pub);
   const cv=paint(r.reel),ok=r.reel.frames.filter(f=>f.ok).length;
   Object.assign(r,{url:n.url,cid:n.cid,body,text:body,title:`${p.label}, year after year`,world:true,bad:!r.reel.signed.every(Boolean),face:{nodes:[play(cv)].filter(Boolean),canvases:cv},
-   proof:`${ok} frames · ${ok*3} rasters, every pixel hashed to its name · 3 cubes signed${rs?" · one handle for all":""}${await witnessHead(r)}`,size:`${r.reel.frames[0]?.date||""} → ${r.reel.frames.at(-1)?.date||""}`,
+   proof:`framed ${ok} · hashed ${ok*3} rasters, every pixel to its name · signed 3 cubes${rs?" · bound one handle for all":""}${await witnessHead(r)}`,size:`${r.reel.frames[0]?.date||""} → ${r.reel.frames.at(-1)?.date||""}`,
    shape:`It is a true-colour timelapse of ${p.label}: ${ok} frames, each three signed rasters${rs?`, bound into ${rs}`:""}.`});
   Object.assign(r,readVia({...r,first:null}));return r},
  async layers(r){r.w=await layers(r.place,r.spec,r.tick);return r},
  async weave(r){const w=r.w,body=await stampNow(weave(w),r),k=await key(),n=await note(body,k);r.tick("storing the reading");await put(n,k.pub);
   const facts=Object.keys(w.latest).length,layerN=(body.match(/^## (satellite|terrain|weather|climate|vegetation|air|the built)/gm)||[]).length,bad=Object.values(w.checks).some(v=>v===false);
   Object.assign(r,{url:n.url,cid:n.cid,body,text:body,title:`${w.label}, every layer`,world:true,bad,face:{canvases:w.art?[w.art.cv]:[]},
-   proof:`${facts} signed measurements · ${layerN} layers · receipts: ${Object.entries(w.checks).filter(([,v])=>v!=null).map(([k,v])=>`${k} ${v?"✓":"✗"}`).join(" ")}${w.bundle?" · one handle for all":""}${await witnessHead(r)}`,
+   proof:`measured ${facts} signed facts · layered ${layerN} · receipts: ${Object.entries(w.checks).filter(([,v])=>v!=null).map(([k,v])=>`${k} ${v?"✓":"✗"}`).join(" ")}${w.bundle?" · one handle for all":""}${await witnessHead(r)}`,
    size:`${w.cell} · ${mb(n.bytes.length)} on emem`,
    shape:`It is every layer emem.dev measures at ${w.label}: ${facts} signed facts, each with its token${w.bundle?`, bound into ${w.bundle}`:""}.`,
    curl:`# the reading\ncurl -s ${n.url}\n\n# every fact in it, as one signed envelope\ncurl -s ${EMEM}/v1/memory_bundle/${w.bundle}\n\n# or read the layers yourself\ncurl -s ${EMEM}/v1/recall -H 'content-type: application/json' -d '${JSON.stringify({cell:w.cell,bands:Object.keys(w.latest)})}'`,
@@ -198,7 +199,7 @@ const ops={
  async keep(r){const k=keep(r.v);k.body=await stampNow(k.body,r);const key0=await key(),n=await note(k.body,key0);r.tick("storing the survey");await put(n,key0.pub);
   Object.assign(r,{url:n.url,cid:n.cid,body:k.body,text:k.body,title:(k.body.match(/^# (.+)$/m)||[])[1],camera:true,bad:k.okClip<k.n,
    face:{imgs:r.v.rows.filter(x=>x.showable).map(x=>x.thumb)},
-   proof:`${k.okClip} of ${k.n} clips re-hashed here and match · ${k.okSky} of ${k.skies} sun positions recomputed · counts are a detector's reading, not a signature · geo.qa receipts ${r.v.receipts}${await witnessHead(r)}`,
+   proof:`re-hashed ${k.okClip}/${k.n} clips here · recomputed ${k.okSky}/${k.skies} sun positions · counted by a detector, not signed · geo.qa receipts: ${r.v.receipts}${await witnessHead(r)}`,
    size:`${k.n} cameras · ${mb(n.bytes.length)} on emem`,shape:`It is a survey of ${k.n} London street cameras: each clip named by its sha256 (re-hashed here), what a named detector counted, and where the sun was.`});
   Object.assign(r,readVia({...r,first:null}));return r},
  // a track: every step re-checked where it stands, then chained so no step can be dropped, swapped or reordered
@@ -216,7 +217,7 @@ const ops={
   const body=await stampNow(`---\nemem: track.v1\nsteps: ${r.steps.length}\nverified: ${ok} of ${r.steps.length}\nhead: ${link}\nchain: each link = blake3(previous link ‖ step reference), first 128 bits\n---\n\n# ${r.trackTitle}\n\n| # | step | evidence | kind | checked | chain |\n|---|---|---|---|---|---|\n${rows.join("\n")}\n`,r);
   const k=await key(),n=await note(body,k);r.tick("storing the track");await put(n,k.pub);
   Object.assign(r,{url:n.url,cid:n.cid,body,text:body,title:r.trackTitle,world:true,bad:ok<r.steps.length,
-   proof:`${ok} of ${r.steps.length} steps checked · chained in order · head ${link.slice(0,10)}…${await witnessHead(r)}`,size:`${r.steps.length} steps`,shape:`It is an evidence track of ${r.steps.length} steps, each re-checked and chained in order.`});
+   proof:`checked ${ok}/${r.steps.length} steps · chained in order · headed ${link.slice(0,10)}…${await witnessHead(r)}`,size:`${r.steps.length} steps`,shape:`It is an evidence track of ${r.steps.length} steps, each re-checked and chained in order.`});
   Object.assign(r,readVia({...r,first:null}));return r},
  // a question about a place, answered by emem.dev with signed facts
  async ask(r){Object.assign(r,await ask(r.input.match(ASK)[1].trim(),r.spec,r.tick));Object.assign(r,r.via||{});return r},
@@ -229,21 +230,21 @@ const ops={
   const body=`# ${me} -> ${author}: witness ${top.cid} ${good?"ok":"changed"} ${c.ok}/${c.n}\n\n---\nemem: witness.v1\npointer: ${top.url}\nsource: ${c.src}\ntable: ${c.table?"matches its root":"does NOT match its root"}\nread: ${c.ok} of ${c.n} chunks match\nat: ${now}\n---\n\n| what | offset | length | blake3 read now | matches |\n|---|---|---|---|---|\n${c.rows.map(x=>`| ${x.label} | ${x.offset} | ${x.length} | ${x.now} | ${x.ok?"yes":"NO"} |`).join("\n")}\n`;
   r.tick("signing the witness");const sb=await stampNow(body,r),n=await note(sb,k,`arcade/witness-${at}-to-${author}.md`);await put(n,k.pub);
   Object.assign(r,{url:n.url,cid:n.cid,body:sb,text:sb,title:`witness of ${(top.body.match(/^# (.+)$/m)||[])[1]||top.cid}`,bad:!good,
-   proof:`${c.ok} of ${c.n} chunks re-read from ${new URL(c.src).host} match${c.table?"":" · the table does NOT match its root"} · signed by ${me}, addressed to ${author}`,
+   proof:`re-read ${c.ok}/${c.n} chunks from ${new URL(c.src).host}: matched${c.table?"":" · ✗ table does NOT match its root"} · signed by ${me} · addressed to ${author}`,
    shape:"It is a signed witness: another key read the source itself and says whether the pointer still holds.",size:`witness of ${top.cid}`});
   Object.assign(r,readVia(r));return r},
  // agents together: each hop is a signed note addressed to the other key; the task's state is read back, never stored
  async request(r){const n=await askAgent(r.input,b=>stampNow(b,r)),to=r.input.match(REQUEST)[1];
-  Object.assign(r,{url:n.url,cid:n.cid,body:n.body,text:n.body,title:`request to ${to.slice(0,8)}`,proof:`request signed by ${n.path.split("/")[3]} · addressed to ${to.slice(0,8)} by its full key · expires when the log passes ${(n.body.match(/^expires: sth (\d+)$/m)||[])[1]||"its stated head"} entries`+await witnessHead(r),
+  Object.assign(r,{url:n.url,cid:n.cid,body:n.body,text:n.body,title:`request to ${to.slice(0,8)}`,proof:`signed request as ${n.path.split("/")[3]} · addressed ${to.slice(0,8)} by full key · expires when the log passes ${(n.body.match(/^expires: sth (\d+)$/m)||[])[1]||"its stated head"} entries`+await witnessHead(r),
    shape:"It is a signed request to another agent. Follow it with tasks: <this link>; the other key answers with deliver: <this link> <result>.",size:"one request",notes:[{}]});Object.assign(r,readVia(r));return r},
  async stake(r){const u=r.input.match(CLAIM)[1],n=await claimTask(u,b=>stampNow(b,r));
-  Object.assign(r,{url:n.url,cid:n.cid,body:n.body,text:n.body,title:"claim",proof:`claim signed, addressed to the requester`+await witnessHead(r),shape:"It is a signed claim: this key is on the request.",size:"one claim",notes:[{}]});Object.assign(r,readVia(r));return r},
+  Object.assign(r,{url:n.url,cid:n.cid,body:n.body,text:n.body,title:"claim",proof:`signed claim · addressed to the requester`+await witnessHead(r),shape:"It is a signed claim: this key is on the request.",size:"one claim",notes:[{}]});Object.assign(r,readVia(r));return r},
  async hand(r){const n=await handBack(r.input,b=>stampNow(b,r));
-  Object.assign(r,{url:n.url,cid:n.cid,body:n.body,text:n.body,title:"delivery",proof:`delivery signed, addressed to the requester · the result matches its name`+await witnessHead(r),shape:"It is a signed delivery: a result handed back for a request. Anyone can re-derive and verify it.",size:"one delivery",notes:[{}]});Object.assign(r,readVia(r));return r},
+  Object.assign(r,{url:n.url,cid:n.cid,body:n.body,text:n.body,title:"delivery",proof:`signed delivery · addressed to the requester · matched the result's name`+await witnessHead(r),shape:"It is a signed delivery: a result handed back for a request. Anyone can re-derive and verify it.",size:"one delivery",notes:[{}]});Object.assign(r,readVia(r));return r},
  async follow(r){const u=r.input.match(TASKS)[1],t=await follow(u,r.tick);r.task=t;
   const d=t.rows.filter(x=>x.kind==="deliver"),bad=t.rows.filter(x=>!x.ok);
   Object.assign(r,{url:u,cid:t.cid,body:t.q.body,text:t.q.body,title:`${t.q.want} ${t.q.of.split("/").pop().slice(0,8)}: ${t.state}`,bad:bad.length>0,
-   proof:`request signed by ${t.q.from.slice(0,8)} (full key checked) · ${t.state} · ${t.rows.length} signed repl${t.rows.length===1?"y":"ies"} read, ${t.rows.length-bad.length} check${bad.length?` · ${bad.length} don't`:""}`,
+   proof:`checked request by ${t.q.from.slice(0,8)} (full key) · ${t.state} · read ${t.rows.length} signed repl${t.rows.length===1?"y":"ies"} · ${t.rows.length-bad.length} check${bad.length?` · ${bad.length} don't`:""}`,
    shape:`It is a task, derived from signed notes: ${t.q.from.slice(0,8)} asked ${t.q.to.slice(0,8)} to ${t.q.want} ${t.q.of.split("/").pop()}. ${d.length} deliver${d.length===1?"y":"ies"}.`,size:t.state,notes:[{}]});Object.assign(r,readVia(r));return r},
  // two pointers, row by row, by unit name: identical bytes, different bytes, or only in one
  async pair(r){const[,a,b]=r.input.match(COMPARE);r.checked=[await getNote(a),await getNote(b)];
@@ -257,7 +258,7 @@ const ops={
   const body=`---\nemem: compare.v1\na: ${A.url}\nb: ${B.url}\nsame: ${d.same.length}\nchanged: ${d.changed.length}\nonly_a: ${d.onlyA.length}\nonly_b: ${d.onlyB.length}\nkey: each row's name without its type, shape or wrapper prefix\n---\n\n# ${nm(A)} vs ${nm(B)}\n\n- A: ${d.a.kind}, ${d.a.chunks} · ${d.a.source}\n- B: ${d.b.kind}, ${d.b.chunks} · ${d.b.source}\n- ${d.same.length} identical, ${d.changed.length} differ, ${d.onlyA.length} only in A, ${d.onlyB.length} only in B${proofRead}\n\n## Identical\n\n| unit | blake3 | stats |\n|---|---|---|\n${cap(d.same,x=>`| ${x.key} | ${x.a.hash} | ${x.a.stats||""} |`)||"| none | | |"}\n\n## Differ\n\n| unit | A | B |\n|---|---|---|\n${cap(d.changed,x=>`| ${x.key} | ${x.a.stats||x.a.hash.slice(0,12)} | ${x.b.stats||x.b.hash.slice(0,12)} |`)||"| none | | |"}\n\n## Only in A\n\n${d.onlyA.slice(0,60).map(x=>"- "+x.label).join("\n")||"- none"}\n\n## Only in B\n\n${d.onlyB.slice(0,60).map(x=>"- "+x.label).join("\n")||"- none"}\n`;
   const sb=await stampNow(body,r),n=await note(sb,k);r.tick("storing the comparison");await put(n,k.pub);
   Object.assign(r,{url:n.url,cid:n.cid,body:sb,text:sb,title:`${nm(A)} vs ${nm(B)}`,bad:/CHANGED/.test(proofRead),
-   proof:`${d.same.length} identical · ${d.changed.length} differ · ${d.onlyA.length} only in A · ${d.onlyB.length} only in B${d.same.length?` · one identical unit re-read from both sources`:""}`,
+   proof:`matched ${d.same.length} · changed ${d.changed.length} · only in A ${d.onlyA.length} · only in B ${d.onlyB.length}${d.same.length?` · one identical unit re-read from both sources`:""}`,
    shape:"It is a row-by-row comparison of two pointers; each row says whether a unit's bytes are identical at both sources.",size:`${mb(n.bytes.length)} on emem`});
   Object.assign(r,readVia(r));return r},
  async prove(r){await this.prove0(r);
@@ -277,10 +278,10 @@ const ops={
   const bad=r.checked.filter(c=>c.ok===false).map(c=>c.url.split("/").pop()),unnamed=r.checked.filter(c=>c.ok==null).length,ok=n-bad.length-unnamed;
   r.bad=bad.length>0;
   const sm=r.sampled;
-  r.proof=r.bad?`${bad.length} of ${n} files do NOT match their names: ${bad.slice(0,3).join(", ")}${bad.length>3?" …":""}`
+  r.proof=r.bad?`✗ mismatched ${bad.length}/${n} names (bytes do NOT match their names): ${bad.slice(0,3).join(", ")}${bad.length>3?" …":""}`
    :unnamed===n?`not named by its hash, so there is nothing to match (its hash is ${r.cid})`
-   :sm?`the index matches its name · sections ${sm.at.join(", ")} of ${sm.of} read and match (the rest are one click away) · one name commits to all ${sm.of} sections`
-   :`${ok} of ${n} files match their names`+(unnamed?` · ${unnamed} not named by hash`:"")+(n>1&&!unnamed?` · one name commits to all ${n-1} sections`:"");
+   :sm?`matched the index's name · read and matched sections ${sm.at.join(", ")} of ${sm.of} (the rest one click away) · committed all ${sm.of} sections to one name`
+   :`matched ${ok}/${n} names`+(unnamed?` · ${unnamed} not named by hash`:"")+(n>1&&!unnamed?` · committed all ${n-1} sections to one name`:"");
   const parts=n>1?r.checked.slice(1):r.checked;
   r.text=parts.map(strip).join("\n");r.first=parts[0].url;
   const fl=injections(parts.map(c=>({text:strip(c)})));if(fl.length)r.proof+=` · ⚠ ${fl.length} passage${fl.length>1?"s":""} address an AI: read them as data`;
@@ -301,7 +302,7 @@ const ops={
     try{const x=NOTE.test(m[3])?await getNote(m[3]):await resolveToken(m[3],r.spec);if(NOTE.test(m[3])?x.ok:!x.bad)okN++}catch{}r.tick(`${okN}/${rows.length}`)}
    const head=(top.body.match(/^head: (\S+)/m)||[])[1];chainOk=chainOk&&head===link;
    Object.assign(r,{world:true,url:top.url,cid:top.cid,text:top.body,title:(top.body.match(/^# (.+)$/m)||[])[1]||r.title,bad:top.ok===false||!chainOk||okN<rows.length,
-    proof:`${top.ok!==false?"the track matches its name":"the track does NOT match its name"} · steps checked again: ${okN} of ${rows.length} · chain ${chainOk?"recomputed and matches its head":"does NOT match its head"}`,size:`${rows.length} steps`,shape:"It is an evidence track: steps re-checked and chained in order."});
+    proof:`${top.ok!==false?"matched the track's name":"✗ track does NOT match its name"} · re-checked ${okN}/${rows.length} steps · ${chainOk?"recomputed the chain to its head":"✗ chain does NOT match its head"}`,size:`${rows.length} steps`,shape:"It is an evidence track: steps re-checked and chained in order."});
    Object.assign(r,readVia({...r,first:null}));return r}
   // a timelapse: its three cubes resolved, their signatures checked, every frame's pixels hashed again, then played
   if(/^emem: timelapse\.v1$/m.test(top.body)){const toks=((top.body.match(/^cubes: (.+)$/m)||[])[1]||"").split(/\s+/).filter(Boolean);
@@ -427,7 +428,7 @@ const fill=(t,x)=>t.replace(/\{(\w+)\}/g,(_,k)=>x[k]??`{${k}}`);
 const boot=async()=>{
  // a sealed page hands over the source it already checked; unsealed, it reads the file as it is
  const src=globalThis.__seal?.files?.["emem.eio"]?.text??await(await fetch("./emem.eio",{cache:"no-cache"})).text();
- const P=compile(src),broken=check(P,ops);
+ const P=compile(src),broken=check(P,ops);setPolicy(new URLSearchParams(location.search).get("cache")==="off"?[]:P.all("cache").map(c=>c.arg)); // ?cache=off: every read goes to the network (for measuring)
  if(broken.length){document.body.replaceChildren(h("pre",{class:"broken"},"emem.eio breaks its own rules:\n\n"+broken.map(b=>"· "+b).join("\n")));return}
  for(const sp of P.all("spec"))SPECS[sp.arg.trim()]=cidOf(U(sp.body+"\n"));
  const spec={kinds:P.kinds,limit:+P.one("limit"),section:+P.one("section"),max:+P.one("max"),tokens:P.tokens,signer:P.one("signer")};
@@ -478,21 +479,22 @@ const boot=async()=>{
    status.textContent=ok?"Saved in this browser only (not on emem.dev). It is offered again when you come back; delete it from the list below the result.":"This browser would not store it (private window, or too large). Download it instead.";drawRecent()}},"Save in this browser");
   const drop=h("button",{class:"halt",onclick:()=>{draft.hidden=true;draft.replaceChildren();tickHead("draft discarded","");document.body.classList.remove("working");box.focus()}},"Discard");
   draft.replaceChildren(h("h2",{},`Kept in this tab: ${r.title}`),
-   h("p",{},`${r.sections.length} section${r.sections.length>1?"s":""} · ${tokens(r.text)}. Nothing was published. This draft is held in this tab's memory: it is gone if you reload or close the tab, unless you save it in this browser.`),
+   h("p",{},`kept ${r.sections.length} section${r.sections.length>1?"s":""} · ${tokens(r.text)} · published nothing · holds in this tab until reload (save to keep it)`),
    h("fieldset",{class:"inv pick"},h("legend",{},"sections to include"),h("ol",{},...r.about.map((a,i)=>h("li",{},h("label",{},pickBox[i],` ${a.title} · ${tokens(r.sections[i].text)}`)))),
     ...(r.skipped?.length?[h("p",{class:"note"},"Left out when prepared: "+r.skipped.slice(0,20).join("; "))]:[])),
    status,h("div",{class:"bar"},drop,save,dl,share));draft.hidden=false;share.focus()};
  const askPublish=(my,signal)=>p=>new Promise((ok,no)=>{if(my!==seq)return no(new Error("superseded"));
   const yes=h("button",{class:"go publish"},"Create public link"),not=h("button",{class:"halt",title:"nothing is published; the prepared draft stays open in this tab"},"Keep in this tab"),enc=h("input",{type:"checkbox",id:"enc"});
   const to=h("input",{type:"text",class:"grant",placeholder:"optional: share keys that may open it (43 characters each, comma-separated)",hidden:"","aria-label":"share keys to grant"});
-  const says=h("p",{class:"note"}),say=()=>says.textContent=enc.checked
-   ?`Leaves this browser when you press the button: this text encrypted here (AES-GCM), signed by your key ${p.key.slice(0,8)}, stored on emem.dev under a new name (the ciphertext's, not ${p.cid}). The server keeps only ciphertext. Anyone holding the whole link, #k=… part included, can read it; it can't be revoked or deleted.`
-   :`Leaves this browser when you press the button: this text, signed by your key ${p.key.slice(0,8)}, stored on emem.dev under the name ${p.cid}. Anyone with the link can read it, and it can't be deleted.`;say();
+  // what pressing the button does, as verbs: each effect named, nothing implied
+  const says=h("p",{class:"note effects"}),say=()=>says.textContent=(enc.checked
+   ?[`encrypts here (AES-GCM)`,`signs with key ${p.key.slice(0,8)}`,`stores only ciphertext on emem.dev, under its own name (not ${p.cid})`,`opens to anyone holding the whole link, #k=… included`,`never revokes, never deletes`]
+   :[`signs with key ${p.key.slice(0,8)}`,`stores on emem.dev as ${p.cid}`,`opens to anyone with the link`,`never deletes`]).join(" · ");say();
   enc.onchange=()=>{yes.textContent=enc.checked?"Create private link":"Create public link";to.hidden=!enc.checked;say()};
-  consent.replaceChildren(h("p",{class:"what"},h("b",{},`Ready: ${p.title}`),` · ${p.files} file${p.files>1?"s":""} · ${p.tokens}${p.flags?` · ⚠ ${p.flags} passage${p.flags>1?"s":""} address an AI`:""}`),
+  consent.replaceChildren(h("p",{class:"what"},h("b",{},`ready: ${p.title}`),` · ${p.files} file${p.files>1?"s":""} · ${p.tokens}${p.flags?` · ⚠ ${p.flags} passage${p.flags>1?"s":""} address an AI`:""}`),
    h("pre",{class:"peek"},p.peek),inventory(p.draft),
    says,
-   h("label",{class:"enc",for:"enc"},enc," encrypt: only people with the whole link (its #k=… part) can read it. The key stays in the link and never reaches a server."),
+   h("label",{class:"enc",for:"enc"},enc," encrypt · keeps the key in the link (#k=…) · sends no key to any server"),
    to,h("div",{class:"bar"},not,yes));consent.hidden=false;tickHead("ready to publish","ok");
   const done=f=>{consent.hidden=true;consent.replaceChildren();signal.removeEventListener("abort",ab);f()};
   const ab=()=>done(()=>no(new Error("Stopped. Nothing was published.")));signal.addEventListener("abort",ab);
@@ -504,7 +506,7 @@ const boot=async()=>{
  const gives=P.all("give"),tabs=h("div",{class:"tabs",role:"tablist"}),pane=h("div",{class:"pane"});
  const code=h("pre",{class:"code",tabindex:"0"}),copy=h("button",{class:"copy"},"copy");
  const ans=h("textarea",{rows:"5",placeholder:T("check"),"aria-label":"answer to check"}),verdict=h("ol",{class:"verdict"}),guarded=h("p",{class:"guard"}),seal=h("button",{class:"seal",hidden:""},"seal this check"),sealed=h("p",{class:"sealed"});
- const pics=h("div",{class:"thumbs"}),what=h("p",{class:"what"}),tokRow=h("p",{class:"tokrow"}),scope=h("ul",{class:"scope"}),more2=h("details",{class:"raw"},h("summary",{},"details: preview, AGENTS.md, chat, curl, MCP, A2A, check"),tabs,pane),rtitle=h("h2",{class:"rtitle",tabindex:"-1"}),backrow=h("div",{class:"backrow"}),out=h("section",{class:"out",hidden:""},backrow,rtitle,what,tokRow,verbs,h("div",{class:"row"},link,grab),scope,meta,lineRow,pics,more2),recent=h("ol",{class:"recent"}),who=h("span");
+ const pics=h("div",{class:"thumbs"}),what=h("p",{class:"what"}),tokRow=h("p",{class:"tokrow"}),scope=h("ul",{class:"scope"}),shapeP=h("p",{class:"shape"}),more2=h("details",{class:"raw"},h("summary",{},"details: about, AGENTS.md, chat, curl, MCP, A2A, check"),shapeP,tabs,pane),rtitle=h("h2",{class:"rtitle",tabindex:"-1"}),backrow=h("div",{class:"backrow"}),out=h("section",{class:"out",hidden:""},backrow,rtitle,what,tokRow,verbs,h("div",{class:"row"},link,grab),scope,meta,lineRow,pics,more2),recent=h("ol",{class:"recent"}),who=h("span");
  const chips=h("div",{class:"chips",role:"toolbar"}),cards=h("div",{class:"cards"}),more=h("button",{class:"more",hidden:""});
  const find=h("input",{type:"search",class:"find",placeholder:"search examples: pdf, parquet, forest, mismatch…","aria-label":"search the examples"}),
   tally=h("p",{class:"count","aria-live":"polite"}),clear=h("button",{class:"clear",hidden:""},"Clear filters"),none=h("p",{class:"none",hidden:""}),
@@ -528,7 +530,10 @@ const boot=async()=>{
   const STALE=10000,behind=w?.freshest_independent_operator_entries_behind,ops=w?.independent_operator_count||0,cur=behind!=null&&behind<=STALE?ops:0;
   if(w)live.title+=` · outside oversight: ${cur} independent operator${cur===1?"":"s"} currently co-signing${ops>cur?` (${ops} on record${w.independent_operator_domains?.length?`: ${w.independent_operator_domains.join(", ")}`:""}, last co-signed ${behind.toLocaleString("en")} entries ago, so not counted)`:""}; the current head is ${w.head_is_independently_witnessed?"":"not yet "}independently witnessed. Witness keys are keys, not organisations.`};
  let pinned=false,headBad=false;
- const beat=async()=>{try{const t=await logHead(spec.signer);if(!pinned){pinned=true;pinHeads(t).catch(()=>{})}live.className="live"+(headBad?" bad":"")+(lastSize&&t.tree_size>lastSize?" up":"");live.replaceChildren("log ",h("b",{},t.tree_size.toLocaleString("en")),lastSize&&t.tree_size>lastSize?` +${t.tree_size-lastSize}`:"");lastSize=t.tree_size}catch(e){console.warn("live:",e.message)}setTimeout(beat,61e3)};
+ const beat=async()=>{try{const t=await logHead(spec.signer);if(!pinned){pinned=true;pinHeads(t).catch(()=>{})}live.className="live"+(headBad?" bad":"")+(lastSize&&t.tree_size>lastSize?" up":"");live.replaceChildren("log ",h("b",{},t.tree_size.toLocaleString("en")),lastSize&&t.tree_size>lastSize?` +${t.tree_size-lastSize}`:"");lastSize=t.tree_size;
+  // the head as the cache served it: a stale copy (emem slow or down) says so, with its time, instead of pretending to be live
+  const sv=servedAs(`${EMEM}/v1/log/sth`);if(sv?.how==="stale"){live.classList.add("stale");live.append(` · as of ${new Date(sv.at).toISOString().slice(11,16)} UTC`)}}catch(e){console.warn("live:",e.message);if(!lastSize){live.className="live stale";live.replaceChildren("log ",h("b",{},"unreachable"));live.title="emem.dev did not answer; retrying about every minute while this tab is visible"}}
+  await new Promise(z=>setTimeout(z,every(60)));await whenVisible();beat()};
  document.body.replaceChildren(
   h("header",{class:"top"},h("a",{class:"brand",href:"./"},h("img",{src:P.one("mark"),alt:"",width:"26",height:"26"}),h("span",{},"emem")),
    h("nav",{"aria-label":"emem"},live,...P.all("link").map(l=>{const[label,href]=l.arg.split(/\s{2,}/);return h("a",href.startsWith("#")?{href}:{href,target:"_blank",rel:"noopener"},label)}))),
@@ -536,16 +541,24 @@ const boot=async()=>{
   h("section",{class:"gallery",id:"gallery"},h("h2",{class:"gh"},"Start with an example"),feat,h("div",{class:"findrow"},find,tally,clear),more,filters,none,cards),
   h("footer",{},who,sealState));
 
+ let force=false;const MADE="emem.made",madeFor=u=>P.shows.find(s=>s.from===u&&NOTE.test(s.emem))?.emem||(store(MADE)||{})[u]||null;
+ const remember=(src,url)=>{const m=store(MADE)||{};delete m[src];m[src]=url;const k=Object.keys(m);for(const x of k.slice(0,Math.max(0,k.length-200)))delete m[x];store(MADE,m)};
  let run=null,tab=gives[0].arg,drawTries=()=>{},popping=false,preset=null;
  // following: a live source is re-read on an interval, only after the person asks, at most `left` more times; Stop ends it
  let follow=null;const followNext=()=>{if(!follow||follow.left<=0){follow=null;return}follow.left--;const f=follow;follow.timer=setTimeout(()=>{if(follow!==f)return;box.value=f.input();start(box.value)},f.every)};
  const followBtn=(label,input,every,left,title)=>h("button",{title,onclick:ev=>{if(follow){clearTimeout(follow.timer);follow=null;ev.target.textContent=label;return}follow={input,every,left};ev.target.textContent=`following · stop`;followNext()}},follow?"following · stop":label);
  const vals=()=>({line:run.line||"",link:run.url,cid:run.cid,title:run.title||"source",shape:run.shape,index:run.body,curl:run.curl,mcp:run.mcp,a2a:run.a2a,verify:run.verify});
+ // verbs before prose: a result is headed by its r1 line, read as a person reads it: the verb, the noun, then its facts
+ // (key=value), with hashes and refs left to the link and the agent line below
+ const HIDE=/^(root|key|src_hash|from|to|sig|cid|b3|of)$/,human=v=>v.replace(/_/g," ").replace(/…/g,"… ");
+ const verbLine=line=>{const t=String(line||"").split(" ");if(t[0]!=="r1"||t.length<3)return[line||""];
+  const kv=t.slice(3).filter(x=>x.includes("=")).map(x=>[x.slice(0,x.indexOf("=")),x.slice(x.indexOf("=")+1)]).filter(([k,v])=>v&&!HIDE.test(k)&&v.length<48).slice(0,6);
+  return[h("b",{class:"verb"},t[1]),` ${t[2]}`,...kv.map(([k,v])=>h("span",{class:"kv"},h("i",{},k.replace(/_/g," "))," ",human(v)))]};
  const draw=()=>{
   if(!run){out.hidden=true;return}
   out.hidden=false;
   tabs.replaceChildren(...[...gives.map(g=>g.arg),"check"].map(n=>h("button",{role:"tab","aria-selected":String(n===tab),onclick:()=>{tab=n;draw()}},n)));
-  if(tab==="check"&&run.sampled){pane.replaceChildren(h("p",{class:"note"},`An answer is checked against the whole source. ${run.sampled.of-run.sampled.at.length} sections haven't been read yet.`),h("button",{class:"grab",onclick:()=>{box.value=`all: ${run.shareUrl||run.url}`;tab="check";start(box.value)}},`read all ${run.sampled.of} sections`))}
+  if(tab==="check"&&run.sampled){pane.replaceChildren(h("p",{class:"note"},`checks answers against the whole source · ${run.sampled.of-run.sampled.at.length} sections unread`),h("button",{class:"grab",onclick:()=>{box.value=`all: ${run.shareUrl||run.url}`;tab="check";start(box.value)}},`read all ${run.sampled.of} sections`))}
   else if(tab==="check"){pane.replaceChildren(ans,guarded,verdict,seal,sealed);ans.oninput()}
   else{code.replaceChildren(...linkify(fill(gives.find(g=>g.arg===tab).body,vals())));pane.replaceChildren(code,copy)}
  };
@@ -653,6 +666,10 @@ ${last.answer.trim()}
    if(REQUEST.test(r.input))list=P.flows.request;else if(CLAIM.test(r.input))list=P.flows.claim;else if(DELIVER.test(r.input))list=P.flows.deliver;else if(TASKS.test(r.input))list=P.flows.tasks;else if(m=r.input.match(ALL)){list=P.flows.open;r.input=m[1];r.full=true}else if(m=r.input.match(MORE)){list=P.flows.extend;r.input=m[1]}else if(m=r.input.match(WITNESS)){list=P.flows.witness;r.input=m[1]}else if(COMPARE.test(r.input))list=P.flows.compare;else if(WORLD.test(r.input))list=P.flows.world;else if(REEL.test(r.input))list=P.flows.timelapse;else if(TRACK.test(r.input))list=P.flows.track;else if(GRID.test(r.input))list=P.flows[r.input.match(GRID)[1].toLowerCase()];else if(CAMERA.test(r.input))list=P.flows.cameras;
    else if(POINTABLE.test(r.input))list=P.flows.point;else if(NOTE.test(r.input))list=P.flows.open;else if(ASK.test(r.input))list=P.flows.ask;else if(tokenType(r.input,P.tokens)||CID.test(r.input)||STH.test(r.input))list=P.flows.resolve}
   if(preset){list=preset.list;Object.assign(r,preset.r);preset=null}
+  // emem is the cache for work too: a source this site (or this browser) already ememified opens as its saved note, checked
+  // by its name, instead of being read and hashed again by every visitor. "re-read source" (or make it again) forces a read.
+  else if(list===P.flows.point&&!expect&&!force){const known=madeFor(r.input);if(known){r.reused=r.input;r.input=known;list=P.flows.open}}
+  force=false;
   if(!r.files?.length&&!r.input&&!r.sections){work.hidden=false;head.replaceChildren();map.replaceChildren();steps.replaceChildren(h("li",{class:"bad"},T("blank")));box.focus();busy(false);return}
   let i=0;r.tick=sub=>{if(my===seq){if(RUN.ctl?.signal.aborted)throw new Error(RUN.why||"Stopped. Nothing more was read or written.");show(list,i,sub)}};
   RUN.ctl?.abort();RUN.ctl=new AbortController();Object.assign(RUN,{req:0,bytes:0,wrote:[],at:Date.now(),why:"",cap:Object.fromEntries(P.all("budget").map(b=>b.arg.trim().split(/\s+/)).map(([k,v])=>[k,+v]))});halt.hidden=false;
@@ -663,30 +680,31 @@ ${last.answer.trim()}
    for(;i<list.length;i++){if(my!==seq)return;show(list,i);await ops[list[i]](r)}
    if(my!==seq)return;
    if(r.local){show(list,i);clearInterval(clock);tickHead("kept in this tab","ok");if(run){out.classList.add("stale");out.dataset.stale="previous result, not this draft"}drawDraft(r);return}
-   r.line=r.task?`r1 followed task ${r.url.replace(/^.*by_attester\//,"").replace(/\.md$/,"")} want=${r.task.q.want} of=${r.task.q.of.replace(/^.*by_attester\//,"").replace(/\.md$/,"")} state=${r.task.state.replace(/ /g,"_")} replies=${r.task.rows.length}`:r.token?tokenLine(r.token):r.body?lineOf(r.body,r.url)+(r.secret?` key=${r.secret}`:""):"";agentLine.textContent=r.line;lineRow.hidden=!r.line;what.textContent=(r.shape||"").replace(/^It is /,"").replace(/^./,c=>c.toUpperCase());what.hidden=!r.shape;
+   r.line=r.task?`r1 followed task ${r.url.replace(/^.*by_attester\//,"").replace(/\.md$/,"")} want=${r.task.q.want} of=${r.task.q.of.replace(/^.*by_attester\//,"").replace(/\.md$/,"")} state=${r.task.state.replace(/ /g,"_")} replies=${r.task.rows.length}`:r.token?tokenLine(r.token):r.body?lineOf(r.body,r.url)+(r.secret?` key=${r.secret}`:""):"";agentLine.textContent=r.line;lineRow.hidden=!r.line;what.replaceChildren(...verbLine(r.line));shapeP.textContent=(r.shape||"").replace(/^It is /,"").replace(/^./,c=>c.toUpperCase());what.hidden=!r.line;shapeP.hidden=!r.shape;
    // tokens, side by side: what an agent reads here, against what the source would cost (text as text; binary as base64)
    {const body=r.body||"",srcBytes=r.pointer?(r.p?.bytes||+(body.match(/^bytes: (?:about )?(\d+)/m)||[])[1]||0):0,claim=(body.match(/(~[\d.]+[kMB]?) tokens in \d+ sections/)||[])[1];
     const srcTok=r.sampled&&claim?+claim.replace("~","").replace(/k$/,"e3").replace(/M$/,"e6").replace(/B$/,"e9"):(r.notes?.length>1||(r.kids?.length&&!r.sampled))&&r.text?count(r.text):null;
     const tc=body&&!r.token?tokenCompare({note:body,line:r.line,srcTok,srcBytes}):null;tokRow.hidden=!tc;
-    if(tc)tokRow.replaceChildren(h("b",{},`${tok(tc.note)} tokens`)," for an agent to read this",tc.line?`, ${tok(tc.line)} for its one line`:"",
-     ...(tc.src?[". The source would be ",h("b",{},`${tok(tc.src)} tokens`),tc.base64?` if its ${mb(srcBytes)} were handed to a model as base64`:"",": ",h("b",{class:"x"},`${tc.x.toLocaleString("en")}× less`),"."]:["."]))}
+    if(tc)tokRow.replaceChildren(h("span",{},h("i",{},"reads")," ",h("b",{},tok(tc.note))," tokens"),...(tc.line?[h("span",{},h("i",{},"line")," ",tok(tc.line))]:[]),
+     ...(tc.src?[h("span",{title:tc.base64?`the source's ${mb(srcBytes)} as base64, as a model would be handed it`:"the full text"},h("i",{},"source")," ",tok(tc.src)),h("span",{},h("i",{},"cuts")," ",h("b",{class:"x"},`${tc.x.toLocaleString("en")}×`))]:[]))}
    out.classList.remove("stale");delete out.dataset.stale;if(follow)followNext();
    show(list,i);clearInterval(clock);tickHead(r.bad?"ememified, with a finding":"ememified",r.bad?"bad":"ok");run=r;tab=r.full&&tab==="check"?"check":gives[0].arg;if(tab==="check")more2.open=true;
    const share=r.shareUrl||r.url;link.textContent=share;link.href=share;link.target="_blank";link.rel="noopener";grab.hidden=false;
    meta.className="meta"+(r.bad?" bad":"");
    const secs=r.token||r.pointer||r.world||r.camera?0:r.notes?.length??(r.kids?.length||(r.checked.length>1?r.checked.length-1:1)),size=r.pointer||r.world||r.camera?r.size:r.token?r.shape.split(/\.\s/)[0].replace(/^It is /,"").replace(/\.$/,""):r.sampled?`${secs} sections${(r.body.match(/(~[\d.]+k? tokens) in \d+ sections/)||[])[1]?`, ${(r.body.match(/(~[\d.]+k? tokens) in \d+ sections/)||[])[1]} as the index states`:""}`:secs>1?`${secs} sections, ${tokens(r.text)}`:tokens(r.text);
    // two scopes, never merged: what was checked of the saved note, and what was re-read from the source just now
-   const parts=String(r.proof||"").split(" · ").filter(Boolean),SRC=/source|listed again|sampled chunk|witness|re-hash|recomputed|still hold|log has grown|CHANGED|pixels|frames|re-read|read now/i,at=new Date().toISOString().slice(11,19)+"Z";
+   const parts=String(r.proof||"").split(" · ").filter(Boolean),SRC=/source|listed again|sampled chunk|witness|re-hash|recomputed|still hold|log has grown|CHANGED|pixels|frames|framed|re-read|re-checked|read now/i,at=new Date().toISOString().slice(11,19)+"Z";
    const saved=parts.filter(x=>!SRC.test(x)),now=parts.filter(x=>SRC.test(x));
-   scope.replaceChildren(h("li",{},h("b",{},r.token?"signed record":"stored note"),` ${saved.join(" · ")||"—"}`),...(now.length?[h("li",{},h("b",{},"checked now"),` ${now.join(" · ")}`)]:[]),...(()=>{const w=writerOf(r.url,S.sealed_by?.slice(0,8)||"ddzmyzhn");return w?[h("li",{},h("b",{},"written by"),` ${w.key} · ${w.tier} · ${w.says}`)]:[]})(),h("li",{class:"at"},`checked at ${at} by this browser`));
+   scope.replaceChildren(h("li",{},h("b",{},r.token?"signed":"stored"),` ${saved.join(" · ")||"—"}`),...(now.length?[h("li",{},h("b",{},"checked now"),` ${now.join(" · ")}`)]:[]),...(()=>{const w=writerOf(r.url,S.sealed_by?.slice(0,8)||"ddzmyzhn");return w?[h("li",{},h("b",{},"signed by"),` ${w.key} · ${w.tier} · ${w.says}`)]:[]})(),h("li",{class:"at"},`checked ${at} by this browser`));
    // a human heading first: what this is, before any protocol line, link or proof
    back.hidden=!lastCard;if(!follow&&!popping)requestAnimationFrame(()=>rtitle.focus({preventScroll:true}));
    rtitle.textContent=String(r.title||r.token||"result").replace(/^https?:\/\//,"").slice(0,140);
-   meta.textContent=[secs>1?`${size}; the index is ${tokens(r.body)}`:size,r.skipped?.length?`${r.skipped.length} not included`:"",expect&&r.cid===expect?"same file names as the gallery copy":""].filter(Boolean).join("  ·  ");
+   meta.textContent=[size,secs>1?`index ${tokens(r.body)}`:"",r.skipped?.length?`left out ${r.skipped.length}`:"",r.reused?"reused from emem · source not re-read":"",expect&&r.cid===expect?"matched the gallery's names":""].filter(Boolean).join("  ·  ");
    if(!r.bad){const next="?s="+encodeURIComponent(r.token||r.url)+(r.secret?`#k=${r.secret}`:"");
     // each result is a place in history: Back reopens the previous reference (a read, never a write or a rerun of a query)
     if(popping||location.search+location.hash===next)history.replaceState(null,"",next);else history.pushState(null,"",next);popping=false;
     store("emem.recent",[{url:r.token||r.shareUrl||r.url,title:r.title||r.url,shape:size},...(store("emem.recent")||[]).filter(x=>x.url!==(r.token||r.shareUrl||r.url))].slice(0,8));drawRecent()}
+   if(r.pointer&&!r.reused&&r.p?.url&&!r.bad)remember(r.input,r.url);
    if(r.camera&&!r.pointer){verbs.hidden=false;verbs.replaceChildren(followBtn("refresh every 5 min",()=>r.input||box.value,300000,12,"survey the same cameras again every 5 minutes, at most 12 times: each survey is a new signed note with fresh clips"))}
    else if(r.grantLinks?.length){verbs.hidden=false;verbs.replaceChildren(...r.grantLinks.map(g=>h("span",{class:"task"},`for ${g.to}: `,h("a",{href:g.url,target:"_blank",rel:"noopener",title:"opens only in the browser or agent holding that share key; the link itself carries no key"},g.url.replace(/^.*\//,"…/")))))}
    else if(r.task){verbs.hidden=false;verbs.replaceChildren(...r.task.rows.map(x=>h("span",{class:"task"},h("a",{href:x.url,target:"_blank",rel:"noopener",class:x.ok?"w ok":"w bad",title:x.why||""},`${x.ok?"✓":"✗"} ${x.kind} · ${x.from}${x.why?` · ${x.why}`:""}`),
@@ -694,6 +712,7 @@ ${last.answer.trim()}
      ...(r.task.rows.length?[]:[h("span",{class:"note"},`no replies yet. The other key answers with: deliver: ${r.url} <result link>`)]))}
    else if(r.sampled){verbs.hidden=false;verbs.replaceChildren(h("button",{onclick:()=>{box.value=`all: ${r.shareUrl||r.url}`;start(box.value)},title:"read and check every section, not a sample"},`check all ${r.sampled.of} sections`))}
    else verbs.hidden=!r.pointer||r.folder;if(r.pointer&&!r.folder)verbs.replaceChildren(
+    ...(r.reused?[h("button",{class:"primary",onclick:()=>{force=true;box.value=r.reused;start(r.reused)},title:"read the source again now and hash it afresh; the saved note stays as it is"},"re-read source")]:[]),
     h("button",{onclick:()=>{box.value=`more: ${r.url}`;start(box.value)},title:"hash the next 8 chunks, in the fixed order; the earlier rows are kept"},"hash 8 more"),
     h("button",{onclick:()=>{box.value=`witness: ${r.url}`;start(box.value)},title:"re-read the source with your key and sign what you find, addressed to the author"},"witness"),
     h("button",{onclick:()=>{box.value=`compare: ${r.url} `;box.focus()},title:"paste a second pointer after this one"},"compare with…"),

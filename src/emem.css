@@ -228,3 +228,12 @@ body.working main>.sub,body.working main>.note,body.working main>.tries{display:
 .draft,.consent{overflow-wrap:anywhere}
 .card .pic.glyph{display:flex;align-items:flex-end;padding:calc(1.5*var(--u)) calc(2*var(--u));background:var(--bg);color:var(--fg);font:600 clamp(18px,2.2vw,24px)/1.15 var(--mono);letter-spacing:-.02em}
 .card .pic.glyph.bad{color:var(--no)}
+/* verbs before prose: the result's first line is what was done, then its facts */
+.out .what{display:flex;flex-wrap:wrap;align-items:baseline;gap:.35em .9em;font-size:var(--t-read);margin:0 0 var(--u)}
+.out .what .verb{font-size:1.15em;font-weight:650}
+.out .what .kv,.tokrow span{white-space:nowrap}
+.out .what .kv i,.tokrow i{font-style:normal;color:var(--mute);font-size:.88em;margin-right:.2em}
+.tokrow{display:flex;flex-wrap:wrap;gap:.3em 1.1em}
+.raw .shape{font-size:var(--t-support);color:var(--mute);margin:var(--u) 0}
+.consent .effects{font-size:var(--t-support);line-height:1.6}
+.live.stale b{color:var(--mute)}

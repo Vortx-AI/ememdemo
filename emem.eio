@@ -17,14 +17,14 @@ link    docs     https://emem.dev/docs
 link    GitHub   https://github.com/Vortx-AI/emem
 
 say     Tokenise huge files for agents to use.
-sub     Models, satellite scenes, scans, video, code, whole websites and whole places. Your agent gets one small link, reads only the part it needs, and can check every byte.
+sub     Point a model, a scan, a video, a repo, a website or a whole place. Your agent gets one small link, reads only what it needs, and checks every byte.
 in      Drop files, or paste a URL, a repo, a folder, large data, world:, timelapse:, city:, forest: a place, or cameras: London
-note    Public: anyone with the link can read it.
+note    Publishes only when you press Create link; anyone with the link reads it.
 # three ways in, verbs first: task <verb> <noun> | what goes in the box | the prefix it routes by
 task    point  a file   | a URL, repo, folder, model, scan or video; or drop files |
 task    sense  a place  | a place, or "lat, lng"; also timelapse:, city:, forest:, cameras: | world: 
 task    check  a link   | an emem link, token or file name, to re-check every byte |
-blank   Nothing to read yet. Drop a file, or paste text, a URL or a GitHub repo.
+blank   Drop a file, or paste text, a URL or a GitHub repo.
 
 # the same lines for visitors in other languages (?lang=es to try); the rules above hold for every one
 lang es <<
@@ -66,6 +66,24 @@ limit   4000000
 section 24000
 max     160
 # what one run may spend before it stops itself (requests, bytes the servers declared, seconds); a stop says which cap it hit
+# cache: emem is the cache. A name that is a hash never goes stale, so it is kept for good and re-hashed when read;
+# what moves is read once per interval per browser, shared by every tab, and shown stale (with its time) when emem is down.
+cache forever GET ^https://emem\.dev/memories/by_attester/[a-z2-7]{8}/[a-z2-7]{26}\.md$ blake3
+cache live 3600 GET ^https://emem\.dev/memories/by_attester/[a-z2-7]{8}/arcade/[\w.-]+\.md$
+cache forever GET ^https://emem\.dev/v1/memory_bundle/[\w:.-]+$
+cache forever GET ^https://emem\.dev/v1/tree/[a-z2-7]{26}\?row=
+cache forever GET ^https://emem\.dev/v1/log/(inclusion|consistency)\?.*(tree_size|second)=\d+
+cache forever GET ^https://emem\.dev/v1/perception/verify/clip/[0-9a-f]{64}$
+cache forever POST ^https://emem\.dev/v1/memory_token/resolve_many$
+cache live 3600 POST ^https://emem\.dev/a2a/tasks$ skill=emem_memory_view
+cache live 20 POST ^https://emem\.dev/a2a/tasks$ skill=emem_memory_list_by_kind
+cache live 30 GET ^https://emem\.dev/v1/log/sth$
+cache live 60 GET ^https://emem\.dev/v1/log/witnesses
+cache live 30 GET ^https://emem\.dev/v1/inbox\?
+cache live 20 GET ^https://emem\.dev/memories/by_attester/[a-z2-7]{8}/arcade/\?
+cache live 60 GET ^https://emem\.dev/v1/perception/(cards|verify/key)$
+cache live 120 GET ^https://emem\.dev/v1/perception/cards/[\w-]+/(latest\.svg|thumb\.png)$
+
 budget  requests 3000
 budget  bytes 2000000000
 budget  seconds 900
@@ -284,7 +302,7 @@ body: data:image/webp;base64 sprite, frames side by side ; show only if of == ca
 #   thumb its picture: a small note (emem: thumb.v1) drawn from checked bytes, shown only if it names this card's link
 
 show earth : Amazon frontier, 2017–2025 <<
-feature 2 | a place → eight years of satellite frames, each checked by its hash
+feature 2 | framed eight years of one place, every frame checked by its hash
 tag   timelapse
 by    combined
 from  timelapse: -9.73, -63.03
@@ -678,7 +696,7 @@ emem  https://emem.dev/memories/by_attester/ddzmyzhn/w2b7venmj4ltqf6ewegvfx4l5a.
 >>
 
 show documents : RFC 9110 <<
-feature 1 | a 194-page PDF → a section index an AI reads one part at a time
+feature 1 | indexed a 194-page PDF; an AI reads one section at a time
 tag   PDF · 194 pages
 by    third party
 from  https://www.rfc-editor.org/rfc/rfc9110.pdf
@@ -792,7 +810,7 @@ emem  https://emem.dev/v1/log/sth
 >>
 
 show proof : This site, sealed <<
-feature 4 | Inspect how this page works: this page → its pinned seal, its sources and assets
+feature 4 | Inspect how this page works: sealed this page, its sources and its assets
 tag   seal
 by    combined
 pin   this site
@@ -800,14 +818,14 @@ emem  self
 >>
 
 show proof : A lying file name <<
-feature 3 | a file whose name doesn't match its bytes → caught, and said plainly
+feature 3 | caught a file whose name doesn't match its bytes
 tag   mismatch
 by    human
 pin   a lying name
 emem  https://emem.dev/memories/by_attester/ddzmyzhn/avmvdexjuwqwjjzyncczvmfyzq.md
 >>
 
-check   Paste your AI's answer. Every "quote" in it is checked against the source.
+check   Paste your AI's answer; this checks every "quote" in it against the source.
 
 rule words say 6..12
 rule words sub 12..32

@@ -55,8 +55,8 @@ await test("the examples can be searched, and a search with no match says so and
  await o.pg.click(".feat .card button");await o.pg.waitForFunction(()=>document.querySelector(".r1")?.textContent,null,{timeout:60000});assert.ok(await o.pg.isVisible(".out .back"));
  assert.ok(await o.pg.evaluate(()=>document.body.classList.contains("working")))});
 await test("a big index opens by sampling, and check all reads every section",async keep=>{const o=await open("?boot=local&s="+encodeURIComponent("https://emem.dev/memories/by_attester/ddzmyzhn/aczo4t4lqajwljebeifv2wrpxy.md"));keep(o);
- await o.pg.waitForFunction(()=>document.querySelector(".r1")?.textContent,null,{timeout:60000});assert.match(await o.pg.textContent(".out .scope"),/sections [\d, ]+ of 23 read and match/);
- await o.pg.click(".verbs button");await o.pg.waitForTimeout(400);await idle(o.pg);assert.match(await o.pg.textContent(".out .scope"),/24 of 24 files match/)});
+ await o.pg.waitForFunction(()=>document.querySelector(".r1")?.textContent,null,{timeout:60000});assert.match(await o.pg.textContent(".out .scope"),/read and matched sections [\d, ]+ of 23/);
+ await o.pg.click(".verbs button");await o.pg.waitForTimeout(400);await idle(o.pg);assert.match(await o.pg.textContent(".out .scope"),/matched 24\/24 names/)});
 
 await test("the signing key is non-extractable and never in localStorage",async keep=>{const o=await open("?boot=local");keep(o);await o.pg.waitForSelector(".card");await o.pg.waitForFunction(()=>/key /.test(document.querySelector("footer").textContent));
  const k=await o.pg.evaluate(()=>new Promise(ok=>{const q=indexedDB.open("emem",1);q.onsuccess=()=>{const g=q.result.transaction("keys").objectStore("keys").get("site");g.onsuccess=()=>ok({ext:g.result?.priv?.extractable,ls:localStorage.getItem("emem.key")})}}));

@@ -1,6 +1,7 @@
 // emem.mjs: the wire. Names, keys, signatures, writes, reads, and proof, against emem.dev.
 // blake3 and ed25519 come from emem's own verifier, vendored in this repo and sealed with the site: no third-party crypto at runtime
 import "./vendor/emem-verify-core.js";
+import {cached,prime,sharedStream} from "./cache.mjs";
 const blake3=globalThis.ememCrypto.blake3;
 
 export const EMEM="https://emem.dev";
@@ -40,7 +41,9 @@ export const stopped=()=>{if(RUN.ctl?.signal.aborted)throw new Error(RUN.why||"S
 const capped=()=>{if(!RUN.ctl||RUN.ctl.signal.aborted)return;const c=RUN.cap,s=(Date.now()-RUN.at)/1000;
  const hit=RUN.req>=c.requests?`${c.requests} requests`:RUN.bytes>=c.bytes?`${(c.bytes/1e9).toFixed(1)} GB declared`:s>=c.seconds?`${c.seconds} seconds`:"";
  if(hit){RUN.why=`Stopped: this run reached its budget of ${hit}. Nothing more was read or written.`;RUN.ctl.abort()}};
-export const net=async(url,init={})=>{const signal=init.signal||RUN.ctl?.signal;if(!init.signal)capped();stopped();try{const x=await fetch(url,signal?{...init,signal}:init);if(RUN.ctl&&!init.signal){RUN.req++;if(init.method!=="HEAD")RUN.bytes+=+x.headers.get("content-length")||0}return x}catch(e){if(signal?.aborted)stopped();throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
+// every read goes through the cache (cache.mjs): a request answered from it costs emem.dev nothing and is not counted
+export const net=async(url,init={})=>{const signal=init.signal||RUN.ctl?.signal;if(!init.signal)capped();stopped();try{const x=await cached(url,init,()=>fetch(url,signal?{...init,signal}:init));const fromCache=x.headers.has("x-emem-cache");
+ if(RUN.ctl&&!init.signal){if(fromCache)RUN.cached=(RUN.cached||0)+1;else{RUN.req++;if(init.method!=="HEAD")RUN.bytes+=+x.headers.get("content-length")||0}}return x}catch(e){if(signal?.aborted)stopped();throw new Error(`Could not reach ${new URL(url).host}. Check your connection and try again.`)}};
 
 // ---------- key: made in this browser, never sent anywhere ----------
 // The working key is a non-extractable CryptoKey kept in IndexedDB: a script that runs here can sign with it but can't read it.
@@ -110,7 +113,7 @@ export const note=async(body,k,at)=>{
 const bucket={left:40,at:Date.now()};
 const slot=async()=>{for(;;){const now=Date.now();bucket.left=Math.min(40,bucket.left+(now-bucket.at)/1000*3.5);bucket.at=now;if(bucket.left>=1){bucket.left--;return}await new Promise(z=>setTimeout(z,(1-bucket.left)/3.5*1000+20))}};
 const there=async n=>{const back=await fetch(n.url).catch(()=>null);return!!(back?.ok&&cidOf(new Uint8Array(await back.arrayBuffer()))===n.cid)};
-const landed=n=>{if(RUN.ctl)RUN.wrote.push(n.url)};
+const landed=n=>{if(RUN.ctl)RUN.wrote.push(n.url);prime(n.url,n.bytes)};
 // a key made in this page writes at most CAP notes an hour, counted in this browser: a swarm can still mint keys,
 // which is why every result names its writer's tier (see who())
 export const CAP=400;
@@ -195,7 +198,7 @@ const faces={
   const signed=await receiptOk(j.receipt,S.signer)&&j.receipt.fact_cids?.includes(j.fact_cid);
   return{title:`${j.band} at ${j.cell}`,big:`${fmt(j.value_verbatim??j.value)} ${j.unit||""}`.trim(),
    lines:[["measured",day(src.captured_at)],["source",src.scheme],["recipe",f.derivation?.fn_key],["kind",j.provenance?.class],["confidence",f.confidence!=null?fmt(f.confidence):""],["place",j.cell]],
-   ok:signed&&bytes!==false,proof:[signed?"✓ signed by emem.dev":"✗ signature does not check",bytes?"its bytes hash to its name":""]};
+   ok:signed&&bytes!==false,proof:[signed?"✓ signed by emem.dev":"✗ signature does not check",bytes?"matched bytes to name":""]};
  },
  async bundle(j,S){
   const m=await post(`${EMEM}/v1/memory_token/resolve_many`,{tokens:j.citations.map(c=>c.memory_token)}).then(json).catch(()=>({items:[]}));
@@ -216,19 +219,19 @@ const faces={
  async raster(j,S){
   const src=j.derivation?.sources?.[0]||{},gd=j.derivation?.artifact?.grid||{},signed=await receiptOk(j.receipt,S.signer),art=j.artifact?.present?await grid(j.artifact.artifact_cid):null;
   return{title:`${j.band} on ${day(src.captured_at)}`,big:`${gd.width}×${gd.height} px`,lines:[["scene",src.id],["cloud",src.cloud_cover!=null?fmt(src.cloud_cover)+"%":""],["pixel",gd.dx?`${gd.dx} m`:""],["spot check",j.spot_check?.passed?"passed":"not run"]],
-   canvases:art?[art.cv]:[],ok:signed&&art?.ok!==false,proof:[signed?"✓ signed by emem.dev":"✗ signature does not check",art?.ok?"pixels hash to their name":""]};
+   canvases:art?[art.cv]:[],ok:signed&&art?.ok!==false,proof:[signed?"✓ signed by emem.dev":"✗ signature does not check",art?.ok?"hashed pixels to their name":""]};
  },
  async cube(j,S){
   const mem=j.derivation?.members||[],signed=await receiptOk(j.receipt,S.signer);
   await verifier();const arts=await Promise.all(mem.map(m=>grid(m.artifact_cid)));
   return{title:`${j.band} across ${mem.length} dates`,big:`${mem.length} dates`,lines:mem.map(m=>[day(m.captured_at),m.scene_id]),canvases:arts.filter(Boolean).map(a=>a.cv),
-   ok:signed&&arts.every(a=>a?.ok!==false),proof:[signed?"✓ signed by emem.dev":"✗ signature does not check",arts.length&&arts.every(a=>a?.ok)?"pixels hash to their names":""]};
+   ok:signed&&arts.every(a=>a?.ok!==false),proof:[signed?"✓ signed by emem.dev":"✗ signature does not check",arts.length&&arts.every(a=>a?.ok)?"hashed pixels to their names":""]};
  },
  async rasterset(j,S){const signed=await receiptOk(j.receipt,S.signer);return{title:"a set of fields",big:`${(j.members||j.member_tokens||[]).length} fields`,lines:[],ok:signed,proof:[signed?"✓ signed by emem.dev":"✗ signature does not check"]}},
  async state(j){
   await verifier();const holds=b32full(globalThis.ememVerifyInternals.blake3(unhex(j.canonical_cbor_hex||"")))===j.cid,r=j.record||{},p=r.payload||{};
   return{title:`${r.kind}: ${p.q||""}`.trim(),big:r.kind,lines:[["place",p.place_resolved?.label],["question",p.q],["class",r.class],["built on",(r.derived_from||[]).map(d=>d.cid?.slice(0,10)).join(", ")||"nothing"]],
-   ok:holds,proof:[holds?"✓ its bytes hash to its name":"✗ bytes do not match the name","(no signature: a state is only content-addressed)"]};
+   ok:holds,proof:[holds?"✓ matched bytes to name":"✗ bytes do not match the name","unsigned: a state is only content-addressed"]};
  }
 };
 
@@ -290,14 +293,15 @@ export const driftOf=async(url,watcher)=>{const cid8=(url.match(/([a-z2-7]{26})\
  return{n:good.length,bad,linked,since:f(good[0]?.body||"","at").slice(0,10),last:f(good.at(-1)?.body||"","at").slice(0,16).replace("T"," "),changed:changed.length,lastChange:f(changed.at(-1)?.body||"","at").slice(0,10)}};
 // emem's corpus stream (GET /v1/stream): a signed corpus.state tick every 15 s. Each tick is verified here against the
 // pinned key: ed25519 over blake3(PreimageV1 "emem.stream.tick.v1" {1 version, 2 key_epoch u32-BE, 3 served_at, 4 registry_cid, 5 distinct_cells u64-BE}).
-export const corpusStream=(S,onTick)=>{if(typeof EventSource==="undefined")return null;const es=new EventSource(`${EMEM}/v1/stream?interval=15`);
+// one connection per browser (sharedStream): the tab holding the lock streams and relays; every tab verifies each tick itself
+export const corpusStream=(S,onTick)=>{if(typeof EventSource==="undefined")return null;
  const pre=(domain,segs)=>{const o=[...U("emem.preimage.v1\0")],d=U(domain),u32=n=>o.push(n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255);u32(d.length);o.push(...d);for(const[t,b]of segs){o.push(t);u32(b.length);o.push(...b)}return new Uint8Array(o)};
  const be=(n,w)=>{const b=new Uint8Array(w);let v=BigInt(n);for(let i=w-1;i>=0;i--){b[i]=Number(v&255n);v>>=8n}return b};
- es.addEventListener("state",async m=>{try{const ev=JSON.parse(m.data);await verifier();const I=globalThis.ememVerifyInternals;
+ const tick=async data=>{try{const ev=JSON.parse(data);await verifier();const I=globalThis.ememVerifyInternals;
   const p=pre("emem.stream.tick.v1",[[1,U(String(ev.version))],[2,be(ev.responder.key_epoch,4)],[3,U(ev.served_at)],[4,U(ev.manifests.registry_cid)],[5,be(ev.corpus.distinct_cells,8)]]);
   const ok=ev.responder.pubkey_b32===S.signer&&I.ed.verify(I.b32decode(ev.signature.signature_b32),I.blake3(p),I.b32decode(S.signer));
-  onTick({ok,cells:ev.corpus.distinct_cells,bands:ev.corpus.distinct_bands,facts:ev.corpus.facts_scanned,at:ev.served_at})}catch{onTick({ok:false})}});
- return es};
+  onTick({ok,cells:ev.corpus.distinct_cells,bands:ev.corpus.distinct_bands,facts:ev.corpus.facts_scanned,at:ev.served_at})}catch{onTick({ok:false})}};
+ return sharedStream("corpus",emit=>{const es=new EventSource(`${EMEM}/v1/stream?interval=15`);es.addEventListener("state",m=>emit(m.data));return()=>es.close()},tick)};
 // a second reader: emem.dev fetches exactly these bytes itself and signs their hash (POST /v1/range_hash). The receipt is
 // checked here: ed25519 over PreimageV1 "emem.range_hash.v1" {1 url, 2 u64-BE offset, 3 u64-BE length, 4 blake3 raw,
 // 5 etag|"absent", 6 fetched_at, 7 responder key raw, 8 fetched_url}.
@@ -319,7 +323,7 @@ const byName=async(cid,S,tick)=>{
  const{n,same,author}=await viewChecked(cid);
  const title=(n.content.match(/^#\s+(.+)$/m)||[])[1]||n.path.split("/").pop();
  const f={title,big:title,lines:[["written by",short(n.attester_pubkey_b32)],["kind",n.memory_kind],["signed",day(n.signed_at)],["path",n.path]],ok:same&&author!==false,
-  proof:[same?"✓ bytes match the name":"✗ bytes do not match the name",author?`author ${short(n.attester_pubkey_b32)} signed it`:author===false?"✗ author signature fails":""]};
+  proof:[same?"✓ matched bytes to name":"✗ bytes do not match the name",author?`signed by author ${short(n.attester_pubkey_b32)}`:author===false?"✗ author signature fails":""]};
  const args={file_cid:cid};
  return{token:cid,url:EMEM+n.path,cid,title,face:f,body:`${lines2text(f)}\n\n${n.content}`,text:n.content,proof:f.proof.filter(Boolean).join(" · "),bad:!f.ok,
   shape:"It is a file, found by its name (the hash of its bytes).",
@@ -334,7 +338,7 @@ const logHead=async(S,tick)=>{
  const preV1=(domain,segs)=>{const o=[...U("emem.preimage.v1\0")],d=U(domain),u32=n=>o.push(n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255);u32(d.length);o.push(...d);for(const[t,b]of segs){o.push(t);u32(b.length);o.push(...b)}return new Uint8Array(o)};
  const be=(n,len)=>{const o=[];let x=BigInt(n);for(let i=len-1;i>=0;i--)o.push(Number((x>>BigInt(8*i))&255n));return o};
  let ok=false;try{ok=ed.verify(b32decode(sth.signature_b32),b3(preV1("emem.translog.sth.v1",[[1,be(sth.tree_size,8)],[2,[...b32decode(sth.root_b32)]],[3,[...U(sth.signed_at)]],[4,[...b32decode(sth.responder_pubkey_b32)]]])),b32decode(sth.responder_pubkey_b32))&&sth.responder_pubkey_b32===S.signer}catch{}
- const f={title:"the transparency log head",big:Number(sth.tree_size).toLocaleString("en")+" entries",lines:[["signed",sth.signed_at],["root",short(sth.root_b32)],["key",short(sth.responder_pubkey_b32)]],ok,proof:[ok?"✓ log head signed by emem.dev":"✗ log head signature fails","pin it; the log may only grow"]};
+ const f={title:"the transparency log head",big:Number(sth.tree_size).toLocaleString("en")+" entries",lines:[["signed",sth.signed_at],["root",short(sth.root_b32)],["key",short(sth.responder_pubkey_b32)]],ok,proof:[ok?"✓ log head signed by emem.dev":"✗ log head signature fails","pin it · the log only grows"]};
  return{token:`${EMEM}/v1/log/sth`,url:`${EMEM}/v1/log/sth`,cid:short(sth.root_b32),title:f.title,face:f,body:`${lines2text(f)}\n\n${JSON.stringify(j,null,1)}`,text:JSON.stringify(j),proof:f.proof.join(" · "),bad:!ok,
   shape:"It is the signed head of emem.dev's append-only log. Keep it; a later head must prove it only grew.",
   via:{curl:`curl -s ${EMEM}/v1/log/sth\n# later: prove the log only grew since this head\ncurl -s "${EMEM}/v1/log/consistency?first=${sth.tree_size}"`,mcp:"emem_log_sth {}",a2a:a2aCallJs("emem_log_sth",{}),verify:"# the head's ed25519 signature was checked in this page against emem.dev's pinned key"}};
@@ -358,7 +362,7 @@ export const ask=async(q,S,tick)=>{
  const handle=b?.bundle_token||facts[0]?.token||"",score=(env.algorithm_outcomes_summary||[])[0];
  const lp=env.live_perception,lpLine=lp?[["live perception",typeof lp==="string"?lp:[lp.summary||lp.label,lp.counts?JSON.stringify(lp.counts):"",lp.captured_at||lp.at].filter(Boolean).join(" · ").slice(0,220)||JSON.stringify(lp).slice(0,220)]]:[];
  const f={title:q,big:env.place_resolved.label,lines:[["answer",env.answer],...lpLine,...facts.map(x=>[x.band,`${fmt(x.value)} ${x.unit||""}`.trim()+`  ${x.token}`])],ok:signed,
-  proof:[signed?`✓ answer signed by emem.dev`:"✗ answer signature fails",`${env.fact_cids.length} facts cited`,b?"evidence bundled":""]};
+  proof:[signed?`✓ answer signed by emem.dev`:"✗ answer signature fails",`cited ${env.fact_cids.length} facts`,b?"bundled evidence":""]};
  const url=b?`${EMEM}/v1/memory_bundle/${handle}`:handle;
  return{token:handle,url,cid:handle.split(":").pop(),title:q,face:f,body:`${env.place_resolved.label}\n\n${env.answer}\n\nEvidence (each is a signed fact):\n${facts.map(x=>`- ${x.band} = ${fmt(x.value)} ${x.unit||""}  ${x.token}`).join("\n")}${b?`\n\nAll of it, one handle: ${handle}`:""}`,
   text:`${env.answer}\n${JSON.stringify(facts)}`,proof:f.proof.filter(Boolean).join(" · "),bad:!signed,
@@ -419,9 +423,9 @@ export const feed=async(render)=>{
  const rows=[],push=e=>{if(!e?.path||/\/arcade\/state\.md$/.test(e.path))return;rows.unshift(e);rows.length=Math.min(rows.length,6);render(rows)};
  const seed=await post(`${EMEM}/a2a/tasks`,{skill:"emem_memory_list_by_kind",args:{kind:"resource",limit:6}}).then(json).catch(()=>null);
  for(const f of (seed?.artifacts?.[0]?.parts?.[0]?.data?.files||[]).slice().reverse())push({path:f.path,file_cid:f.file_cid,attester_pubkey_b32:f.attester_pubkey_b32,signed_at:f.signed_at});
- const es=new EventSource(`${EMEM}/v1/memory/sse?path_prefix=/memories/by_attester/`);
- es.onmessage=m=>{try{const e=JSON.parse(m.data);if(e.type==="created")push(e)}catch{}};
- return es;
+ // the write feed, one connection per browser, relayed to every tab
+ return sharedStream("writes",emit=>{const es=new EventSource(`${EMEM}/v1/memory/sse?path_prefix=/memories/by_attester/`);es.onmessage=m=>emit(m.data);return()=>es.close()},
+  data=>{try{const e=JSON.parse(data);if(e.type==="created")push(e)}catch{}});
 };
 
 // emem-guard: every emem: citation in a text resolved and judged by emem.dev; a signed allow or deny with a reason code
